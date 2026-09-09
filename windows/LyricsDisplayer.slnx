@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="LyricsDisplayer.App/LyricsDisplayer.App.csproj" />
+  <Project Path="LyricsDisplayer.Core/LyricsDisplayer.Core.csproj" />
+  <Project Path="LyricsDisplayer.NativeHost/LyricsDisplayer.NativeHost.csproj" />
+  <Project Path="Tests/LyricsDisplayer.App.Tests/LyricsDisplayer.App.Tests.csproj" />
+  <Project Path="Tests/LyricsDisplayer.Core.Tests/LyricsDisplayer.Core.Tests.csproj" />
+  <Project Path="Tests/LyricsDisplayer.NativeHost.Tests/LyricsDisplayer.NativeHost.Tests.csproj" />
+</Solution>

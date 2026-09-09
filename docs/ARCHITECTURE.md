@@ -18,6 +18,8 @@ The application should eventually support:
 * Timed lyrics playback
 * Local persistent LRC files
 * User timing adjustments
+* User-correctable track metadata
+* Manual lyrics searching
 * Built-in and external lyrics editing
 * Multiple remote lyrics providers
 * Local or network-hosted lyrics libraries
@@ -89,6 +91,7 @@ It should not eventually be responsible for:
 * Community lyrics providers
 * Local lyrics storage
 * Lyrics matching between providers
+* User metadata overrides
 * Lyrics editing
 * Local lyrics caching
 * Timing adjustment persistence
@@ -135,7 +138,6 @@ It should:
 3. Wait approximately 5 seconds.
 4. Retry.
 5. Continue until:
-
    * the Windows application becomes available, or
    * Firefox closes the Native Messaging connection / stdin reaches EOF.
 
@@ -159,7 +161,9 @@ Long-term responsibilities include:
 * Maintaining a local playback clock between browser snapshots.
 * Loading and selecting lyrics.
 * Managing the local lyrics library.
+* Managing source metadata and user metadata overrides.
 * Querying remote lyrics providers.
+* Performing automatic and manual lyrics searches.
 * Saving imported lyrics locally.
 * Applying timing offsets.
 * Rendering desktop lyrics.
@@ -181,6 +185,7 @@ Examples of future domain types include:
 
 * Track
 * TrackIdentity
+* TrackMetadata
 * PlaybackState
 * LyricsDocument
 * TimedLyrics
@@ -337,7 +342,254 @@ Once a local copy has been created, user edits must never be silently overwritte
 
 ---
 
-# 8. Lyrics Files
+# 8. Track Metadata and User Overrides
+
+Playback-source metadata is not assumed to be perfectly clean or canonical.
+
+For example, a YouTube Music source may provide:
+
+* a video title rather than a clean song title
+* an uploader/channel name rather than the canonical artist
+* incomplete or unavailable album information
+
+The original playback-source metadata must be preserved.
+
+Users may optionally define their own title and artist overrides for a track.
+
+Conceptually:
+
+```text
+Source metadata
+├─ SourceTitle
+├─ SourceArtist
+└─ SourceAlbum
+
+Optional user overrides
+├─ UserTitle
+└─ UserArtist
+
+        ↓
+
+Effective metadata
+├─ EffectiveTitle  = UserTitle  ?? SourceTitle
+└─ EffectiveArtist = UserArtist ?? SourceArtist
+```
+
+User overrides must not overwrite or destroy the original source metadata.
+
+A missing override is represented as `null`, meaning "use the source value".
+
+An empty value entered through the UI should normally be interpreted as clearing the override rather than as meaningful metadata.
+
+For example:
+
+```text
+SourceTitle:
+【HD】Some Song Official MV 中文字幕
+
+SourceArtist:
+SomeUploader123
+
+UserTitle:
+Some Song
+
+UserArtist:
+Actual Artist
+```
+
+The source values remain available, while normal lyrics searching uses the effective values.
+
+## 8.1 Effective Metadata
+
+For fields that support user overrides:
+
+```text
+EffectiveTitle  = UserTitle  ?? SourceTitle
+EffectiveArtist = UserArtist ?? SourceArtist
+```
+
+Effective metadata is used when an application feature needs the user's best known representation of the song.
+
+In particular, remote lyrics-provider searches should prefer effective metadata.
+
+The playback source itself continues to report its original source metadata.
+
+The Firefox extension does not need to know about user overrides.
+
+---
+
+## 8.2 Track Identity vs Search Metadata
+
+Title and artist are search hints.
+
+They are NOT the authoritative identity of a track.
+
+Lyrics associations must use stable track identity and playback-source associations.
+
+Conceptually:
+
+```text
+LocalTrackId
+    │
+    ├─ youtubeMusic:<sourceTrackId>
+    ├─ futurePlaybackSource:<sourceTrackId>
+    └─ ...
+```
+
+A YouTube Music `sourceTrackId` identifies the playback-source track association.
+
+It must not be replaced merely because the user changes the title or artist override.
+
+Once a local LRC has been associated with a track, future playback of that same associated track should load the local lyrics directly without requiring another title/artist search.
+
+This remains true even if:
+
+* the playback-source title changes
+* the uploader/channel display name changes
+* the user changes the metadata override
+* a different search query would now be generated
+
+Track identity answers:
+
+```text
+Which playback item is this?
+```
+
+Metadata answers:
+
+```text
+What should we call/search for this song?
+```
+
+These concepts must remain separate.
+
+---
+
+## 8.3 Lyrics Search Metadata
+
+When searching an external lyrics provider, Lyrics Displayer should use:
+
+```text
+EffectiveTitle
+EffectiveArtist
+```
+
+by default.
+
+Conceptually:
+
+```text
+UserTitle exists?
+    ├─ Yes → use UserTitle
+    └─ No  → use SourceTitle
+
+UserArtist exists?
+    ├─ Yes → use UserArtist
+    └─ No  → use SourceArtist
+```
+
+This allows poor playback-source metadata to be corrected without modifying the original source data.
+
+Example:
+
+```text
+Playback source:
+
+Title:
+【HD】Some Song Official MV 中文字幕
+
+Artist:
+SomeUploader123
+
+User overrides:
+
+Title:
+Some Song
+
+Artist:
+Actual Artist
+```
+
+Remote lyrics providers should search for:
+
+```text
+Some Song
+Actual Artist
+```
+
+rather than the raw playback-source values.
+
+---
+
+## 8.4 Manual Lyrics Search Workflow
+
+If an automatic lyrics search fails or produces poor results, the user should eventually be able to open a manual lyrics-search interface.
+
+The intended workflow is similar to traditional desktop lyrics players.
+
+The user may:
+
+1. Review the title and artist currently being used for searching.
+2. Edit the search title.
+3. Edit the search artist.
+4. Search again.
+5. Review provider results.
+6. Select the correct lyrics result.
+7. Associate the selected lyrics with the current stable track identity.
+8. Save the selected/imported LRC locally.
+9. Optionally save the entered title and artist as persistent user metadata overrides.
+
+Example future UI:
+
+```text
+Lyrics Search
+
+Title:
+[ Some Song ]
+
+Artist:
+[ Actual Artist ]
+
+[x] Save these values as metadata overrides
+
+[ Search ]
+```
+
+The user should also be able to perform a one-off modified search without permanently changing track metadata.
+
+Therefore:
+
+```text
+Search query metadata
+```
+
+and:
+
+```text
+Persistent user metadata overrides
+```
+
+must not be treated as exactly the same thing.
+
+The search UI may initialise its values from effective metadata, while allowing the user to decide whether edited values should be persisted.
+
+Once the user selects a correct lyrics result, that lyrics file is associated with the stable track identity.
+
+On later playback of the same track:
+
+```text
+Track association found
+        ↓
+Local lyrics found
+        ↓
+Use local lyrics
+```
+
+A new provider search is not required merely because the original playback-source metadata is poor.
+
+---
+
+# 9. Lyrics Files
 
 The intended primary editable lyrics format is standard UTF-8 `.lrc`.
 
@@ -360,15 +612,21 @@ Potential portable metadata includes:
 * playback-source associations
 * provider identifiers
 * source information
+* source track metadata
+* user-defined title/artist overrides
 * global timing offset
 * user-modified state
 * source version or hash information
 
 The exact sidecar schema will be designed in a later milestone.
 
+The portable sidecar is intended to contain information that should travel with the lyrics library between machines.
+
+User metadata overrides therefore should not exist exclusively in a machine-local database.
+
 ---
 
-# 9. Local Application Storage
+# 10. Local Application Storage
 
 Machine-local application data belongs under:
 
@@ -390,11 +648,11 @@ The intended structure is conceptually:
 └─ library-index.db
 ```
 
-Not all files or directories need to exist in Milestone 1.
+Not all files or directories need to exist in early milestones.
 
 ---
 
-# 10. Configurable Lyrics Library
+# 11. Configurable Lyrics Library
 
 The lyrics library path must eventually be configurable.
 
@@ -414,11 +672,13 @@ This allows the same lyrics library to be used across multiple computers through
 
 Portable lyrics assets and portable metadata may live on the network share.
 
+This includes persistent user metadata corrections that should follow the lyrics library between computers.
+
 Machine-specific runtime state should remain under local application data.
 
 ---
 
-# 11. Local Index / SQLite
+# 12. Local Index / SQLite
 
 If SQLite is introduced, it should be treated as a local searchable index/cache rather than the sole authoritative representation of the lyrics library.
 
@@ -429,6 +689,17 @@ The database should remain under:
 ```
 
 Do not use a SQLite database directly hosted on SMB as the normal multi-machine sharing mechanism.
+
+The local index may contain indexed/cached forms of information such as:
+
+* local track identity
+* playback-source associations
+* source title/artist
+* user title/artist overrides
+* effective title/artist
+* local lyrics paths
+
+However, portable information such as user metadata overrides must not exist only in the local index.
 
 Ideally, the application should eventually be capable of:
 
@@ -446,7 +717,7 @@ The local index is disposable.
 
 ---
 
-# 12. Lyrics Timing Adjustment
+# 13. Lyrics Timing Adjustment
 
 A future lyrics timing adjustment feature will support operations such as:
 
@@ -474,7 +745,7 @@ A portable timing offset should be stored with the lyrics-library metadata so th
 
 ---
 
-# 13. Editing
+# 14. Editing
 
 Future editing features may include:
 
@@ -482,6 +753,7 @@ Future editing features may include:
 * Edit current line text
 * Set current line timestamp from current playback position
 * Bulk timing adjustment
+* Edit user-defined title/artist metadata
 * Open the current LRC in an external editor
 * Detect external file changes and reload
 
@@ -489,7 +761,7 @@ These are deliberately later milestones.
 
 ---
 
-# 14. Logging Architecture
+# 15. Logging Architecture
 
 Logging exists from Milestone 1.
 
@@ -508,7 +780,7 @@ Each component uses an active log named:
 current.logs
 ```
 
-## 14.1 Rotation Rules
+## 15.1 Rotation Rules
 
 Logs use a hybrid rotation strategy.
 
@@ -555,7 +827,7 @@ Example:
 2026-09-09T23:58:42.381+01:00
 ```
 
-## 14.2 Session Startup Rotation
+## 15.2 Session Startup Rotation
 
 On startup:
 
@@ -569,7 +841,7 @@ For the NativeHost, a new process is treated as a new logging session.
 
 For the WPF application, a new application process is treated as a new logging session.
 
-## 14.3 Midnight Rotation
+## 15.3 Midnight Rotation
 
 While a component is running, the logger must detect when the local calendar date has changed.
 
@@ -584,7 +856,7 @@ Exact execution at precisely `00:00:00.000` is not required.
 
 The requirement is that entries belonging to the new local date do not continue indefinitely in the previous day's active log.
 
-## 14.4 Retention
+## 15.4 Retention
 
 Rotated logs are retained for a maximum of 30 days.
 
@@ -599,7 +871,7 @@ Logs older than the retention period should be deleted automatically.
 
 Retention cleanup should only affect recognised Lyrics Displayer rotated log files in the relevant component log directory.
 
-## 14.5 Firefox Extension Logging
+## 15.5 Firefox Extension Logging
 
 The Firefox extension should continue to log useful information to the Firefox developer console.
 
@@ -615,7 +887,7 @@ The extension must not directly access the Windows filesystem.
 
 If the native connection is unavailable, console logging remains the fallback.
 
-## 14.6 NativeHost Logging
+## 15.6 NativeHost Logging
 
 NativeHost logs belong under:
 
@@ -643,7 +915,7 @@ The expected retry frequency is approximately once every 5 seconds, so this logg
 
 NativeHost stdout must never contain normal log text.
 
-## 14.7 Windows App Logging
+## 15.7 Windows App Logging
 
 Application logs belong under:
 
@@ -665,7 +937,7 @@ Avoid repeatedly writing full lyrics payloads to logs during normal operation.
 
 ---
 
-# 15. Automatic App Launch
+# 16. Automatic App Launch
 
 Initial behaviour:
 
@@ -683,7 +955,7 @@ The architecture must not assume that auto-launch is always enabled.
 
 ---
 
-# 16. Milestones
+# 17. Milestones
 
 ## Milestone 1 — Transport Proof
 
@@ -717,6 +989,7 @@ Requirements:
 * Hybrid log rotation is implemented.
 * Logs rotate on midnight and component restart/session restart.
 * Logs are retained for 30 days.
+* Automated NUnit tests are part of the milestone definition of done.
 * No auto-launch.
 * No real YouTube Music integration.
 * No lyrics storage.
@@ -744,9 +1017,20 @@ Detect:
 
 * track/video ID
 * title
-* artist
-* album when available
+* artist/uploader
+* album only when reliably identifiable; otherwise `null`
 * duration
+
+Playback-source metadata is accepted as source metadata even when it is not clean/canonical.
+
+Examples include:
+
+* video-style titles
+* uploader/channel names instead of canonical artists
+
+Do not substitute unrelated values such as view counts into semantic fields such as album.
+
+User metadata correction belongs to later local-library functionality.
 
 No real lyrics required yet.
 
@@ -770,6 +1054,10 @@ Add:
 
 Read YouTube Music's own timed lyrics when available.
 
+The visible desktop YouTube Music lyrics UI must not be assumed to contain timestamp information.
+
+If required, timed lyrics may be obtained through YouTube Music's internal mobile-client flow rather than scraping the visible desktop lyrics text.
+
 No remote fallback providers yet.
 
 ---
@@ -781,9 +1069,16 @@ Introduce:
 * local-first loading
 * LRC persistence
 * portable metadata
+* stable local track identity
+* playback-source track associations
+* source metadata preservation
+* optional user-defined title/artist overrides
+* effective metadata calculation
 * configurable lyrics-library path
 * SMB-compatible design
 * local disposable index if required
+
+The local lyrics library must be capable of preserving manual metadata corrections across machines when the lyrics library is shared.
 
 ---
 
@@ -840,9 +1135,11 @@ Add:
 
 Add interactive lyrics editing and timestamp authoring.
 
+Editing may also expose the current track's persistent user-defined title and artist overrides.
+
 ---
 
-## Milestone 12 — Additional Lyrics Providers
+## Milestone 12 — Additional Lyrics Providers and Search
 
 Add providers such as:
 
@@ -850,6 +1147,28 @@ Add providers such as:
 * community lyrics sources
 
 Remote providers remain importers into the local-first library.
+
+Provider searches should use effective track metadata:
+
+```text
+EffectiveTitle  = UserTitle  ?? SourceTitle
+EffectiveArtist = UserArtist ?? SourceArtist
+```
+
+Add a manual lyrics-search workflow allowing the user to:
+
+* review the current title and artist search values
+* edit the title used for searching
+* edit the artist used for searching
+* retry a search
+* choose among provider results
+* optionally save the entered values as persistent metadata overrides
+* associate the selected lyrics with the current stable track identity
+* save the selected/imported lyrics locally
+
+A manual search may also be performed without permanently changing the saved metadata overrides.
+
+Once lyrics have been selected/imported and associated with a track, future playback of that associated track should prefer the local copy and should not require another provider search.
 
 ---
 

@@ -197,9 +197,9 @@ Display artist.
 
 ## `album`
 
-Display album when available.
+Display album when a reliable album value is available.
 
-It may later become nullable/optional.
+The field may contain a string, an empty string, or `null`. Senders should use `null` when no reliable album value can be identified. Receivers must not interpret unrelated byline metadata, such as view counts, as an album.
 
 ## `durationMs`
 

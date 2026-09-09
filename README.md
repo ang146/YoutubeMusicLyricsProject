@@ -1,13 +1,13 @@
 # Lyrics Displayer
 
-Milestone 1 proves this local transport path using synthetic playback data:
+Milestone 2 uses this local transport path to show real YouTube Music track data:
 
 ```text
 Firefox extension -> Firefox Native Messaging -> LyricsDisplayer.NativeHost
                   -> Windows Named Pipe -> LyricsDisplayer.App
 ```
 
-The Firefox extension does not inspect YouTube Music in this milestone. It generates a changing track, playback position, and timed lyric lines every 500 ms. The Windows application is a deliberately simple diagnostic receiver and must be started manually.
+The Firefox extension observes YouTube Music's HTML media element, current video ID, and player-bar metadata. It sends the owning tab's latest state approximately every 500 ms. The Windows application remains a deliberately simple diagnostic receiver and must be started manually.
 
 ## Prerequisites
 
@@ -57,7 +57,7 @@ The fixed development extension ID is `lyrics-displayer@example.com`.
 3. Select **Load Temporary Add-on**.
 4. Choose `firefox-extension\manifest.json` from this repository.
 
-The extension immediately opens the registered Native Messaging host and starts its synthetic source session. Firefox's Browser Console also shows extension lifecycle diagnostics.
+The extension opens the registered Native Messaging host and installs a content script on `https://music.youtube.com/`. If YouTube Music was already open when the temporary extension was loaded, reload that tab once if Firefox does not inject the content script immediately. Firefox's Browser Console shows extension lifecycle and extraction diagnostics.
 
 ## Start and verify the app
 
@@ -67,14 +67,27 @@ Start Lyrics Displayer manually:
 dotnet run --project .\windows\LyricsDisplayer.App\LyricsDisplayer.App.csproj
 ```
 
-The diagnostic window should change from **Waiting for NativeHost** to **Connected**. It displays the source session and sequence, track metadata, millisecond playback values, timed lyric lines, and the compact raw protocol JSON. Playback position changes about twice per second and the synthetic track changes every 30 seconds.
+Then open `https://music.youtube.com/` in Firefox and play a song. The diagnostic window should change from **Waiting for NativeHost** to **Connected** and display the real video ID, title, artist, album when available, duration, position, play/pause state, playback rate, and compact raw protocol JSON. Lyrics intentionally show unavailable with no lines.
+
+Track changes made through Next, Previous, selecting another song, playlist progression, or autoplay should update without reloading Firefox. The source session ID remains stable while the same tab owns playback and sequence numbers continue increasing.
+
+## Verify tab ownership
+
+YouTube Music tabs use first-in-first-served ownership:
+
+1. Start playback in tab A and confirm its track appears in Lyrics Displayer.
+2. Start playback in tab B. Tab B is logged and ignored; it must not replace tab A.
+3. Pause tab A. It remains the owner, and tab B still cannot steal ownership.
+4. Resume or change tracks in tab A and confirm its existing source session continues.
+5. Close tab A or navigate it away from YouTube Music.
+6. Start or resume playback in an eligible YouTube Music tab. It receives ownership with a new source session ID.
 
 ## Verify delayed startup and reconnect
 
 To verify retry behavior:
 
 1. Close Lyrics Displayer.
-2. Reload the temporary extension in `about:debugging`, leaving the app closed.
+2. Reload the temporary extension in `about:debugging`, leave the app closed, and play a song in YouTube Music.
 3. Inspect the NativeHost log and wait through several approximately five-second retries.
 4. Start the app with the command above. The existing NativeHost connects on a later retry; Firefox does not need to be restarted.
 5. Close the WPF app while the extension remains loaded. The host logs the lost pipe and resumes retrying.
@@ -101,6 +114,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-native-host.ps1
 
 The uninstall script removes only the current-user Firefox registration and the generated development manifest. It does not remove builds or logs.
 
-## Milestone 1 limitations
+## Milestone 2 limitations
 
-This milestone intentionally has no real YouTube Music detection, lyrics provider or storage, playback interpolation, desktop overlay, settings, auto-launch, installer, or updater. See `docs\ARCHITECTURE.md` for the longer-term direction and `docs\PROTOCOL.md` for protocol version 1.
+Milestone 2 intentionally has no YouTube Music lyrics retrieval, lyrics provider or storage, Windows playback interpolation or drift correction, desktop overlay, settings, auto-launch, installer, or updater. Album extraction accepts only an explicit album link or Media Session album value; when neither is available, the protocol value is `null`. See `docs\ARCHITECTURE.md` for the longer-term direction and `docs\PROTOCOL.md` for protocol version 1.

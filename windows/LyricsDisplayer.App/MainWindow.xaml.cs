@@ -55,7 +55,7 @@ public partial class MainWindow : Window
         TrackIdText.Text = payload.Track.SourceTrackId;
         TitleText.Text = payload.Track.Title;
         ArtistText.Text = payload.Track.Artist;
-        AlbumText.Text = payload.Track.Album;
+        AlbumText.Text = string.IsNullOrWhiteSpace(payload.Track.Album) ? "(unavailable)" : payload.Track.Album;
         DurationText.Text = $"{payload.Track.DurationMs} ms ({FormatMilliseconds(payload.Track.DurationMs)})";
         PositionText.Text = $"{payload.Playback.PositionMs} ms ({FormatMilliseconds(payload.Playback.PositionMs)})";
         PlayingText.Text = payload.Playback.Playing.ToString();

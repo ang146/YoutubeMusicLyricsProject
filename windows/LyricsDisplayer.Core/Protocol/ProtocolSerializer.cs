@@ -175,7 +175,7 @@ public static class ProtocolSerializer
         if (!TryRequiredString(track, "sourceTrackId", out _, out error) ||
             !TryRequiredString(track, "title", out _, out error) ||
             !TryRequiredString(track, "artist", out _, out error) ||
-            !TryRequiredString(track, "album", out _, out error) ||
+            !TryStringOrNull(track, "album", out error) ||
             !TryNonNegativeInteger(track, "durationMs", out error) ||
             !TryNonNegativeInteger(playback, "positionMs", out error) ||
             !TryBoolean(playback, "playing", out error) ||
@@ -263,6 +263,19 @@ public static class ProtocolSerializer
         }
 
         value = element.GetString()!;
+        error = string.Empty;
+        return true;
+    }
+
+    private static bool TryStringOrNull(JsonElement parent, string name, out string error)
+    {
+        if (!parent.TryGetProperty(name, out var element) ||
+            element.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+        {
+            error = $"Required field '{name}' must be a string or null.";
+            return false;
+        }
+
         error = string.Empty;
         return true;
     }

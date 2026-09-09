@@ -146,6 +146,56 @@ public sealed class ProtocolSerializerTests
         });
     }
 
+    [Test]
+    public void RealTrackSnapshotWithUnavailableLyricsRoundTrips()
+    {
+        var envelope = new ProtocolEnvelope<PlaybackSnapshotPayload>(
+            1,
+            "playbackSnapshot",
+            "youtubeMusic",
+            "550e8400-e29b-41d4-a716-446655440000",
+            27,
+            DateTimeOffset.Parse("2026-09-09T05:30:00Z"),
+            new PlaybackSnapshotPayload(
+                new TrackInfo("AbCdEfGhI12", "Observed Song", "Observed Artist", null, 231442),
+                new PlaybackState(52137, true, 1.0),
+                new LyricsInfo(false, false, null, [])));
+
+        var success = ProtocolSerializer.TryParse(ProtocolSerializer.Serialize(envelope), out var parsed, out var error);
+
+        Assert.That(success, Is.True, error);
+        var snapshot = (PlaybackSnapshotMessage)parsed!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.Payload.Track.SourceTrackId, Is.EqualTo("AbCdEfGhI12"));
+            Assert.That(snapshot.Payload.Track.Album, Is.Null);
+            Assert.That(snapshot.Payload.Track.DurationMs, Is.EqualTo(231442));
+            Assert.That(snapshot.Payload.Playback.PositionMs, Is.EqualTo(52137));
+            Assert.That(snapshot.Payload.Lyrics.Available, Is.False);
+            Assert.That(snapshot.Payload.Lyrics.Timed, Is.False);
+            Assert.That(snapshot.Payload.Lyrics.Source, Is.Null);
+            Assert.That(snapshot.Payload.Lyrics.Lines, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void EmptyAlbumIsAccepted()
+    {
+        var original = CreateSnapshotEnvelope();
+        var envelope = original with
+        {
+            Payload = original.Payload with
+            {
+                Track = original.Payload.Track with { Album = string.Empty }
+            }
+        };
+
+        var success = ProtocolSerializer.TryParse(ProtocolSerializer.Serialize(envelope), out var parsed, out var error);
+
+        Assert.That(success, Is.True, error);
+        Assert.That(((PlaybackSnapshotMessage)parsed!).Payload.Track.Album, Is.Empty);
+    }
+
     internal static ProtocolEnvelope<PlaybackSnapshotPayload> CreateSnapshotEnvelope(long sequence = 1)
     {
         var payload = new PlaybackSnapshotPayload(

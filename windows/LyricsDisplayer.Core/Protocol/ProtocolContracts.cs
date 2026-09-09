@@ -32,7 +32,7 @@ public sealed record TrackInfo(
     [property: JsonPropertyName("sourceTrackId")] string SourceTrackId,
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("artist")] string Artist,
-    [property: JsonPropertyName("album")] string Album,
+    [property: JsonPropertyName("album")] string? Album,
     [property: JsonPropertyName("durationMs")] long DurationMs);
 
 public sealed record PlaybackState(
@@ -72,4 +72,3 @@ public sealed record DiagnosticLogMessage(
     EnvelopeMetadata Envelope,
     DiagnosticLogPayload Payload,
     string RawJson) : ProtocolMessage(Envelope, RawJson);
-

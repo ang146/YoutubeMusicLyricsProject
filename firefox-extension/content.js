@@ -1,6 +1,8 @@
 "use strict";
 
 const SNAPSHOT_INTERVAL_MS = 500;
+const IMMEDIATE_OBSERVATION_DELAY_MS = 50;
+const METADATA_CONFIRMATION_DELAY_MS = 100;
 const CONTENT_INSTANCE_ID = crypto.randomUUID();
 const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
 
@@ -36,6 +38,27 @@ let candidateIdentity = null;
 let candidateObservations = 0;
 let lastFailure = null;
 let lastMissingAlbumTrackId = null;
+let boundMediaElement = null;
+let immediateObservationTimer = null;
+let metadataConfirmationTimer = null;
+let pendingImmediateReason = null;
+
+const MEDIA_EVENT_REASONS = Object.freeze({
+  play: "play",
+  pause: "pause",
+  seeked: "seeked",
+  ratechange: "ratechange",
+  loadedmetadata: "trackchange",
+  durationchange: "trackchange"
+});
+
+const REASON_PRIORITY = Object.freeze({
+  play: 1,
+  pause: 1,
+  ratechange: 2,
+  seeked: 3,
+  trackchange: 4
+});
 
 function normaliseText(value) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -60,6 +83,63 @@ function findMediaElement() {
   const elements = SELECTORS.media.flatMap(selector => Array.from(document.querySelectorAll(selector)));
   return elements.find(element => Number.isFinite(element.duration) && element.duration > 0) ??
     elements[0] ?? null;
+}
+
+function handleMediaEvent(event) {
+  scheduleImmediateObservation(MEDIA_EVENT_REASONS[event.type]);
+}
+
+function bindMediaEvents(media) {
+  if (media === boundMediaElement) {
+    return;
+  }
+
+  if (boundMediaElement) {
+    for (const eventName of Object.keys(MEDIA_EVENT_REASONS)) {
+      boundMediaElement.removeEventListener(eventName, handleMediaEvent);
+    }
+  }
+
+  boundMediaElement = media;
+  if (!boundMediaElement) {
+    return;
+  }
+
+  for (const eventName of Object.keys(MEDIA_EVENT_REASONS)) {
+    boundMediaElement.addEventListener(eventName, handleMediaEvent);
+  }
+}
+
+function scheduleImmediateObservation(reason) {
+  if (!reason) {
+    return;
+  }
+
+  if (!pendingImmediateReason || REASON_PRIORITY[reason] > REASON_PRIORITY[pendingImmediateReason]) {
+    pendingImmediateReason = reason;
+  }
+
+  if (immediateObservationTimer !== null) {
+    return;
+  }
+
+  immediateObservationTimer = setTimeout(() => {
+    immediateObservationTimer = null;
+    const observationReason = pendingImmediateReason;
+    pendingImmediateReason = null;
+    observePlayback(observationReason);
+  }, IMMEDIATE_OBSERVATION_DELAY_MS);
+}
+
+function scheduleMetadataConfirmation(reason) {
+  if (metadataConfirmationTimer !== null) {
+    clearTimeout(metadataConfirmationTimer);
+  }
+
+  metadataConfirmationTimer = setTimeout(() => {
+    metadataConfirmationTimer = null;
+    observePlayback(reason);
+  }, METADATA_CONFIRMATION_DELAY_MS);
 }
 
 function parseVideoId(url) {
@@ -160,7 +240,8 @@ function reportFailure(message) {
   sendToBackground({ type: "ytmDiagnostic", level: "Warning", message });
 }
 
-function observePlayback() {
+function observePlayback(reason = "periodic") {
+  bindMediaEvents(findMediaElement());
   const observation = extractState();
   if (!observation.state) {
     candidateIdentity = null;
@@ -184,6 +265,9 @@ function observePlayback() {
   if (identity !== candidateIdentity) {
     candidateIdentity = identity;
     candidateObservations = 1;
+    if (reason !== "periodic") {
+      scheduleMetadataConfirmation(reason);
+    }
     return;
   }
 
@@ -203,7 +287,7 @@ function observePlayback() {
     lastMissingAlbumTrackId = null;
   }
 
-  sendToBackground({ type: "ytmObservedState", state: observation.state });
+  sendToBackground({ type: "ytmObservedState", state: observation.state, reason });
 }
 
 console.info("Lyrics Displayer content script started for YouTube Music.");

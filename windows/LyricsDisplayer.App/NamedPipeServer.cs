@@ -6,7 +6,7 @@ using LyricsDisplayer.Core.Protocol;
 
 namespace LyricsDisplayer;
 
-public sealed class NamedPipeServer(SessionFileLogger logger, SnapshotStateTracker stateTracker)
+public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoordinator playbackState)
 {
     public event Action<string>? ConnectionStatusChanged;
     public event Action<PlaybackSnapshotMessage>? SnapshotAccepted;
@@ -18,6 +18,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, SnapshotStateTrack
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            var connected = false;
             await using var pipe = new NamedPipeServerStream(
                 ProtocolConstants.PipeName,
                 PipeDirection.In,
@@ -28,6 +29,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, SnapshotStateTrack
             try
             {
                 await pipe.WaitForConnectionAsync(cancellationToken);
+                connected = true;
                 logger.Write("Information", "NamedPipe", "NativeHost connected.");
                 ConnectionStatusChanged?.Invoke("Connected");
 
@@ -54,9 +56,11 @@ public sealed class NamedPipeServer(SessionFileLogger logger, SnapshotStateTrack
             }
             finally
             {
-                if (!cancellationToken.IsCancellationRequested)
+                if (connected && !cancellationToken.IsCancellationRequested)
                 {
-                    logger.Write("Information", "NamedPipe", "NativeHost disconnected.");
+                    playbackState.SourceDisconnected();
+                    logger.Write("Information", "NamedPipe",
+                        "NativeHost disconnected; local playback clock frozen.");
                     ConnectionStatusChanged?.Invoke("Disconnected; waiting for NativeHost");
                 }
             }
@@ -77,7 +81,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, SnapshotStateTrack
             return;
         }
 
-        var decision = stateTracker.Apply(snapshot);
+        var decision = playbackState.Apply(snapshot);
         if (decision is SnapshotDecision.RejectedDuplicate or SnapshotDecision.RejectedStale)
         {
             logger.Write("Warning", "Sequence",

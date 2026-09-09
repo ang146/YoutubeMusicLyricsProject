@@ -171,9 +171,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-For Milestone 1, the application is only a diagnostic receiver.
-
-It receives messages from the NativeHost and displays the received data.
+Through Milestone 3, the application remains a diagnostic receiver. It displays received data and maintains a local monotonic playback clock between accepted authoritative snapshots.
 
 ---
 
@@ -1047,6 +1045,8 @@ Add:
 * track changes
 * local Windows playback-clock interpolation
 * snapshot correction
+
+The implemented browser adapter retains approximately 500 ms periodic snapshots and adds coalesced immediate snapshots for reliable media lifecycle events. The Windows application rebases an anchor-based monotonic clock only from snapshots accepted by the existing session/sequence authority rules, freezes it on source disconnection, and exposes both authoritative and locally interpolated positions in the diagnostic UI.
 
 ---
 

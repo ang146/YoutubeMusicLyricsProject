@@ -14,7 +14,7 @@ LyricsDisplayer.App
 
 The protocol is versioned from the first implementation.
 
-Milestone 1 uses synthetic playback data only.
+Milestone 3 uses real YouTube Music playback data and local Windows interpolation between snapshots.
 
 ---
 
@@ -341,13 +341,15 @@ Logging transport must not interfere with playback-state forwarding.
 
 # 10. Snapshot Frequency
 
-Milestone 1 sends playback snapshots approximately every:
+The extension sends periodic playback snapshots approximately every:
 
 ```text
 500 ms
 ```
 
-This is fixed for Milestone 1.
+This is fixed for Milestone 3.
+
+The extension also sends an immediate authoritative playback snapshot, where reliable media events permit it, after play/resume, pause, seek completion, playback-rate change, and current-track change. Closely duplicated events may be coalesced. These snapshots use the same `playbackSnapshot` message type and sequence rules as periodic snapshots.
 
 Future preferences may make the interval configurable.
 
@@ -617,6 +619,6 @@ For one active `sourceSessionId`:
 
 Playback snapshots are authoritative browser state.
 
-The Windows application may eventually interpolate locally between snapshots but must correct itself using subsequent authoritative snapshots.
+The Windows application interpolates locally between accepted snapshots using monotonic elapsed time and must correct itself using each subsequent accepted authoritative snapshot.
 
-Playback interpolation itself is NOT implemented in Milestone 1.
+Duplicate and stale snapshots do not rebase the local clock. When the Named Pipe source connection is lost, the application freezes its current local estimate until a newly accepted snapshot rebases it after reconnection.

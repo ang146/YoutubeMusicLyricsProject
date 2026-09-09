@@ -10,6 +10,9 @@ const extensionSession = createProtocolSession();
 const contentInstances = new Map();
 const ignoredTabs = new Set();
 const invalidStateTabs = new Set();
+const OBSERVATION_REASONS = new Set([
+  "periodic", "play", "pause", "seeked", "ratechange", "trackchange"
+]);
 
 let owner = null;
 let nativePort = null;
@@ -138,7 +141,7 @@ function handleContentReady(tabId, message) {
   }
 }
 
-function handleObservedState(tabId, state) {
+function handleObservedState(tabId, state, reason) {
   if (!isObservedStateValid(state)) {
     if (!invalidStateTabs.has(tabId)) {
       invalidStateTabs.add(tabId);
@@ -158,7 +161,9 @@ function handleObservedState(tabId, state) {
     owner = {
       tabId,
       protocolSession: createProtocolSession(),
-      lastTrackId: state.track.sourceTrackId
+      lastTrackId: state.track.sourceTrackId,
+      lastPlaying: state.playback.playing,
+      lastPlaybackRate: state.playback.playbackRate
     };
     ignoredTabs.clear();
     diagnostic("Information", "Ownership",
@@ -183,6 +188,29 @@ function handleObservedState(tabId, state) {
       `Owner tab ${tabId} changed track from ${previousTrackId} to ${state.track.sourceTrackId}.`,
       owner.protocolSession);
   }
+
+  if (state.playback.playing !== owner.lastPlaying) {
+    diagnostic("Information", "PlaybackSource",
+      state.playback.playing
+        ? `Playback started or resumed in owner tab ${tabId}.`
+        : `Playback paused in owner tab ${tabId}.`,
+      owner.protocolSession);
+  }
+
+  if (state.playback.playbackRate !== owner.lastPlaybackRate) {
+    diagnostic("Information", "PlaybackSource",
+      `Playback rate changed from ${owner.lastPlaybackRate} to ${state.playback.playbackRate} ` +
+      `in owner tab ${tabId}.`, owner.protocolSession);
+  }
+
+  if (reason === "seeked") {
+    diagnostic("Information", "PlaybackSource",
+      `Seek completed in owner tab ${tabId}; authoritative position is ` +
+      `${state.playback.positionMs} ms.`, owner.protocolSession);
+  }
+
+  owner.lastPlaying = state.playback.playing;
+  owner.lastPlaybackRate = state.playback.playbackRate;
 
   sendSnapshot(owner.protocolSession, state);
 }
@@ -228,7 +256,8 @@ browser.runtime.onMessage.addListener((message, sender) => {
       break;
 
     case "ytmObservedState":
-      handleObservedState(tabId, message.state);
+      handleObservedState(tabId, message.state,
+        OBSERVATION_REASONS.has(message.reason) ? message.reason : "periodic");
       break;
 
     case "ytmDiagnostic":

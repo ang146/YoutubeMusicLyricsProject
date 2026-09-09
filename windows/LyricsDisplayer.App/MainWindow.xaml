@@ -28,6 +28,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="220" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="260" />
@@ -56,22 +57,24 @@
             <TextBlock Grid.Row="10" Grid.Column="1" x:Name="DurationText" Text="-" />
 
             <TextBlock Grid.Row="11" Grid.ColumnSpan="2" Text="Playback and lyrics" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
-            <TextBlock Grid.Row="12" Text="Playback Position" />
-            <TextBlock Grid.Row="12" Grid.Column="1" x:Name="PositionText" Text="-" />
-            <TextBlock Grid.Row="13" Text="Playing" />
-            <TextBlock Grid.Row="13" Grid.Column="1" x:Name="PlayingText" Text="-" />
-            <TextBlock Grid.Row="14" Text="Playback Rate" />
-            <TextBlock Grid.Row="14" Grid.Column="1" x:Name="PlaybackRateText" Text="-" />
-            <TextBlock Grid.Row="15" Text="Lyrics Available" />
-            <TextBlock Grid.Row="15" Grid.Column="1" x:Name="LyricsAvailableText" Text="-" />
-            <TextBlock Grid.Row="16" Text="Lyrics Timed" />
-            <TextBlock Grid.Row="16" Grid.Column="1" x:Name="LyricsTimedText" Text="-" />
-            <TextBlock Grid.Row="17" Text="Lyrics Lines" />
-            <TextBox Grid.Row="18" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
+            <TextBlock Grid.Row="12" Text="Snapshot Position" />
+            <TextBlock Grid.Row="12" Grid.Column="1" x:Name="SnapshotPositionText" Text="-" />
+            <TextBlock Grid.Row="13" Text="Local Playback Position" />
+            <TextBlock Grid.Row="13" Grid.Column="1" x:Name="LocalPositionText" Text="-" />
+            <TextBlock Grid.Row="14" Text="Playing" />
+            <TextBlock Grid.Row="14" Grid.Column="1" x:Name="PlayingText" Text="-" />
+            <TextBlock Grid.Row="15" Text="Playback Rate" />
+            <TextBlock Grid.Row="15" Grid.Column="1" x:Name="PlaybackRateText" Text="-" />
+            <TextBlock Grid.Row="16" Text="Lyrics Available" />
+            <TextBlock Grid.Row="16" Grid.Column="1" x:Name="LyricsAvailableText" Text="-" />
+            <TextBlock Grid.Row="17" Text="Lyrics Timed" />
+            <TextBlock Grid.Row="17" Grid.Column="1" x:Name="LyricsTimedText" Text="-" />
+            <TextBlock Grid.Row="18" Text="Lyrics Lines" />
+            <TextBox Grid.Row="19" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="NoWrap" />
-            <TextBlock Grid.Row="19" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
-            <TextBox Grid.Row="20" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
+            <TextBlock Grid.Row="20" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
+            <TextBox Grid.Row="21" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="Wrap" />
         </Grid>

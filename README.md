@@ -1,13 +1,13 @@
 # Lyrics Displayer
 
-Milestone 2 uses this local transport path to show real YouTube Music track data:
+Milestone 3 uses this local transport path to show real YouTube Music playback state:
 
 ```text
 Firefox extension -> Firefox Native Messaging -> LyricsDisplayer.NativeHost
                   -> Windows Named Pipe -> LyricsDisplayer.App
 ```
 
-The Firefox extension observes YouTube Music's HTML media element, current video ID, and player-bar metadata. It sends the owning tab's latest state approximately every 500 ms. The Windows application remains a deliberately simple diagnostic receiver and must be started manually.
+The Firefox extension observes YouTube Music's HTML media element, current video ID, and player-bar metadata. It sends the owning tab's latest authoritative state approximately every 500 ms, plus coalesced immediate snapshots for play, pause, completed seeks, playback-rate changes, and track metadata changes. The Windows application interpolates a local playback position between accepted snapshots and must be started manually.
 
 ## Prerequisites
 
@@ -67,7 +67,9 @@ Start Lyrics Displayer manually:
 dotnet run --project .\windows\LyricsDisplayer.App\LyricsDisplayer.App.csproj
 ```
 
-Then open `https://music.youtube.com/` in Firefox and play a song. The diagnostic window should change from **Waiting for NativeHost** to **Connected** and display the real video ID, title, artist, album when available, duration, position, play/pause state, playback rate, and compact raw protocol JSON. Lyrics intentionally show unavailable with no lines.
+Then open `https://music.youtube.com/` in Firefox and play a song. The diagnostic window should change from **Waiting for NativeHost** to **Connected** and display the real video ID, title, artist, album when available, duration, play/pause state, playback rate, and compact raw protocol JSON. **Snapshot Position** shows the last authoritative browser value, while **Local Playback Position** refreshes approximately every 33 ms from a monotonic local clock. Lyrics intentionally show unavailable with no lines.
+
+Pause, resume, seek in both directions, and change playback rate where practical. The local position should freeze while paused, jump promptly to completed seeks, advance at the selected rate, and continue to receive periodic browser corrections. If an active Named Pipe connection is lost, the local position freezes until a newly accepted snapshot rebases it after reconnection.
 
 Track changes made through Next, Previous, selecting another song, playlist progression, or autoplay should update without reloading Firefox. The source session ID remains stable while the same tab owns playback and sequence numbers continue increasing.
 
@@ -114,6 +116,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-native-host.ps1
 
 The uninstall script removes only the current-user Firefox registration and the generated development manifest. It does not remove builds or logs.
 
-## Milestone 2 limitations
+## Milestone 3 limitations
 
-Milestone 2 intentionally has no YouTube Music lyrics retrieval, lyrics provider or storage, Windows playback interpolation or drift correction, desktop overlay, settings, auto-launch, installer, or updater. Album extraction accepts only an explicit album link or Media Session album value; when neither is available, the protocol value is `null`. See `docs\ARCHITECTURE.md` for the longer-term direction and `docs\PROTOCOL.md` for protocol version 1.
+Milestone 3 intentionally has no YouTube Music lyrics retrieval, lyrics provider or storage, sophisticated drift smoothing, desktop overlay, settings, auto-launch, installer, or updater. Snapshot correction is a straightforward authoritative rebase. Album extraction accepts only an explicit album link or Media Session album value; when neither is available, the protocol value is `null`. See `docs\ARCHITECTURE.md` for the longer-term direction and `docs\PROTOCOL.md` for protocol version 1.

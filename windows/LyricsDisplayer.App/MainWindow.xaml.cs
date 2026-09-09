@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Text;
 using System.Windows;
+using System.Windows.Threading;
+using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
 
 namespace LyricsDisplayer;
@@ -8,16 +10,24 @@ namespace LyricsDisplayer;
 public partial class MainWindow : Window
 {
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly PlaybackStateCoordinator _playbackState;
     private readonly NamedPipeServer _server;
+    private readonly DispatcherTimer _positionRefreshTimer;
     private Task? _serverTask;
 
     public MainWindow()
     {
         InitializeComponent();
         var logger = ((App)Application.Current).Logger;
-        _server = new NamedPipeServer(logger, new SnapshotStateTracker());
+        _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock());
+        _server = new NamedPipeServer(logger, _playbackState);
         _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() => PipeStatusText.Text = status);
         _server.SnapshotAccepted += snapshot => Dispatcher.InvokeAsync(() => DisplaySnapshot(snapshot));
+        _positionRefreshTimer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(33)
+        };
+        _positionRefreshTimer.Tick += (_, _) => RefreshLocalPosition();
         Loaded += OnLoaded;
         Closing += OnClosing;
     }
@@ -25,10 +35,12 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _serverTask = RunServerSafelyAsync();
+        _positionRefreshTimer.Start();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        _positionRefreshTimer.Stop();
         _shutdown.Cancel();
     }
 
@@ -57,7 +69,8 @@ public partial class MainWindow : Window
         ArtistText.Text = payload.Track.Artist;
         AlbumText.Text = string.IsNullOrWhiteSpace(payload.Track.Album) ? "(unavailable)" : payload.Track.Album;
         DurationText.Text = $"{payload.Track.DurationMs} ms ({FormatMilliseconds(payload.Track.DurationMs)})";
-        PositionText.Text = $"{payload.Playback.PositionMs} ms ({FormatMilliseconds(payload.Playback.PositionMs)})";
+        SnapshotPositionText.Text =
+            $"{payload.Playback.PositionMs} ms ({FormatMilliseconds(payload.Playback.PositionMs)})";
         PlayingText.Text = payload.Playback.Playing.ToString();
         PlaybackRateText.Text = payload.Playback.PlaybackRate.ToString("0.###");
         LyricsAvailableText.Text = payload.Lyrics.Available.ToString();
@@ -72,6 +85,17 @@ public partial class MainWindow : Window
 
         LyricsLinesText.Text = lines.ToString();
         RawJsonText.Text = snapshot.RawJson;
+    }
+
+    private void RefreshLocalPosition()
+    {
+        if (!_playbackState.HasClockState)
+        {
+            return;
+        }
+
+        var positionMs = _playbackState.GetLocalPositionMs();
+        LocalPositionText.Text = $"{positionMs} ms ({FormatMilliseconds(positionMs)})";
     }
 
     private static string FormatMilliseconds(long milliseconds) =>

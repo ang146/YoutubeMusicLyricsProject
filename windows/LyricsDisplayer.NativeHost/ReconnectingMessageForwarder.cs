@@ -30,7 +30,8 @@ public sealed class ReconnectingMessageForwarder(
     IMessageConnectionFactory connectionFactory,
     IAsyncDelay delay,
     TimeSpan retryDelay,
-    SessionFileLogger logger)
+    SessionFileLogger logger,
+    LatestMessageBuffer? retainedMessages = null)
 {
     public async Task RunAsync(ChannelReader<string> messages, CancellationToken cancellationToken)
     {
@@ -43,11 +44,18 @@ public sealed class ReconnectingMessageForwarder(
                 connection = await connectionFactory.ConnectAsync(cancellationToken);
                 logger.Write("Information", "NamedPipe", "Connected to LyricsDisplayer.NativeHost.v1.");
 
+                if (retainedMessages is not null)
+                {
+                    foreach (var retained in retainedMessages.Drain(replay: true))
+                        await connection.WriteLineAsync(retained, cancellationToken);
+                }
+
                 while (await messages.WaitToReadAsync(cancellationToken))
                 {
                     while (messages.TryRead(out var message))
                     {
-                        await connection.WriteLineAsync(message, cancellationToken);
+                        foreach (var pending in retainedMessages?.Drain() ?? [message])
+                            await connection.WriteLineAsync(pending, cancellationToken);
                     }
                 }
 

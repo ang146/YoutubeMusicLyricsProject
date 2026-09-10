@@ -6,6 +6,7 @@ public static class ProtocolConstants
 {
     public const int Version = 1;
     public const string PlaybackSnapshot = "playbackSnapshot";
+    public const string LyricsSnapshot = "lyricsSnapshot";
     public const string DiagnosticLog = "diagnosticLog";
     public const string YouTubeMusicSource = "youtubeMusic";
     public const string PipeName = "LyricsDisplayer.NativeHost.v1";
@@ -61,6 +62,14 @@ public sealed record DiagnosticLogPayload(
     [property: JsonPropertyName("category")] string Category,
     [property: JsonPropertyName("message")] string Message);
 
+public sealed record LyricsSnapshotPayload(
+    [property: JsonPropertyName("sourceTrackId")] string SourceTrackId,
+    [property: JsonPropertyName("available")] bool Available,
+    [property: JsonPropertyName("timed")] bool Timed,
+    [property: JsonPropertyName("source")] string? Source,
+    [property: JsonPropertyName("lines")] IReadOnlyList<LyricsLine> Lines,
+    [property: JsonPropertyName("attribution")] string? Attribution = null);
+
 public abstract record ProtocolMessage(EnvelopeMetadata Envelope, string RawJson);
 
 public sealed record PlaybackSnapshotMessage(
@@ -71,4 +80,9 @@ public sealed record PlaybackSnapshotMessage(
 public sealed record DiagnosticLogMessage(
     EnvelopeMetadata Envelope,
     DiagnosticLogPayload Payload,
+    string RawJson) : ProtocolMessage(Envelope, RawJson);
+
+public sealed record LyricsSnapshotMessage(
+    EnvelopeMetadata Envelope,
+    LyricsSnapshotPayload Payload,
     string RawJson) : ProtocolMessage(Envelope, RawJson);

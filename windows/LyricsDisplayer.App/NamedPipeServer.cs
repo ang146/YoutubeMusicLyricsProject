@@ -10,6 +10,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
 {
     public event Action<string>? ConnectionStatusChanged;
     public event Action<PlaybackSnapshotMessage>? SnapshotAccepted;
+    public event Action? LyricsChanged;
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -75,12 +76,20 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
             return;
         }
 
+        if (message is LyricsSnapshotMessage lyrics)
+        {
+            if (playbackState.ApplyLyrics(lyrics)) LyricsChanged?.Invoke();
+            else logger.Write("Warning", "Lyrics", "Ignored lyrics for a non-current track/session or stale sequence.");
+            return;
+        }
+
         if (message is not PlaybackSnapshotMessage snapshot)
         {
             logger.Write("Warning", "Protocol", $"Unexpected pipe message type '{message!.Envelope.MessageType}'.");
             return;
         }
 
+        var previousLyrics = playbackState.CurrentLyrics;
         var decision = playbackState.Apply(snapshot);
         if (decision is SnapshotDecision.RejectedDuplicate or SnapshotDecision.RejectedStale)
         {
@@ -91,5 +100,6 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
         }
 
         SnapshotAccepted?.Invoke(snapshot);
+        if (previousLyrics != playbackState.CurrentLyrics) LyricsChanged?.Invoke();
     }
 }

@@ -1,4 +1,3 @@
-using System.Threading.Channels;
 using LyricsDisplayer.Core.Logging;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.NativeHost;
@@ -12,18 +11,13 @@ using var shutdown = new CancellationTokenSource();
 hostLogger.Write("Information", "Process", "LyricsDisplayer.NativeHost started.");
 hostLogger.Write("Information", "NativeMessaging", "Firefox Native Messaging input session started.");
 
-var messages = Channel.CreateBounded<string>(new BoundedChannelOptions(1)
-{
-    FullMode = BoundedChannelFullMode.DropOldest,
-    SingleReader = true,
-    SingleWriter = true
-});
+var messages = new LatestMessageBuffer(ProtocolConstants.PlaybackSnapshot, ProtocolConstants.LyricsSnapshot);
 
 var forwarder = new ReconnectingMessageForwarder(
     new NamedPipeConnectionFactory(ProtocolConstants.PipeName, TimeSpan.FromSeconds(1)),
     new SystemAsyncDelay(),
     TimeSpan.FromSeconds(5),
-    hostLogger);
+    hostLogger, messages);
 var forwardingTask = forwarder.RunAsync(messages.Reader, shutdown.Token);
 
 try
@@ -62,7 +56,11 @@ try
 
         if (message is PlaybackSnapshotMessage snapshot)
         {
-            await messages.Writer.WriteAsync(ProtocolSerializer.Serialize(snapshot), shutdown.Token);
+            messages.Publish(ProtocolConstants.PlaybackSnapshot, ProtocolSerializer.Serialize(snapshot));
+        }
+        else if (message is LyricsSnapshotMessage lyrics)
+        {
+            messages.Publish(ProtocolConstants.LyricsSnapshot, ProtocolSerializer.Serialize(lyrics));
         }
     }
 }
@@ -76,7 +74,7 @@ catch (Exception exception)
 }
 finally
 {
-    messages.Writer.TryComplete();
+    messages.Complete();
     shutdown.Cancel();
     hostLogger.Write("Information", "NamedPipe", "Cancelling outstanding connection/retry work.");
     try

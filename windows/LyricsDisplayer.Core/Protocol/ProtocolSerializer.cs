@@ -28,6 +28,12 @@ public static class ProtocolSerializer
             message.Envelope.SentAtUtc,
             message.Payload));
 
+    public static string Serialize(LyricsSnapshotMessage message) => Serialize(
+        new ProtocolEnvelope<LyricsSnapshotPayload>(
+            message.Envelope.ProtocolVersion, message.Envelope.MessageType, message.Envelope.Source,
+            message.Envelope.SourceSessionId, message.Envelope.Sequence, message.Envelope.SentAtUtc,
+            message.Payload));
+
     public static bool TryParse(string json, out ProtocolMessage? message, out string error)
     {
         message = null;
@@ -117,6 +123,15 @@ public static class ProtocolSerializer
             {
                 switch (messageType)
                 {
+                    case ProtocolConstants.LyricsSnapshot:
+                        if (!ValidateLyricsSnapshot(payload, out error))
+                        {
+                            return false;
+                        }
+                        message = new LyricsSnapshotMessage(metadata,
+                            payload.Deserialize<LyricsSnapshotPayload>(SerializerOptions)!, json);
+                        return true;
+
                     case ProtocolConstants.PlaybackSnapshot:
                         if (!ValidatePlaybackPayload(payload, out error))
                         {
@@ -219,6 +234,57 @@ public static class ProtocolSerializer
             }
         }
 
+        return true;
+    }
+
+    private static bool ValidateLyricsSnapshot(JsonElement payload, out string error)
+    {
+        if (!TryRequiredString(payload, "sourceTrackId", out _, out error) ||
+            !TryBoolean(payload, "available", out error) ||
+            !TryBoolean(payload, "timed", out error) ||
+            !TryStringOrNull(payload, "source", out error))
+        {
+            return false;
+        }
+        if (payload.TryGetProperty("attribution", out _) &&
+            !TryStringOrNull(payload, "attribution", out error)) return false;
+        if (!payload.TryGetProperty("lines", out var lines) || lines.ValueKind != JsonValueKind.Array)
+        {
+            error = "Required field 'lines' must be an array.";
+            return false;
+        }
+        var available = payload.GetProperty("available").GetBoolean();
+        var timed = payload.GetProperty("timed").GetBoolean();
+        if ((timed && (!available || lines.GetArrayLength() == 0)) ||
+            (!timed && lines.GetArrayLength() != 0))
+        {
+            error = "Timed lyrics require available=true and lines; untimed/unavailable lyrics require empty lines.";
+            return false;
+        }
+        long previousStart = -1;
+        foreach (var line in lines.EnumerateArray())
+        {
+            if (line.ValueKind != JsonValueKind.Object)
+            {
+                error = "Every lyrics line must be an object.";
+                return false;
+            }
+            if (!TryNonNegativeInteger(line, "startMs", out error) ||
+                !TryNonNegativeInteger(line, "endMs", out error)) return false;
+            // Empty text can represent a provider-supplied instrumental cue.
+            if (!line.TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String)
+            {
+                error = "Required field 'text' must be a string.";
+                return false;
+            }
+            var start = line.GetProperty("startMs").GetInt64();
+            if (start < previousStart || line.GetProperty("endMs").GetInt64() < start)
+            {
+                error = "Lyrics lines must be ordered by startMs and endMs must not precede startMs.";
+                return false;
+            }
+            previousStart = start;
+        }
         return true;
     }
 

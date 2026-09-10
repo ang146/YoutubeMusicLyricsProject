@@ -171,7 +171,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 3, the application remains a diagnostic receiver. It displays received data and maintains a local monotonic playback clock between accepted authoritative snapshots.
+Through Milestone 4, the application remains a diagnostic receiver. It displays playback and in-memory lyrics data and maintains a local monotonic playback clock between accepted authoritative snapshots.
 
 ---
 
@@ -1059,6 +1059,12 @@ The visible desktop YouTube Music lyrics UI must not be assumed to contain times
 If required, timed lyrics may be obtained through YouTube Music's internal mobile-client flow rather than scraping the visible desktop lyrics text.
 
 No remote fallback providers yet.
+
+Milestone 4 retrieves lyrics inside the owning Firefox tab using the current YouTube Music session. The adapter follows the referenced `ytmusicapi` watch-playlist → lyrics browse ID → mobile lyrics flow; see [YOUTUBE_MUSIC_LYRICS.md](YOUTUBE_MUSIC_LYRICS.md) for request/parser details and verification limitations.
+
+Confirmed results are cached in extension memory by source track ID. Track/session changes cancel outstanding work and every asynchronous result is checked against the current owner and request generation. Full lyrics travel in a separate `lyricsSnapshot`, not in each periodic playback snapshot. The Windows diagnostic state clears lyrics on authoritative track/session changes and independently rejects mismatched or stale results. Unknown/failed lookups are distinct from confirmed no-lyrics results.
+
+NativeHost retains the latest message per application type and replays playback before lyrics after pipe reconnects. This prevents playback coalescing from losing a one-off lyrics result. Lyrics storage, timeline selection and rendering remain later milestones.
 
 ---
 

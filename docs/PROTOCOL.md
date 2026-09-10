@@ -14,7 +14,7 @@ LyricsDisplayer.App
 
 The protocol is versioned from the first implementation.
 
-Milestone 3 uses real YouTube Music playback data and local Windows interpolation between snapshots.
+Milestone 4 adds track-oriented YouTube Music lyrics snapshots to real playback data and local Windows interpolation.
 
 ---
 
@@ -68,10 +68,11 @@ Integer protocol compatibility version.
 
 ## `messageType`
 
-Milestone 1 defines:
+Current message types:
 
 ```text
 playbackSnapshot
+lyricsSnapshot
 diagnosticLog
 ```
 
@@ -120,6 +121,8 @@ Message-specific content.
 ---
 
 # 4. Playback Snapshot
+
+The example below is the historical Milestone 1 synthetic payload. Milestone 4 senders keep the required `lyrics` member as a compatibility placeholder (`available=false`, `timed=false`, `source=null`, `lines=[]`). This placeholder is not authoritative lyrics state. Full lyrics and their status belong exclusively to `lyricsSnapshot`; periodic playback never clears or overwrites the current lyrics result for the same track.
 
 Example:
 
@@ -622,3 +625,57 @@ Playback snapshots are authoritative browser state.
 The Windows application interpolates locally between accepted snapshots using monotonic elapsed time and must correct itself using each subsequent accepted authoritative snapshot.
 
 Duplicate and stale snapshots do not rebase the local clock. When the Named Pipe source connection is lost, the application freezes its current local estimate until a newly accepted snapshot rebases it after reconnection.
+
+---
+
+# 21. Lyrics Snapshot (Milestone 4)
+
+`lyricsSnapshot` is an additive message under protocol version 1. Deploy the updated extension, NativeHost and App together: older receivers reject this unknown message type, but existing playback message fields and semantics remain supported.
+
+```json
+{
+  "protocolVersion": 1,
+  "messageType": "lyricsSnapshot",
+  "source": "youtubeMusic",
+  "sourceSessionId": "550e8400-e29b-41d4-a716-446655440000",
+  "sequence": 812,
+  "sentAtUtc": "2026-09-09T15:30:00.123Z",
+  "payload": {
+    "sourceTrackId": "abcdefghijk",
+    "available": true,
+    "timed": true,
+    "source": "youtubeMusic",
+    "attribution": null,
+    "lines": [
+      { "startMs": 9200, "endMs": 10630, "text": "Example line" }
+    ]
+  }
+}
+```
+
+The required payload fields are `sourceTrackId`, `available`, `timed`, `source`, and `lines`. `attribution` is an optional string or null, preserving the backend's human-readable attribution. No browser credentials, visitor data, API keys, or browse IDs cross this boundary.
+
+| Result | available | timed | lines |
+| --- | --- | --- | --- |
+| Line-timed lyrics | true | true | Non-empty timed lines |
+| Lyrics without usable timestamps | true | false | Empty |
+| Confirmed no lyrics | false | false | Empty |
+
+`source` is `youtubeMusic` for available lyrics and null for unavailable lyrics. Every timed line contains non-negative integer `startMs` and `endMs`, with end not before start. Lines are ordered by start time; overlapping/equal-start cues and empty string text are permitted. Text is preserved, including Unicode, punctuation and newlines. The adapter skips malformed individual cues with a count-only warning and never synthesises timestamps. A completely unparseable result is a lookup failure, not evidence of no lyrics.
+
+While lookup is pending or fails, no result is published. The App represents this as unknown, separately from confirmed unavailable. Failures are logged without responses or credentials and are not cached as no-lyrics results. A later visit to the track or owner content-script reload can retry. Playback continues independently.
+
+## Authority and lifecycle
+
+- Only an accepted playback snapshot establishes the current source session and track. Changing either clears current lyrics immediately.
+- Lyrics must match the current envelope source, source session, and track ID. They cannot establish a new playback session or rebase the playback clock.
+- Lyrics have their own sequence high-water mark. Duplicates/lower lyrics sequences are rejected; gaps from playback and diagnostics are valid. A lyrics result may predate the latest periodic playback snapshot.
+- After a track transition observed within a session, lyrics must not predate that transition's playback sequence. This also rejects results from an earlier A visit after A → B → A.
+- On an App's first snapshot or a newly observed session, retained lyrics may predate the latest playback snapshot, provided session/track match. This permits reconnect replay.
+- The background verifies the current owner/session/track and request generation before publishing, even after cancellation. Only confirmed results are cached by `sourceTrackId` for the extension lifetime.
+
+## Delivery and reconnect
+
+The extension sends full lines once on lookup completion or a cache hit for a newly active track, and replays them after the next playback snapshot following a Native Messaging reconnect. It does not retransmit full lyrics every 500 ms.
+
+NativeHost retains one compact message for each application message type in memory. Pending playback replaces older pending playback, but cannot evict a pending lyrics result. On pipe connection/reconnection it replays retained playback first, then retained lyrics. Between reconnects only changed message types are forwarded. The App rejects a retained lyrics result if its session/track is no longer current. NativeHost performs no YouTube API calls, lyric timing processing, or disk lyrics storage.

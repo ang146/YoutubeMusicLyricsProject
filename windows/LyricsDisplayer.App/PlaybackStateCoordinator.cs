@@ -7,6 +7,10 @@ public sealed class PlaybackStateCoordinator
 {
     private readonly SnapshotStateTracker _stateTracker;
     private readonly PlaybackClock _playbackClock;
+    private long _trackSequenceFloor;
+    private long _lyricsSequence = -1;
+
+    public LyricsSnapshotMessage? CurrentLyrics { get; private set; }
 
     public PlaybackStateCoordinator(SnapshotStateTracker stateTracker, PlaybackClock playbackClock)
     {
@@ -22,9 +26,20 @@ public sealed class PlaybackStateCoordinator
 
     public SnapshotDecision Apply(PlaybackSnapshotMessage snapshot)
     {
+        var previous = Current;
         var decision = _stateTracker.Apply(snapshot);
         if (decision is SnapshotDecision.Accepted or SnapshotDecision.AcceptedNewSession)
         {
+            if (previous is null || decision == SnapshotDecision.AcceptedNewSession ||
+                previous.Payload.Track.SourceTrackId != snapshot.Payload.Track.SourceTrackId)
+            {
+                CurrentLyrics = null;
+                _lyricsSequence = -1;
+                // On initial connection, a retained lyrics result can predate the latest playback.
+                // Within a known session, reject results from an earlier visit to this track.
+                _trackSequenceFloor = previous is null || decision == SnapshotDecision.AcceptedNewSession
+                    ? 0 : snapshot.Envelope.Sequence;
+            }
             _playbackClock.Rebase(
                 snapshot.Payload.Playback.PositionMs,
                 snapshot.Payload.Track.DurationMs,
@@ -36,4 +51,20 @@ public sealed class PlaybackStateCoordinator
     }
 
     public void SourceDisconnected() => _playbackClock.Freeze();
+
+    public bool ApplyLyrics(LyricsSnapshotMessage snapshot)
+    {
+        var current = Current;
+        if (current is null || snapshot.Envelope.Source != current.Envelope.Source ||
+            snapshot.Envelope.SourceSessionId != current.Envelope.SourceSessionId ||
+            snapshot.Payload.SourceTrackId != current.Payload.Track.SourceTrackId ||
+            snapshot.Envelope.Sequence < _trackSequenceFloor ||
+            snapshot.Envelope.Sequence <= _lyricsSequence)
+        {
+            return false;
+        }
+        CurrentLyrics = snapshot;
+        _lyricsSequence = snapshot.Envelope.Sequence;
+        return true;
+    }
 }

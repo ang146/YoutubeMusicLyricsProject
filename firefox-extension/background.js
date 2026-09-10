@@ -17,6 +17,21 @@ const OBSERVATION_REASONS = new Set([
 let owner = null;
 let nativePort = null;
 let reconnectTimer = null;
+let replayLyricsAfterPlayback = false;
+const lyricsCoordinator = new LyricsCoordinator({
+  fetchLyrics: operation => browser.tabs.sendMessage(operation.tabId, {
+    type: "ytmFetchLyrics", requestId: operation.requestId, sourceTrackId: operation.trackId
+  }),
+  cancel: operation => browser.tabs.sendMessage(operation.tabId, {
+    type: "ytmCancelLyrics", requestId: operation.requestId
+  }).catch(() => {}),
+  publish: (operation, result) => {
+    if (owner?.tabId !== operation.tabId || owner.protocolSession.id !== operation.sessionId ||
+        owner.lastTrackId !== operation.trackId) return;
+    postEnvelope(owner.protocolSession, "lyricsSnapshot", { sourceTrackId: operation.trackId, ...result });
+  },
+  log: (level, message) => diagnostic(level, "Lyrics", message)
+});
 
 function createProtocolSession() {
   return {
@@ -71,6 +86,7 @@ function connectNativeHost() {
   try {
     const port = browser.runtime.connectNative(NATIVE_HOST_NAME);
     nativePort = port;
+    replayLyricsAfterPlayback = true;
     port.onMessage.addListener(message => {
       console.debug("Unexpected NativeHost response", message);
     });
@@ -169,6 +185,7 @@ function handleObservedState(tabId, state, reason) {
     diagnostic("Information", "Ownership",
       `Ownership granted to YouTube Music tab ${tabId}.`, owner.protocolSession);
     sendSnapshot(owner.protocolSession, state);
+    lyricsCoordinator.observe(tabId, owner.protocolSession.id, state.track.sourceTrackId, contentInstances.get(tabId));
     return;
   }
 
@@ -213,6 +230,7 @@ function handleObservedState(tabId, state, reason) {
   owner.lastPlaybackRate = state.playback.playbackRate;
 
   sendSnapshot(owner.protocolSession, state);
+  lyricsCoordinator.observe(tabId, owner.protocolSession.id, state.track.sourceTrackId, contentInstances.get(tabId));
 }
 
 function sendSnapshot(session, state) {
@@ -226,6 +244,10 @@ function sendSnapshot(session, state) {
       lines: []
     }
   });
+  if (replayLyricsAfterPlayback && nativePort) {
+    replayLyricsAfterPlayback = false;
+    lyricsCoordinator.replay();
+  }
 }
 
 function releaseOwner(reason) {
@@ -234,6 +256,7 @@ function releaseOwner(reason) {
   }
 
   const released = owner;
+  lyricsCoordinator.clear();
   diagnostic("Information", "Ownership",
     `Released ownership from YouTube Music tab ${released.tabId}: ${reason}.`,
     released.protocolSession);

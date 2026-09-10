@@ -69,7 +69,15 @@
             <TextBlock Grid.Row="16" Grid.Column="1" x:Name="LyricsAvailableText" Text="-" />
             <TextBlock Grid.Row="17" Text="Lyrics Timed" />
             <TextBlock Grid.Row="17" Grid.Column="1" x:Name="LyricsTimedText" Text="-" />
-            <TextBlock Grid.Row="18" Text="Lyrics Lines" />
+            <TextBlock Grid.Row="18" Text="Lyrics Source / Lines" />
+            <StackPanel Grid.Row="18" Grid.Column="1">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="LyricsSourceText" Text="-" />
+                    <TextBlock Text=" / " />
+                    <TextBlock x:Name="LyricsCountText" Text="0" />
+                </StackPanel>
+                <TextBlock x:Name="LyricsAttributionText" Text="-" TextWrapping="Wrap" />
+            </StackPanel>
             <TextBox Grid.Row="19" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="NoWrap" />

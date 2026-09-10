@@ -23,6 +23,7 @@ public partial class MainWindow : Window
         _server = new NamedPipeServer(logger, _playbackState);
         _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() => PipeStatusText.Text = status);
         _server.SnapshotAccepted += snapshot => Dispatcher.InvokeAsync(() => DisplaySnapshot(snapshot));
+        _server.LyricsChanged += () => Dispatcher.InvokeAsync(DisplayLyrics);
         _positionRefreshTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
             Interval = TimeSpan.FromMilliseconds(33)
@@ -73,18 +74,27 @@ public partial class MainWindow : Window
             $"{payload.Playback.PositionMs} ms ({FormatMilliseconds(payload.Playback.PositionMs)})";
         PlayingText.Text = payload.Playback.Playing.ToString();
         PlaybackRateText.Text = payload.Playback.PlaybackRate.ToString("0.###");
-        LyricsAvailableText.Text = payload.Lyrics.Available.ToString();
-        LyricsTimedText.Text = payload.Lyrics.Timed.ToString();
+        DisplayLyrics();
+        RawJsonText.Text = snapshot.RawJson;
+    }
+
+    private void DisplayLyrics()
+    {
+        var lyrics = _playbackState.CurrentLyrics?.Payload;
+        LyricsAvailableText.Text = lyrics?.Available.ToString() ?? "Pending / unknown";
+        LyricsTimedText.Text = lyrics?.Timed.ToString() ?? "Pending / unknown";
+        LyricsSourceText.Text = lyrics?.Source ?? "-";
+        LyricsCountText.Text = (lyrics?.Lines.Count ?? 0).ToString();
+        LyricsAttributionText.Text = lyrics?.Attribution ?? "-";
 
         var lines = new StringBuilder();
-        foreach (var line in payload.Lyrics.Lines)
+        foreach (var line in lyrics?.Lines ?? [])
         {
             lines.Append('[').Append(line.StartMs).Append(" - ").Append(line.EndMs).Append("] ")
                 .AppendLine(line.Text);
         }
 
         LyricsLinesText.Text = lines.ToString();
-        RawJsonText.Text = snapshot.RawJson;
     }
 
     private void RefreshLocalPosition()

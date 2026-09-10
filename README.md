@@ -1,6 +1,6 @@
 # Lyrics Displayer
 
-Milestone 3 uses this local transport path to show real YouTube Music playback state:
+Milestone 4 uses this local transport path to show real YouTube Music playback state and available timed lyrics:
 
 ```text
 Firefox extension -> Firefox Native Messaging -> LyricsDisplayer.NativeHost
@@ -33,6 +33,12 @@ dotnet test .\windows\LyricsDisplayer.slnx
 ```
 
 The three test projects are under `windows\Tests` and do not require Firefox, Native Messaging registration, the real `%LOCALAPPDATA%`, or real five-second delays.
+
+Optional zero-dependency JavaScript checks (Node.js is only a development test tool, not a runtime requirement):
+
+```powershell
+node --test .\firefox-extension\tests\lyrics.test.cjs
+```
 
 ## Register the development NativeHost
 
@@ -67,7 +73,9 @@ Start Lyrics Displayer manually:
 dotnet run --project .\windows\LyricsDisplayer.App\LyricsDisplayer.App.csproj
 ```
 
-Then open `https://music.youtube.com/` in Firefox and play a song. The diagnostic window should change from **Waiting for NativeHost** to **Connected** and display the real video ID, title, artist, album when available, duration, play/pause state, playback rate, and compact raw protocol JSON. **Snapshot Position** shows the last authoritative browser value, while **Local Playback Position** refreshes approximately every 33 ms from a monotonic local clock. Lyrics intentionally show unavailable with no lines.
+Then open `https://music.youtube.com/` in Firefox and play a song. The diagnostic window should change from **Waiting for NativeHost** to **Connected** and display the real video ID, title, artist, album when available, duration, play/pause state, playback rate, and compact raw protocol JSON. **Snapshot Position** shows the last authoritative browser value, while **Local Playback Position** refreshes approximately every 33 ms from a monotonic local clock. Lyrics initially show **Pending / unknown**, then display availability, timing, source, attribution and line count when lookup succeeds. Timed lines appear as `[startMs - endMs] text`.
+
+After updating from Milestone 3, rebuild NativeHost and the App, restart them, reload the temporary extension, and reload the YouTube Music tab to load the new content scripts. No extra login or Python dependency is required. Confirmed results are cached in extension memory; a failed lookup can retry when returning to the track or reloading the owner tab. See [lyrics adapter notes and manual checks](docs/YOUTUBE_MUSIC_LYRICS.md).
 
 Pause, resume, seek in both directions, and change playback rate where practical. The local position should freeze while paused, jump promptly to completed seeks, advance at the selected rate, and continue to receive periodic browser corrections. If an active Named Pipe connection is lost, the local position freezes until a newly accepted snapshot rebases it after reconnection.
 
@@ -116,6 +124,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-native-host.ps1
 
 The uninstall script removes only the current-user Firefox registration and the generated development manifest. It does not remove builds or logs.
 
-## Milestone 3 limitations
+## Milestone 4 limitations
 
-Milestone 3 intentionally has no YouTube Music lyrics retrieval, lyrics provider or storage, sophisticated drift smoothing, desktop overlay, settings, auto-launch, installer, or updater. Snapshot correction is a straightforward authoritative rebase. Album extraction accepts only an explicit album link or Media Session album value; when neither is available, the protocol value is `null`. See `docs\ARCHITECTURE.md` for the longer-term direction and `docs\PROTOCOL.md` for protocol version 1.
+YouTube Music's internal lyrics API is undocumented and can change. Timed availability depends on the track/backend response; untimed lyrics never receive invented timestamps. Milestone 4 has no local lyrics persistence, remote fallback provider, timeline rendering, desktop overlay, sophisticated clock smoothing, settings, auto-launch, installer, or updater. Album extraction still sends `null` when no reliable value exists. See `docs\ARCHITECTURE.md` for the longer-term direction and `docs\PROTOCOL.md` for protocol version 1.

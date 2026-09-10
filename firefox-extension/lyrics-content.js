@@ -10,7 +10,7 @@
     "timed-response-shape", "no-usable-timed-lines", "lyrics-response-shape"
   ]);
 
-  async function request(endpoint, body, mobile, signal) {
+  async function request(endpoint, body, policy, signal) {
     const config = window.wrappedJSObject?.ytcfg?.data_;
     const webClient = config?.INNERTUBE_CONTEXT?.client;
 
@@ -19,15 +19,9 @@
     }
 
     const client = {
-      clientName: mobile
-        ? YtmLyrics.MOBILE_CLIENT.clientName
-        : "WEB_REMIX",
-
-      clientVersion: mobile
-        ? YtmLyrics.MOBILE_CLIENT.clientVersion
-        : webClient.clientVersion,
-
-      hl: typeof webClient.hl === "string" ? webClient.hl : "en",
+      clientName: policy.clientName,
+      clientVersion: policy.clientVersion ?? webClient.clientVersion,
+      hl: policy.hl ?? (typeof webClient.hl === "string" ? webClient.hl : "en"),
       gl: typeof webClient.gl === "string" ? webClient.gl : "US"
     };
 
@@ -48,7 +42,7 @@
 
     // Only use the logged-in browser session for normal WEB_REMIX requests.
     // ANDROID_MUSIC timed-lyrics requests are sent anonymously.
-    if (!mobile) {
+    if (policy.useBrowserAuthentication) {
       if (config.SESSION_INDEX !== undefined) {
         headers["X-Goog-AuthUser"] = String(config.SESSION_INDEX);
       }
@@ -109,7 +103,7 @@
       // Important:
       // WEB_REMIX = logged-in browser session
       // ANDROID_MUSIC = anonymous
-      credentials: mobile ? "omit" : "include",
+      credentials: policy.credentials,
 
       headers,
       signal,
@@ -124,12 +118,6 @@
     });
 
     if (!response.ok) {
-      console.warn(
-        `[Lyrics debug] ${endpoint} failed:`,
-        response.status,
-        response.statusText
-      );
-
       throw new Error(`http-${response.status}`);
     }
 
@@ -154,10 +142,15 @@
         watchEndpointMusicSupportedConfigs: {
           watchEndpointMusicConfig: { hasPersistentPlaylistPanel: true, musicVideoType: "MUSIC_VIDEO_TYPE_ATV" }
         }
-      }, false, operation.controller.signal);
+      }, YtmLyrics.REQUEST_POLICIES.WEB_REMIX, operation.controller.signal);
       const id = YtmLyrics.browseId(next);
       if (!id) return { result: YtmLyrics.unavailable(), browseIdObtained: false };
-      const response = await request("browse", { browseId: id }, true, operation.controller.signal);
+      const response = await request(
+        "browse",
+        { browseId: id },
+        YtmLyrics.REQUEST_POLICIES.MOBILE_LYRICS,
+        operation.controller.signal
+      );
       return { ...YtmLyrics.parse(response), browseIdObtained: true };
     } catch (error) {
       // Do not forward arbitrary server/error text that could contain sensitive request details.

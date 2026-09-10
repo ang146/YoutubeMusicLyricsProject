@@ -3,7 +3,24 @@
 // Minimal response parser, based on sigma67/ytmusicapi main inspected 2026-09-09.
 // See docs/YOUTUBE_MUSIC_LYRICS.md for upstream paths and client-version provenance.
 const YtmLyrics = (() => {
+  // This is a lyrics-only preference. A later settings milestone should make it
+  // user-configurable without changing ordinary playback metadata extraction.
+  const LYRICS_LANGUAGE = "zh_TW";
   const MOBILE_CLIENT = Object.freeze({ clientName: "ANDROID_MUSIC", clientVersion: "7.21.50" });
+  const REQUEST_POLICIES = Object.freeze({
+    WEB_REMIX: Object.freeze({
+      clientName: "WEB_REMIX",
+      credentials: "include",
+      useBrowserAuthentication: true
+    }),
+    MOBILE_LYRICS: Object.freeze({
+      clientName: MOBILE_CLIENT.clientName,
+      clientVersion: MOBILE_CLIENT.clientVersion,
+      credentials: "omit",
+      useBrowserAuthentication: false,
+      hl: LYRICS_LANGUAGE
+    })
+  });
   const unavailable = () => ({ available: false, timed: false, source: null, lines: [], attribution: null });
 
   function browseId(response) {
@@ -60,19 +77,16 @@ const YtmLyrics = (() => {
           continue;
         }
 
-        const startMs = milliseconds(
-          raw?.cueRange?.startTimeMilliseconds
-        );
-
-        const endMs = milliseconds(
-          raw?.cueRange?.endTimeMilliseconds
-        );
-
-        // Valid text, but no timing information.
-        if (startMs === null && endMs === null) {
+        // The property name timedLyricsData is misleading: YouTube Music also
+        // returns valid untimed lyricLine entries here. Only an absent cueRange
+        // means untimed; a present but unusable cueRange is malformed timing.
+        if (!Object.hasOwn(raw, "cueRange")) {
           untimedLines++;
           continue;
         }
+
+        const startMs = milliseconds(raw.cueRange?.startTimeMilliseconds);
+        const endMs = milliseconds(raw.cueRange?.endTimeMilliseconds);
 
         // Timing exists but is malformed/incomplete.
         if (
@@ -180,7 +194,7 @@ const YtmLyrics = (() => {
     };
   }
 
-  return { MOBILE_CLIENT, browseId, parse, unavailable };
+  return { LYRICS_LANGUAGE, MOBILE_CLIENT, REQUEST_POLICIES, browseId, parse, unavailable };
 })();
 
 if (typeof module !== "undefined") module.exports = YtmLyrics;

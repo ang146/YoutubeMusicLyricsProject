@@ -34,7 +34,7 @@ class LyricsCoordinator {
       this.publish(operation, operation.result);
       return;
     }
-    this.log("Information", `Timed lyrics retrieval started for track ${trackId}.`);
+    this.log("Information", `Lyrics retrieval started for track ${trackId}.`);
     Promise.resolve().then(() => {
       if (this.active !== operation) return null;
       return this.fetchLyrics(operation);

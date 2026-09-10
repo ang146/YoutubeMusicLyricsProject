@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Lyrics Displayer Milestone 4",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Sends authoritative YouTube Music playback snapshots to Lyrics Displayer.",
   "permissions": [
     "nativeMessaging",

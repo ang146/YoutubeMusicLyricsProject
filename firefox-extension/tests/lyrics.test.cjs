@@ -28,6 +28,8 @@ test('disabled lyrics tab is known unavailable; missing response shape is failur
 });
 test('timed parser preserves explicit end times, text and attribution, orders lines', () => {
   const { result } = parser.parse(timedResponse([rawLine('10680', '12540'), rawLine('9200', '10630', '')]));
+  assert.equal(result.available, true);
+  assert.equal(result.timed, true);
   assert.deepEqual(result.lines, [ { startMs: 9200, endMs: 10630, text: '' },
     { startMs: 10680, endMs: 12540, text: '測試 "line"\nnext' } ]);
   assert.equal(result.attribution, 'Test attribution');
@@ -39,6 +41,32 @@ test('malformed individual cues are skipped; no times are invented', () => {
   assert.equal(result.lines.length, 1);
   assert.equal(skippedLines, 4);
   assert.throws(() => parser.parse(timedResponse([rawLine('1', null)])));
+  assert.throws(() => parser.parse(timedResponse([
+    { lyricLine: 'Malformed', cueRange: { startTimeMilliseconds: 'invalid', endTimeMilliseconds: 'also-invalid' } }
+  ])), /no-usable-timed-lines/);
+});
+test('timedLyricsData without cueRange is valid untimed lyrics', () => {
+  const { result, skippedLines } = parser.parse(timedResponse([
+    { lyricLine: '測試 歌詞' },
+    { lyricLine: '第二行' }
+  ]));
+  assert.equal(result.available, true);
+  assert.equal(result.timed, false);
+  assert.deepEqual(result.lines, []);
+  assert.equal(skippedLines, 0);
+});
+test('valid timed lines survive malformed neighbours', () => {
+  const { result, skippedLines } = parser.parse(timedResponse([
+    rawLine('1000', '2500', 'Valid'),
+    { lyricLine: 'Malformed', cueRange: { startTimeMilliseconds: 'invalid', endTimeMilliseconds: '3000' } }
+  ]));
+  assert.deepEqual(result.lines, [{ startMs: 1000, endMs: 2500, text: 'Valid' }]);
+  assert.equal(skippedLines, 1);
+});
+test('known no-lyrics result remains unavailable', () => {
+  assert.deepEqual(parser.unavailable(), {
+    available: false, timed: false, source: null, lines: [], attribution: null
+  });
 });
 test('untimed text is available without fake lines; unknown response is a failure', () => {
   const parsed = parser.parse({ contents: { sectionListRenderer: { contents: [
@@ -130,7 +158,7 @@ test('actual background routes lookups only for owner and keeps full lines out o
   assert.ok(envelopes.filter(e => e.messageType === 'playbackSnapshot').every(e => e.payload.lyrics.lines.length === 0));
 });
 
-test('content flow requests next then mobile browse and never returns credentials', async () => {
+test('content flow authenticates WEB_REMIX but keeps mobile lyrics anonymous and requests zh_TW', async () => {
   let receive;
   const requests = [];
   const context = vm.createContext({ YtmLyrics: parser, URL, TextEncoder, Uint8Array, AbortController, setTimeout, clearTimeout,
@@ -154,8 +182,18 @@ test('content flow requests next then mobile browse and never returns credential
   assert.equal(requests[1].body.browseId, 'MPLYt_test');
   assert.equal(requests[1].body.context.client.clientName, 'ANDROID_MUSIC');
   assert.equal(requests[1].body.context.client.clientVersion, '7.21.50');
-  assert.ok(requests.every(r => r.credentials === 'include'));
+  assert.equal(requests[0].credentials, 'include');
   assert.match(requests[0].headers.Authorization, /^SAPISIDHASH /);
+  assert.equal(requests[0].headers['X-Goog-AuthUser'], '0');
+  assert.equal(requests[0].body.context.client.hl, 'en');
+  assert.equal(requests[1].credentials, 'omit');
+  assert.equal(requests[1].headers.Authorization, undefined);
+  assert.equal(requests[1].headers['X-Goog-AuthUser'], undefined);
+  assert.equal(requests[1].body.context.client.hl, parser.LYRICS_LANGUAGE);
+  assert.equal(parser.LYRICS_LANGUAGE, 'zh_TW');
+  assert.equal(requests[1].body.context.client.visitorData, 'test-visitor');
+  assert.equal(requests[1].headers['X-Goog-Visitor-Id'], 'test-visitor');
+  assert.equal(new URL(requests[1].url).searchParams.get('key'), 'test-key');
   assert.equal(response.result.timed, true);
   assert.ok(!JSON.stringify(response).includes('test-secret'));
   assert.ok(!JSON.stringify(response).includes('test-visitor'));

@@ -18,6 +18,8 @@ An absolute local or UNC path can be selected in the machine-local file `%LOCALA
 }
 ```
 
+The same coherent settings file may also contain the Milestone 7 `overlay` position. Saving either supported setting preserves the other; see [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md).
+
 A missing, null, or blank property uses the default. A malformed or relative value is logged and also uses the default. A valid configured path that is unavailable is different: the App reports the library unavailable and does not silently create or use a second default library. Playback and runtime YouTube Music lyrics continue, but imports are not persisted until that configured library is available.
 
 The index always remains local, even when the portable library is on SMB/NAS:
@@ -89,7 +91,7 @@ Imported timed lyrics are UTF-8 without a byte-order mark and use one standard m
 
 The reader accepts both `[mm:ss.ff]` and `[mm:ss.fff]`, ignores common `ar`, `ti`, `al`, `by`, `offset`, `re`, `ve`, and `length` metadata tags, expands multiple timestamps on one physical line, and isolates malformed lines when other usable lines remain. It does not perform Chinese-script conversion.
 
-LRC stores start times only. At runtime, each line ends at the next line's start. The final line ends at a reliable track duration when that duration is later than the final start; otherwise its end equals its start. Milestone 6 timeline selection uses these start timestamps as documented in [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md); desktop highlighting remains a later milestone.
+LRC stores start times only. At runtime, each line ends at the next line's start. The final line ends at a reliable track duration when that duration is later than the final start; otherwise its end equals its start. Milestone 6 timeline selection uses these start timestamps as documented in [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), and Milestone 7 displays the resolved whole current/next lines as documented in [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md). Karaoke highlighting remains a later milestone.
 
 ## SQLite index
 

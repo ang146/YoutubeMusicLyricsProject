@@ -173,7 +173,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 6, the application remains a diagnostic UI while owning local-first lyrics persistence, its machine-local SQLite index, and current/next-line timeline evaluation against the monotonic playback clock. Storage, indexing, and timeline-selection logic live in Core rather than WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md) and [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md).
+Through Milestone 7, the application retains its diagnostic UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, and current/next-line timeline evaluation against the monotonic playback clock. Storage, indexing, timeline selection, overlay presentation mapping, settings parsing, and geometry validation live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), and [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md).
 
 ---
 
@@ -1094,7 +1094,11 @@ Add:
 * transparent window
 * always-on-top
 * current/next line display
-* positioning and sizing
+* draggable position with safe shared-settings persistence
+* visible fallback after monitor topology changes
+* non-activating updates and singleton show/hide lifecycle
+
+The implemented overlay is a view over the already resolved Milestone 6 timeline. It does not own a playback clock or duplicate lyric selection. See [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md).
 
 ---
 

@@ -13,7 +13,9 @@ public partial class MainWindow : Window
     private readonly PlaybackStateCoordinator _playbackState;
     private readonly NamedPipeServer _server;
     private readonly DispatcherTimer _positionRefreshTimer;
+    private readonly LyricsOverlayController _overlay;
     private Task? _serverTask;
+    private bool _synchronizingOverlayToggle;
 
     public MainWindow()
     {
@@ -23,6 +25,14 @@ public partial class MainWindow : Window
         _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
             app.LyricsLibrary, logger.Write);
         _server = new NamedPipeServer(logger, _playbackState);
+        _overlay = new LyricsOverlayController(
+            () => new LyricsOverlayWindow(),
+            app.SettingsStore,
+            DesktopWorkAreaProvider.GetVisibleWorkAreas,
+            logger.Write);
+        _overlay.VisibilityChanged += OnOverlayVisibilityChanged;
+        ShowOverlayCheckBox.Checked += OnShowOverlayChecked;
+        ShowOverlayCheckBox.Unchecked += OnShowOverlayUnchecked;
         _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() => PipeStatusText.Text = status);
         _server.SnapshotAccepted += snapshot => Dispatcher.InvokeAsync(() => DisplaySnapshot(snapshot));
         _server.LyricsChanged += () => Dispatcher.InvokeAsync(DisplayLyrics);
@@ -45,6 +55,7 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         _positionRefreshTimer.Stop();
+        _overlay.Shutdown();
         _shutdown.Cancel();
     }
 
@@ -134,12 +145,14 @@ public partial class MainWindow : Window
     {
         if (!_playbackState.HasClockState)
         {
+            _overlay.Update(LyricsDisplayer.Core.Timeline.LyricsTimeline.Empty.Evaluate(0));
             return;
         }
 
         var positionMs = _playbackState.GetLocalPositionMs();
         LocalPositionText.Text = $"{positionMs} ms ({FormatMilliseconds(positionMs)})";
         var timeline = _playbackState.GetTimelinePosition();
+        _overlay.Update(timeline);
         CurrentLyricIndexText.Text = timeline.CurrentIndex?.ToString() ?? "None";
         CurrentLyricStartText.Text = timeline.CurrentLine is null ? "-" : $"{timeline.CurrentLine.StartMs} ms";
         CurrentLyricText.Text = timeline.CurrentLine?.Text ?? "-";
@@ -150,4 +163,27 @@ public partial class MainWindow : Window
 
     private static string FormatMilliseconds(long milliseconds) =>
         TimeSpan.FromMilliseconds(milliseconds).ToString(@"mm\:ss\.fff");
+
+    private void OnShowOverlayChecked(object sender, RoutedEventArgs e)
+    {
+        if (!_synchronizingOverlayToggle) _overlay.Show();
+    }
+
+    private void OnShowOverlayUnchecked(object sender, RoutedEventArgs e)
+    {
+        if (!_synchronizingOverlayToggle) _overlay.Hide();
+    }
+
+    private void OnOverlayVisibilityChanged(bool visible)
+    {
+        _synchronizingOverlayToggle = true;
+        try
+        {
+            ShowOverlayCheckBox.IsChecked = visible;
+        }
+        finally
+        {
+            _synchronizingOverlayToggle = false;
+        }
+    }
 }

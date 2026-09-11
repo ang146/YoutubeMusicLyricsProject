@@ -6,6 +6,16 @@ internal static class AtomicFile
 {
     public static void WriteNew(string path, string content)
     {
+        Write(path, content, overwrite: false);
+    }
+
+    public static void Replace(string path, string content)
+    {
+        Write(path, content, overwrite: true);
+    }
+
+    private static void Write(string path, string content, bool overwrite)
+    {
         var directory = Path.GetDirectoryName(path) ?? throw new ArgumentException("A parent directory is required.", nameof(path));
         Directory.CreateDirectory(directory);
         var temporary = Path.Combine(directory, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
@@ -19,7 +29,7 @@ internal static class AtomicFile
                 writer.Flush();
                 stream.Flush(true);
             }
-            File.Move(temporary, path, overwrite: false);
+            File.Move(temporary, path, overwrite);
         }
         finally
         {

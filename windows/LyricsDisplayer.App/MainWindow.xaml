@@ -32,6 +32,8 @@
                 <RowDefinition Height="220" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="260" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="Transport" FontSize="18" FontWeight="Bold" Margin="0,0,0,8" />
@@ -81,8 +83,11 @@
             <TextBox Grid.Row="19" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="NoWrap" />
-            <TextBlock Grid.Row="20" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
-            <TextBox Grid.Row="21" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
+            <TextBlock Grid.Row="20" Grid.ColumnSpan="2" Text="Local lyrics library" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
+            <TextBox Grid.Row="21" Grid.ColumnSpan="2" x:Name="LibraryDiagnosticsText" IsReadOnly="True"
+                     MinHeight="240" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="22" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
+            <TextBox Grid.Row="23" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="Wrap" />
         </Grid>

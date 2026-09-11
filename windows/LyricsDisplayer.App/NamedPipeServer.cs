@@ -78,8 +78,11 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
 
         if (message is LyricsSnapshotMessage lyrics)
         {
-            if (playbackState.ApplyLyrics(lyrics)) LyricsChanged?.Invoke();
-            else logger.Write("Warning", "Lyrics", "Ignored lyrics for a non-current track/session or stale sequence.");
+            var lyricsDecision = playbackState.ApplyLyricsDetailed(lyrics);
+            if (lyricsDecision == LyricsApplyDecision.Rejected)
+                logger.Write("Warning", "Lyrics", "Ignored lyrics for a non-current track/session or stale sequence.");
+            else
+                LyricsChanged?.Invoke();
             return;
         }
 

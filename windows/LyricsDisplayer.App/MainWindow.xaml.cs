@@ -18,8 +18,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        var logger = ((App)Application.Current).Logger;
-        _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock());
+        var app = (App)Application.Current;
+        var logger = app.Logger;
+        _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
+            app.LyricsLibrary, logger.Write);
         _server = new NamedPipeServer(logger, _playbackState);
         _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() => PipeStatusText.Text = status);
         _server.SnapshotAccepted += snapshot => Dispatcher.InvokeAsync(() => DisplaySnapshot(snapshot));
@@ -31,6 +33,7 @@ public partial class MainWindow : Window
         _positionRefreshTimer.Tick += (_, _) => RefreshLocalPosition();
         Loaded += OnLoaded;
         Closing += OnClosing;
+        DisplayLibrary();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -95,6 +98,35 @@ public partial class MainWindow : Window
         }
 
         LyricsLinesText.Text = lines.ToString();
+        DisplayLibrary();
+    }
+
+    private void DisplayLibrary()
+    {
+        var app = (App)Application.Current;
+        var library = app.LyricsLibrary;
+        var local = _playbackState.CurrentLocalLyrics;
+        var current = _playbackState.Current;
+        var source = local?.Sidecar.SourceAssociations.FirstOrDefault(association =>
+                         association.Source == current?.Envelope.Source &&
+                         association.SourceTrackId == current.Payload.Track.SourceTrackId)
+                     ?? local?.Sidecar.SourceAssociations.FirstOrDefault();
+        LibraryDiagnosticsText.Text = $"""
+            Lyrics Library Path: {library.Paths.LibraryPath}
+            SQLite Index Path: {library.Paths.IndexPath}
+            SQLite Index Status: {library.IndexStatus}
+            Local Track ID: {local?.Record.LocalTrackId ?? "-"}
+            Local Association Status: {_playbackState.LocalAssociationStatus}
+            Lyrics Loaded From: {_playbackState.LyricsLoadedFrom}
+            Lyrics Provider: {local?.Sidecar.Lyrics.Source ?? _playbackState.CurrentLyrics?.Payload.Source ?? "-"}
+            Attribution: {local?.Sidecar.Lyrics.Attribution ?? _playbackState.CurrentLyrics?.Payload.Attribution ?? "-"}
+            Source Title: {source?.Metadata.Title ?? "-"}
+            Source Artist: {source?.Metadata.Artist ?? "-"}
+            User Title Override: {local?.Sidecar.UserMetadata.Title ?? "-"}
+            User Artist Override: {local?.Sidecar.UserMetadata.Artist ?? "-"}
+            Effective Title: {local?.EffectiveMetadata.Title ?? "-"}
+            Effective Artist: {local?.EffectiveMetadata.Artist ?? "-"}
+            """;
     }
 
     private void RefreshLocalPosition()

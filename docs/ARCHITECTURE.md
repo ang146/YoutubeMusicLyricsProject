@@ -173,7 +173,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 4, the application remains a diagnostic receiver. It displays playback and in-memory lyrics data and maintains a local monotonic playback clock between accepted authoritative snapshots.
+Through Milestone 5, the application remains a diagnostic UI while also owning local-first lyrics persistence and its machine-local SQLite index. Storage and indexing logic live in Core rather than WPF visual code. The implemented portable format and recovery rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md).
 
 ---
 

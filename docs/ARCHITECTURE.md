@@ -138,6 +138,7 @@ It should:
 3. Wait approximately 5 seconds.
 4. Retry.
 5. Continue until:
+
    * the Windows application becomes available, or
    * Firefox closes the Native Messaging connection / stdin reaches EOF.
 
@@ -162,6 +163,7 @@ Long-term responsibilities include:
 * Loading and selecting lyrics.
 * Managing the local lyrics library.
 * Managing source metadata and user metadata overrides.
+* Maintaining the local SQLite library index.
 * Querying remote lyrics providers.
 * Performing automatic and manual lyrics searches.
 * Saving imported lyrics locally.
@@ -379,24 +381,6 @@ A missing override is represented as `null`, meaning "use the source value".
 
 An empty value entered through the UI should normally be interpreted as clearing the override rather than as meaningful metadata.
 
-For example:
-
-```text
-SourceTitle:
-【HD】Some Song Official MV 中文字幕
-
-SourceArtist:
-SomeUploader123
-
-UserTitle:
-Some Song
-
-UserArtist:
-Actual Artist
-```
-
-The source values remain available, while normal lyrics searching uses the effective values.
-
 ## 8.1 Effective Metadata
 
 For fields that support user overrides:
@@ -422,7 +406,7 @@ Title and artist are search hints.
 
 They are NOT the authoritative identity of a track.
 
-Lyrics associations must use stable track identity and playback-source associations.
+Lyrics associations must use stable local track identity and playback-source associations.
 
 Conceptually:
 
@@ -434,9 +418,9 @@ LocalTrackId
     └─ ...
 ```
 
-A YouTube Music `sourceTrackId` identifies the playback-source track association.
+A YouTube Music `sourceTrackId` identifies the playback-source association, not the universal local track identity.
 
-It must not be replaced merely because the user changes the title or artist override.
+Changing a title or artist override must not change the track identity or break an existing lyrics association.
 
 Once a local LRC has been associated with a track, future playback of that same associated track should load the local lyrics directly without requiring another title/artist search.
 
@@ -465,25 +449,11 @@ These concepts must remain separate.
 
 ## 8.3 Lyrics Search Metadata
 
-When searching an external lyrics provider, Lyrics Displayer should use:
+When searching an external lyrics provider, Lyrics Displayer should use effective metadata by default:
 
 ```text
-EffectiveTitle
-EffectiveArtist
-```
-
-by default.
-
-Conceptually:
-
-```text
-UserTitle exists?
-    ├─ Yes → use UserTitle
-    └─ No  → use SourceTitle
-
-UserArtist exists?
-    ├─ Yes → use UserArtist
-    └─ No  → use SourceArtist
+EffectiveTitle  = UserTitle  ?? SourceTitle
+EffectiveArtist = UserArtist ?? SourceArtist
 ```
 
 This allows poor playback-source metadata to be corrected without modifying the original source data.
@@ -616,11 +586,9 @@ Potential portable metadata includes:
 * user-modified state
 * source version or hash information
 
-The exact sidecar schema will be designed in a later milestone.
+The sidecar schema is versioned and becomes concrete as part of Milestone 5.
 
-The portable sidecar is intended to contain information that should travel with the lyrics library between machines.
-
-User metadata overrides therefore should not exist exclusively in a machine-local database.
+Portable metadata that should follow the lyrics library between machines must not exist only in the machine-local SQLite index.
 
 ---
 
@@ -672,46 +640,65 @@ Portable lyrics assets and portable metadata may live on the network share.
 
 This includes persistent user metadata corrections that should follow the lyrics library between computers.
 
-Machine-specific runtime state should remain under local application data.
+Machine-specific runtime state, including the SQLite library index, should remain under local application data.
 
 ---
 
 # 12. Local Index / SQLite
 
-If SQLite is introduced, it should be treated as a local searchable index/cache rather than the sole authoritative representation of the lyrics library.
+SQLite is the machine-local searchable index for the lyrics library.
 
-The database should remain under:
+It is a required library component from Milestone 5 onward, but it is NOT the authoritative storage for lyrics or portable metadata.
+
+The database remains under:
 
 ```text
-%LOCALAPPDATA%\LyricsDisplayer\
+%LOCALAPPDATA%\LyricsDisplayer\library-index.db
 ```
 
-Do not use a SQLite database directly hosted on SMB as the normal multi-machine sharing mechanism.
+The SQLite index exists to provide fast lookup and search without repeatedly scanning and deserializing every sidecar file, especially when the configured lyrics library is large or hosted on SMB/NAS storage.
 
-The local index may contain indexed/cached forms of information such as:
+Typical indexed information includes:
 
 * local track identity
 * playback-source associations
-* source title/artist
+* source title/artist/album
 * user title/artist overrides
 * effective title/artist
-* local lyrics paths
+* duration
+* local LRC and sidecar locations
+* lyrics provider/source and attribution
+* file metadata useful for detecting library changes
 
-However, portable information such as user metadata overrides must not exist only in the local index.
+The ordinary lyrics text remains in the `.lrc` file.
 
-Ideally, the application should eventually be capable of:
+Portable metadata remains in the versioned sidecar file.
+
+Data such as user metadata overrides may be duplicated into SQLite for efficient search, but the portable sidecar remains authoritative for information that should follow the lyrics library between computers.
+
+Do not use a SQLite database directly hosted on SMB as the normal multi-machine sharing mechanism.
+
+Each computer using a shared lyrics library maintains its own local `library-index.db`.
+
+The database must be disposable and rebuildable:
 
 ```text
-Delete local index
+Delete/corrupt/missing local index
         ↓
 Scan configured lyrics library
         ↓
-Rebuild local index
+Read versioned sidecars and LRC assets
+        ↓
+Rebuild SQLite index
 ```
 
 The portable files are authoritative.
 
-The local index is disposable.
+The SQLite index is a local acceleration/search layer.
+
+A missing or corrupt SQLite index must not imply loss of the user's lyrics library.
+
+Milestone 5 introduces the first concrete SQLite schema and library rebuild/synchronisation behaviour.
 
 ---
 
@@ -1073,18 +1060,24 @@ NativeHost retains the latest message per application type and replays playback 
 Introduce:
 
 * local-first loading
-* LRC persistence
-* portable metadata
-* stable local track identity
+* standard UTF-8 LRC persistence
+* versioned portable sidecar metadata
+* stable `LocalTrackId`
 * playback-source track associations
 * source metadata preservation
 * optional user-defined title/artist overrides
 * effective metadata calculation
 * configurable lyrics-library path
-* SMB-compatible design
-* local disposable index if required
+* SMB/UNC-compatible portable library design
+* machine-local SQLite `library-index.db`
+* fast association/title/artist lookup through SQLite
+* startup/library scan and SQLite rebuild/synchronisation
+* local-first precedence over later remote provider results
+* protection against silent overwrite of user-edited local lyrics
 
-The local lyrics library must be capable of preserving manual metadata corrections across machines when the lyrics library is shared.
+SQLite is required as the local searchable/indexing layer in this milestone, but the `.lrc` and sidecar files remain authoritative and portable.
+
+Deleting the local SQLite database must not delete or invalidate the lyrics library; the index must be reconstructable from the configured library files.
 
 ---
 

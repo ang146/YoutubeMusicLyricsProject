@@ -13,7 +13,10 @@ PlaybackClock -> LyricsTimeline -> LyricsOverlayPresentationState -> LyricsOverl
 - Current and next lines become primary and secondary text respectively.
 - Before the first timestamp, primary is blank and the first line is secondary.
 - After the final timestamp, the final line remains primary and secondary is blank.
-- An unavailable, untimed, pending, track-cleared, or otherwise empty timeline produces two blank fields. Old track text is therefore removed before a new track's lyrics arrive.
+- Pending/unknown state, including the interval after a track change and before a result is accepted, produces two blank fields. It is not misrepresented as a confirmed negative result.
+- A confirmed unavailable result displays `暫無可用歌詞` as primary text with blank secondary text.
+- An available but untimed result displays `此歌曲暫無同步歌詞` as primary text with blank secondary text.
+- Timed lyrics replace either status with the normal current/next presentation. Status strings are local presentation state only and are never stored as lyric lines or sent through the protocol.
 - Seeks jump directly to the newly resolved state. Pause requires no overlay state because the shared playback clock and timeline remain unchanged.
 
 The approximately 33 ms diagnostics refresh evaluates the existing timeline and offers the result to the overlay controller. Equal presentation values are ignored, so WPF text changes occur only when current or next text changes. This path performs no SQLite query, filesystem read, LRC parsing, or independent clock update.

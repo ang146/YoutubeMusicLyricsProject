@@ -1,5 +1,6 @@
 using System.IO;
 using LyricsDisplayer.Core.Settings;
+using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
 
 namespace LyricsDisplayer;
@@ -49,9 +50,9 @@ public sealed class LyricsOverlayController
     public bool HasCreatedWindow => _view is not null;
     public LyricsOverlayPresentationState Presentation => _presentation;
 
-    public void Update(LyricsTimelinePosition timeline)
+    public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline)
     {
-        var next = LyricsOverlayPresentationState.FromTimeline(timeline);
+        var next = LyricsOverlayPresentationState.FromLyrics(lyrics, timeline);
         if (next == _presentation) return;
         _presentation = next;
         _view?.SetLyrics(next);

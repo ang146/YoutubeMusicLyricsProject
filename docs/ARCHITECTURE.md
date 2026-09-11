@@ -175,6 +175,46 @@ Long-term responsibilities include:
 
 Through Milestone 7, the application retains its diagnostic UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, and current/next-line timeline evaluation against the monotonic playback clock. Storage, indexing, timeline selection, overlay presentation mapping, settings parsing, and geometry validation live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), and [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md).
 
+### User-Facing Window Roles
+
+The desktop lyrics overlay is intended to become the application's primary day-to-day playback surface.
+
+The existing main WPF window should gradually evolve into a control panel / preferences surface rather than remaining the main lyrics display.
+
+Conceptually:
+
+```text
+LyricsDisplayer.App
+├─ Desktop Lyrics Overlay
+│  └─ primary always-visible playback/lyrics surface
+│
+└─ Control Panel
+   ├─ diagnostics
+   ├─ preferences
+   ├─ library/settings controls
+   └─ future editing/search entry points
+```
+
+Future access to the control panel may include:
+
+* the normal taskbar/minimised application surface
+* a system-tray/taskbar entry if later adopted
+* an overlay context menu
+* other explicit application controls
+
+The exact close/minimise/tray lifecycle is intentionally deferred until the control-panel interaction milestone.
+
+Overlay customisation is also a later concern. Likely preferences include:
+
+* topmost on/off
+* overlay size
+* number of displayed lyric lines
+* lyric layout/rendering mode
+* long-line behaviour
+* other visual preferences
+
+The overlay should therefore remain a presentation surface over application state rather than accumulating playback, storage, or search logic.
+
 ---
 
 ## 3.4 LyricsDisplayer.Core
@@ -728,6 +768,168 @@ Silent destructive rewriting is not acceptable.
 
 A portable timing offset should be stored with the lyrics-library metadata so that the same correction can follow the lyrics across machines.
 
+## 13.1 Explicit Break Markers and Future Karaoke Presentation
+
+A timestamp gap by itself must never be interpreted as an instrumental/vocal break.
+
+Breaks require explicit notation.
+
+The preferred portable representation is a normal timed LRC line using the canonical marker:
+
+```lrc
+[00:13.000]♪
+```
+
+This line semantically means:
+
+```text
+The previous sung lyric has ended.
+From this timestamp until the next timed line, there is no sung lyric.
+```
+
+The duration of the break is irrelevant. A break may be short or long.
+
+Do not infer a break from rules such as:
+
+```text
+next lyric start - current lyric start >= N seconds
+```
+
+because a provider may assign a long timing interval even when the vocal phrase ends much earlier.
+
+Example:
+
+```text
+Provider timing:
+10.000-20.000  xxxx
+20.000-30.000  yyyy
+
+Actual vocal phrase:
+10.000-13.000  xxxx
+13.000-20.000  no sung lyric
+```
+
+A future editor may let the user insert:
+
+```lrc
+[00:10.000]xxxx
+[00:13.000]♪
+[00:20.000]yyyy
+```
+
+The ordinary LRC timeline then naturally represents:
+
+```text
+10.000-13.000  xxxx
+13.000-20.000  explicit break
+20.000+        yyyy
+```
+
+This is preferable to storing a proprietary per-line end-time override.
+
+The canonical marker should remain visible in the portable LRC so that the break is explicit and externally editable. The domain model may classify it as a break line, but the desktop renderer does not have to display the `♪` glyph.
+
+Future two-line karaoke presentation should treat an explicit break as a real semantic boundary.
+
+Example:
+
+```text
+[00-10] aaaa
+[10-20] xxxx
+[20-40] ♪
+[40-50] yyyy
+[50-60] zzzz
+```
+
+Intended presentation concept:
+
+```text
+00-10:
+Primary   = aaaa
+Secondary = xxxx
+
+10-20:
+Primary   = xxxx
+Secondary = blank
+```
+
+The renderer must not skip over the explicit break and prematurely use `yyyy` as the normal next line.
+
+At the start of the explicit break:
+
+```text
+20s:
+Primary   = blank
+Secondary = blank
+```
+
+The renderer may later pre-display the next sung lyric before it begins so that the singer can prepare.
+
+This preview lead time should be configurable rather than treated as semantic timing. An initial future default around 10 seconds may be reasonable.
+
+Preparation marking is a separate renderer concern.
+
+The intended future rule is:
+
+```text
+If an explicit break exists and the interval before the next sung lyric
+is longer than the preparation threshold:
+    a prepare indicator may be used.
+
+If the break interval is 3 seconds or less:
+    do not require a separate prepare indicator;
+    directly pre-display the upcoming lyric.
+```
+
+The current intended preparation threshold is approximately:
+
+```text
+3 seconds
+```
+
+This threshold does NOT decide whether a break exists. Only explicit break notation establishes a break.
+
+For a longer break, a future renderer may use a staged presentation such as:
+
+```text
+early break
+→ blank presentation
+
+upcoming-lyric preview window
+→ show the next sung lyric in advance
+
+final preparation window
+→ animate a prepare/count-in indicator
+
+next lyric start
+→ begin normal karaoke rendering
+```
+
+The exact visuals are intentionally deferred.
+
+Future long-line rendering should also support alternatives to wrapping.
+
+Likely modes include:
+
+```text
+Wrap
+Horizontal pan
+```
+
+For horizontal pan, the font size may remain fixed while an overlong line moves horizontally during its active interval.
+
+The movement should not necessarily begin at the exact lyric start or finish at the exact lyric end. A future renderer should allow a leading hold and trailing hold so that the line can:
+
+```text
+appear
+→ remain briefly stable
+→ pan from right toward left
+→ finish panning before the vocal interval ends
+→ remain briefly stable
+```
+
+This behaviour belongs to karaoke/presentation customisation and must not alter the underlying LRC timestamps.
+
 ---
 
 # 14. Editing
@@ -741,6 +943,14 @@ Future editing features may include:
 * Edit user-defined title/artist metadata
 * Open the current LRC in an external editor
 * Detect external file changes and reload
+* Insert an explicit break marker at the current playback position
+* Remove or retime an explicit break marker
+
+For portable LRC authoring, the preferred canonical break marker is:
+
+```lrc
+[timestamp]♪
+```
 
 These are deliberately later milestones.
 
@@ -1097,8 +1307,25 @@ Add:
 * draggable position with safe shared-settings persistence
 * visible fallback after monitor topology changes
 * non-activating updates and singleton show/hide lifecycle
+* restrained explicit status text when timed lyrics cannot be displayed
+
+The overlay should never leave stale lyrics visible when the current track has no usable timed lyrics.
+
+Preferred user-facing status text:
+
+```text
+Confirmed no lyrics:
+暫無可用歌詞
+
+Lyrics exist but are untimed:
+此歌曲暫無同步歌詞
+```
+
+These messages are presentation state only. They must not change the underlying lyrics availability/timed classification.
 
 The implemented overlay is a view over the already resolved Milestone 6 timeline. It does not own a playback clock or duplicate lyric selection. See [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md).
+
+Long-term, the desktop overlay is intended to become the primary day-to-day lyrics surface while the existing main window evolves into a control panel/preferences surface. Advanced overlay customisation, explicit break rendering, karaoke preparation cues and long-line horizontal panning remain later work.
 
 ---
 
@@ -1121,6 +1348,13 @@ Add:
 * click-through
 * global shortcuts
 * preferences
+* topmost on/off preference
+* overlay sizing
+* one-line / two-line display preference
+* overlay context-menu entry points
+* control-panel access from normal application/taskbar/tray surfaces as appropriate
+
+The desktop overlay is expected to be the primary day-to-day lyrics surface. The main WPF window should evolve toward a control panel/preferences role.
 
 ---
 
@@ -1139,6 +1373,14 @@ Add:
 Add interactive lyrics editing and timestamp authoring.
 
 Editing may also expose the current track's persistent user-defined title and artist overrides.
+
+The editor should eventually support inserting, removing and retiming explicit break markers using the canonical portable LRC representation:
+
+```lrc
+[timestamp]♪
+```
+
+Break markers are explicit semantic boundaries and must not be inferred automatically from timestamp-gap length.
 
 ---
 
@@ -1180,8 +1422,16 @@ Once lyrics have been selected/imported and associated with a track, future play
 Potential work includes:
 
 * karaoke-style animation
+* explicit-break-aware karaoke rendering
+* upcoming-lyric pre-display during explicit breaks
+* preparation/count-in cues for sufficiently long explicit breaks
 * advanced visual preferences
+* configurable one-line / two-line lyric display
+* configurable long-line behaviour such as wrap or horizontal pan
+* horizontal-pan lead/tail hold timing
 * installer
 * optional auto-launch
 * provider management
 * additional playback-source adapters
+
+Karaoke rendering must not infer breaks solely from elapsed gap length. Explicit break notation remains authoritative.

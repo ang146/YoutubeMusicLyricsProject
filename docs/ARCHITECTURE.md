@@ -173,7 +173,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 5, the application remains a diagnostic UI while also owning local-first lyrics persistence and its machine-local SQLite index. Storage and indexing logic live in Core rather than WPF visual code. The implemented portable format and recovery rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md).
+Through Milestone 6, the application remains a diagnostic UI while owning local-first lyrics persistence, its machine-local SQLite index, and current/next-line timeline evaluation against the monotonic playback clock. Storage, indexing, and timeline-selection logic live in Core rather than WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md) and [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md).
 
 ---
 
@@ -1083,7 +1083,7 @@ Deleting the local SQLite database must not delete or invalidate the lyrics libr
 
 ## Milestone 6 — Lyrics Timeline Engine
 
-Select the correct lyrics line based on local playback time.
+Select the current and next lyric from accepted timed lyrics using the local playback clock. Selection is start-time based, normalizes ordering once, and uses binary search without persisting runtime line state. See [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md).
 
 ---
 

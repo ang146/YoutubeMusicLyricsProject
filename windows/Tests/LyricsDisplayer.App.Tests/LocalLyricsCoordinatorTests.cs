@@ -62,6 +62,7 @@ public sealed class LocalLyricsCoordinatorTests
             Assert.That(coordinator.CurrentLocalLyrics, Is.Not.Null);
             Assert.That(coordinator.LyricsLoadedFrom, Is.EqualTo("Local Library"));
             Assert.That(coordinator.LocalAssociationStatus, Is.EqualTo("Imported"));
+            Assert.That(coordinator.GetTimelinePosition().CurrentLine!.Text, Is.EqualTo("Remote line"));
             Assert.That(library.Lookup("youtubeMusic", "track-a").Status, Is.EqualTo(LocalLyricsLookupStatus.Found));
             Assert.That(Directory.GetDirectories(Path.Combine(_paths.LibraryPath, "tracks")), Has.Length.EqualTo(1));
         });

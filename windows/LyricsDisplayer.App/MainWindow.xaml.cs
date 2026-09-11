@@ -98,6 +98,7 @@ public partial class MainWindow : Window
         }
 
         LyricsLinesText.Text = lines.ToString();
+        if (_playbackState.HasClockState) RefreshLocalPosition();
         DisplayLibrary();
     }
 
@@ -138,6 +139,13 @@ public partial class MainWindow : Window
 
         var positionMs = _playbackState.GetLocalPositionMs();
         LocalPositionText.Text = $"{positionMs} ms ({FormatMilliseconds(positionMs)})";
+        var timeline = _playbackState.GetTimelinePosition();
+        CurrentLyricIndexText.Text = timeline.CurrentIndex?.ToString() ?? "None";
+        CurrentLyricStartText.Text = timeline.CurrentLine is null ? "-" : $"{timeline.CurrentLine.StartMs} ms";
+        CurrentLyricText.Text = timeline.CurrentLine?.Text ?? "-";
+        NextLyricIndexText.Text = timeline.NextIndex?.ToString() ?? "None";
+        NextLyricStartText.Text = timeline.NextLine is null ? "-" : $"{timeline.NextLine.StartMs} ms";
+        NextLyricText.Text = timeline.NextLine?.Text ?? "-";
     }
 
     private static string FormatMilliseconds(long milliseconds) =>

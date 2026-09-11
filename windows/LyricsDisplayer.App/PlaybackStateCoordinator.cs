@@ -1,6 +1,7 @@
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Core.Timeline;
 
 namespace LyricsDisplayer;
 
@@ -12,6 +13,7 @@ public sealed class PlaybackStateCoordinator
     private long _lyricsSequence = -1;
     private readonly LyricsLibrary? _library;
     private readonly Action<string, string, string>? _log;
+    private LyricsTimeline _lyricsTimeline = LyricsTimeline.Empty;
 
     public LyricsSnapshotMessage? CurrentLyrics { get; private set; }
     public LocalLyricsDocument? CurrentLocalLyrics { get; private set; }
@@ -33,6 +35,9 @@ public sealed class PlaybackStateCoordinator
 
     public long GetLocalPositionMs() => _playbackClock.GetPositionMs();
 
+    public LyricsTimelinePosition GetTimelinePosition() =>
+        _lyricsTimeline.Evaluate(_playbackClock.GetPositionMs());
+
     public SnapshotDecision Apply(PlaybackSnapshotMessage snapshot)
     {
         var previous = Current;
@@ -44,6 +49,7 @@ public sealed class PlaybackStateCoordinator
             {
                 CurrentLyrics = null;
                 CurrentLocalLyrics = null;
+                _lyricsTimeline = LyricsTimeline.Empty;
                 LyricsLoadedFrom = "Pending / unknown";
                 LocalAssociationStatus = "Not checked";
                 _lyricsSequence = -1;
@@ -89,6 +95,7 @@ public sealed class PlaybackStateCoordinator
         }
 
         CurrentLyrics = snapshot;
+        SetTimeline(snapshot.Payload);
         LyricsLoadedFrom = "YouTube Music (runtime)";
         if (_library is null || !snapshot.Payload.Available || !snapshot.Payload.Timed || snapshot.Payload.Lines.Count == 0)
             return LyricsApplyDecision.AcceptedRemote;
@@ -123,7 +130,13 @@ public sealed class PlaybackStateCoordinator
             new LyricsSnapshotPayload(Current!.Payload.Track.SourceTrackId, true, true,
                 document.Sidecar.Lyrics.Source, document.Lines, document.Sidecar.Lyrics.Attribution),
             "");
+        _lyricsTimeline = new LyricsTimeline(document.Lines);
     }
+
+    private void SetTimeline(LyricsSnapshotPayload lyrics) =>
+        _lyricsTimeline = lyrics.Available && lyrics.Timed && lyrics.Lines.Count > 0
+            ? new LyricsTimeline(lyrics.Lines)
+            : LyricsTimeline.Empty;
 }
 
 public enum LyricsApplyDecision

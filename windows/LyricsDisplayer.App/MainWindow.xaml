@@ -29,6 +29,7 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="220" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="260" />
@@ -80,14 +81,40 @@
                 </StackPanel>
                 <TextBlock x:Name="LyricsAttributionText" Text="-" TextWrapping="Wrap" />
             </StackPanel>
-            <TextBox Grid.Row="19" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
+            <Grid Grid.Row="19" Grid.ColumnSpan="2" Margin="0,8,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="170" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Current Lyric Index" />
+                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="CurrentLyricIndexText" Text="None" />
+                <TextBlock Grid.Row="1" Text="Current Lyric Start" />
+                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="CurrentLyricStartText" Text="-" />
+                <TextBlock Grid.Row="2" Text="Current Lyric Text" />
+                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="CurrentLyricText" Text="-" TextWrapping="Wrap" />
+                <TextBlock Grid.Row="3" Text="Next Lyric Index" Margin="0,6,0,0" />
+                <TextBlock Grid.Row="3" Grid.Column="1" x:Name="NextLyricIndexText" Text="None" Margin="0,6,0,0" />
+                <TextBlock Grid.Row="4" Text="Next Lyric Start" />
+                <TextBlock Grid.Row="4" Grid.Column="1" x:Name="NextLyricStartText" Text="-" />
+                <TextBlock Grid.Row="5" Text="Next Lyric Text" />
+                <TextBlock Grid.Row="5" Grid.Column="1" x:Name="NextLyricText" Text="-" TextWrapping="Wrap" />
+            </Grid>
+            <TextBox Grid.Row="20" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="NoWrap" />
-            <TextBlock Grid.Row="20" Grid.ColumnSpan="2" Text="Local lyrics library" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
-            <TextBox Grid.Row="21" Grid.ColumnSpan="2" x:Name="LibraryDiagnosticsText" IsReadOnly="True"
+            <TextBlock Grid.Row="21" Grid.ColumnSpan="2" Text="Local lyrics library" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
+            <TextBox Grid.Row="22" Grid.ColumnSpan="2" x:Name="LibraryDiagnosticsText" IsReadOnly="True"
                      MinHeight="240" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" />
-            <TextBlock Grid.Row="22" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
-            <TextBox Grid.Row="23" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
+            <TextBlock Grid.Row="23" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
+            <TextBox Grid.Row="24" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="Wrap" />
         </Grid>

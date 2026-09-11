@@ -48,7 +48,7 @@ Run the .NET solution tests and `node --test firefox-extension/tests/lyrics.test
 
 Signed-in end-to-end manual verification completed on 2026-09-10. It covered real timed, untimed and unavailable lyrics; timing sanity; rapid A → B and A → B → C transitions; cache reuse; pause/resume and seek; App and NativeHost reconnects; multi-tab ownership; playlists; podcasts; several track types; and browser/extension restart. Full lyrics remained separate from the 500 ms playback snapshots.
 
-No local lyrics files, provider fallbacks, LRC parsing, timeline selection or karaoke rendering are implemented.
+The Firefox adapter implements no local files, provider fallbacks, LRC parsing, timeline selection, or karaoke rendering. Local persistence and start-time timeline selection are Windows/Core responsibilities; the browser continues to supply authoritative playback and provider results only.
 
 ### Live API verification on 2026-09-10
 

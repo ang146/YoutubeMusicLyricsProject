@@ -744,7 +744,7 @@ Milestone 5 introduces the first concrete SQLite schema and library rebuild/sync
 
 # 13. Lyrics Timing Adjustment
 
-A future lyrics timing adjustment feature will support operations such as:
+Milestone 8 supports per-local-track operations:
 
 * -0.5 seconds
 * -0.1 seconds
@@ -752,7 +752,7 @@ A future lyrics timing adjustment feature will support operations such as:
 * +0.5 seconds
 * reset
 
-Timing adjustment should initially be non-destructive.
+Timing adjustment is non-destructive by default. `GlobalOffsetMs` is stored in the portable sidecar and is loaded as zero when the optional field is absent. Positive values make lyrics happen later and negative values make them happen earlier.
 
 Example:
 
@@ -760,13 +760,13 @@ Example:
 GlobalOffsetMs = -500
 ```
 
-The original LRC timestamps remain unchanged while rendering applies the offset.
+The original LRC timestamps remain unchanged while the existing timeline evaluates `PlaybackPositionMs - GlobalOffsetMs`. `PlaybackClock` itself remains the unadjusted media clock.
 
-A separate explicit operation may later bake the offset into the LRC timestamps.
+An explicit, confirmed Bake operation can apply the offset to every valid raw LRC timestamp token and then reset the sidecar value to zero. The rewriter preserves unrelated physical LRC content and rejects negative or overflowing results before committing either file. The LRC and sidecar are prepared through same-directory temporary files; failure after the first replacement triggers a best-effort restoration of the original LRC.
 
 Silent destructive rewriting is not acceptable.
 
-A portable timing offset should be stored with the lyrics-library metadata so that the same correction can follow the lyrics across machines.
+A persistent correction requires an authoritative local timed lyrics document. Controls remain disabled for pending, untimed, unavailable, or runtime-only results. SQLite does not store the offset. See [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md) for the implemented contract and safety details.
 
 ## 13.1 Explicit Break Markers and Future Karaoke Presentation
 
@@ -1331,12 +1331,14 @@ Long-term, the desktop overlay is intended to become the primary day-to-day lyri
 
 ## Milestone 8 — Timing Adjustment
 
-Add:
+Implemented:
 
 * ±0.1 second
 * ±0.5 second
 * persistent global offset
 * explicit bake-to-file operation
+
+The offset is global only within one local lyrics document, not across the application. Runtime adjustment is sidecar-only; Bake is confirmed, structure-preserving, validated, and resets the offset after coordinated file replacement.
 
 ---
 

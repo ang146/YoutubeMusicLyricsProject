@@ -58,4 +58,26 @@ public sealed class SidecarSerializerTests
         Assert.That(EffectiveTrackMetadata.From(stored, new("User", "User Artist"), live), Is.EqualTo(new EffectiveTrackMetadata("User", "User Artist")));
         Assert.That(EffectiveTrackMetadata.From(stored, new(null, null)), Is.EqualTo(new EffectiveTrackMetadata("Stored", "Stored Artist")));
     }
+
+    [Test]
+    public void ExistingSchemaOneSidecarWithoutTimingLoadsAsZero()
+    {
+        var json = SidecarSerializer.Serialize(Sidecar());
+        Assert.That(json, Does.Not.Contain("\"timing\""));
+        Assert.That(SidecarSerializer.TryDeserialize(json, out var value, out var error), Is.True, error);
+        Assert.That(value!.GlobalOffsetMs, Is.Zero);
+    }
+
+    [Test]
+    public void OptionalSchemaOneTimingMetadataRoundTrips()
+    {
+        var json = SidecarSerializer.Serialize(Sidecar() with { Timing = new LyricsTiming(500) });
+        Assert.That(SidecarSerializer.TryDeserialize(json, out var value, out var error), Is.True, error);
+        Assert.Multiple(() =>
+        {
+            Assert.That(value!.SchemaVersion, Is.EqualTo(1));
+            Assert.That(value.GlobalOffsetMs, Is.EqualTo(500));
+            Assert.That(json, Does.Contain("\"globalOffsetMs\": 500"));
+        });
+    }
 }

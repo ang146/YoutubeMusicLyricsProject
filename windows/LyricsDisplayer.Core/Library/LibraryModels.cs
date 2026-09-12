@@ -41,12 +41,21 @@ public sealed record LyricsAsset(
     [property: JsonPropertyName("attribution")] string? Attribution,
     [property: JsonPropertyName("importedAtUtc")] DateTimeOffset ImportedAtUtc);
 
+public sealed record LyricsTiming(
+    [property: JsonPropertyName("globalOffsetMs")] long GlobalOffsetMs);
+
 public sealed record LyricsSidecar(
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
     [property: JsonPropertyName("localTrackId")] string LocalTrackId,
     [property: JsonPropertyName("sourceAssociations")] IReadOnlyList<SourceTrackAssociation> SourceAssociations,
     [property: JsonPropertyName("userMetadata")] UserTrackMetadata UserMetadata,
-    [property: JsonPropertyName("lyrics")] LyricsAsset Lyrics);
+    [property: JsonPropertyName("lyrics")] LyricsAsset Lyrics,
+    [property: JsonPropertyName("timing"),
+     JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LyricsTiming? Timing = null)
+{
+    [JsonIgnore]
+    public long GlobalOffsetMs => Timing?.GlobalOffsetMs ?? 0;
+}
 
 public sealed record LocalTrackRecord(
     string LocalTrackId,
@@ -61,7 +70,32 @@ public sealed record LocalLyricsDocument(
     LocalTrackRecord Record,
     LyricsSidecar Sidecar,
     IReadOnlyList<LyricsLine> Lines,
-    EffectiveTrackMetadata EffectiveMetadata);
+    EffectiveTrackMetadata EffectiveMetadata)
+{
+    public long GlobalOffsetMs => Sidecar.GlobalOffsetMs;
+}
+
+public enum TimingAdjustmentStatus
+{
+    Succeeded,
+    NoLocalLyrics,
+    TrackChanged,
+    OffsetOverflow,
+    NothingToBake,
+    NegativeTimestamp,
+    TimestampOverflow,
+    StorageFailure
+}
+
+public sealed record TimingAdjustmentResult(
+    TimingAdjustmentStatus Status,
+    LocalLyricsDocument? Document = null,
+    string? Error = null)
+{
+    public bool Succeeded => Status == TimingAdjustmentStatus.Succeeded;
+}
+
+public sealed record TimingAdjustmentTarget(string LocalTrackId, long GlobalOffsetMs);
 
 public enum LocalLyricsLookupStatus
 {

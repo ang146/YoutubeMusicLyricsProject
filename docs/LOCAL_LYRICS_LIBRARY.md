@@ -69,6 +69,9 @@ Lyrics\
     "source": "youtubeMusic",
     "attribution": "Musixmatch",
     "importedAtUtc": "2026-09-12T00:00:00+00:00"
+  },
+  "timing": {
+    "globalOffsetMs": 500
   }
 }
 ```
@@ -79,7 +82,9 @@ Source metadata records what the playback source supplied. `album` remains `null
 user override -> current live source value -> stored source value
 ```
 
-Editing the sidecar while the App is stopped takes effect during the next startup scan. Future sidecar schema versions are not assumed compatible and are left untouched.
+The optional `timing.globalOffsetMs` is the Milestone 8 per-track timing correction in integer milliseconds. Positive values make lyrics later and negative values make them earlier. Existing schema version 1 sidecars without `timing` remain valid and load as zero; they are not rewritten just to add a zero value. SQLite does not duplicate this field.
+
+Editing the sidecar while the App is stopped takes effect during the next startup scan. Future sidecar schema versions are not assumed compatible and are left untouched. See [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md) for runtime and Bake behavior.
 
 ## LRC format
 

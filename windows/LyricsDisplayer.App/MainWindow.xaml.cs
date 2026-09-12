@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Text;
 using System.Windows;
 using System.Windows.Threading;
@@ -33,6 +34,12 @@ public partial class MainWindow : Window
         _overlay.VisibilityChanged += OnOverlayVisibilityChanged;
         ShowOverlayCheckBox.Checked += OnShowOverlayChecked;
         ShowOverlayCheckBox.Unchecked += OnShowOverlayUnchecked;
+        TimingMinus500Button.Click += (_, _) => AdjustTiming(-500);
+        TimingMinus100Button.Click += (_, _) => AdjustTiming(-100);
+        TimingResetButton.Click += (_, _) => ResetTiming();
+        TimingPlus100Button.Click += (_, _) => AdjustTiming(100);
+        TimingPlus500Button.Click += (_, _) => AdjustTiming(500);
+        TimingBakeButton.Click += (_, _) => BakeTiming();
         _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() => PipeStatusText.Text = status);
         _server.SnapshotAccepted += snapshot => Dispatcher.InvokeAsync(() => DisplaySnapshot(snapshot));
         _server.LyricsChanged += () => Dispatcher.InvokeAsync(DisplayLyrics);
@@ -44,6 +51,7 @@ public partial class MainWindow : Window
         Loaded += OnLoaded;
         Closing += OnClosing;
         DisplayLibrary();
+        UpdateTimingControls();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -111,6 +119,7 @@ public partial class MainWindow : Window
         LyricsLinesText.Text = lines.ToString();
         if (_playbackState.HasClockState) RefreshLocalPosition();
         DisplayLibrary();
+        UpdateTimingControls();
     }
 
     private void DisplayLibrary()
@@ -163,6 +172,61 @@ public partial class MainWindow : Window
 
     private static string FormatMilliseconds(long milliseconds) =>
         TimeSpan.FromMilliseconds(milliseconds).ToString(@"mm\:ss\.fff");
+
+    private void AdjustTiming(long deltaMs)
+    {
+        ShowTimingResult(_playbackState.AdjustTiming(deltaMs));
+    }
+
+    private void ResetTiming()
+    {
+        ShowTimingResult(_playbackState.ResetTiming());
+    }
+
+    private void ShowTimingResult(LyricsDisplayer.Core.Library.TimingAdjustmentResult result)
+    {
+        TimingStatusText.Text = result.Succeeded ? string.Empty : result.Error ?? "Timing adjustment could not be saved.";
+        UpdateTimingControls();
+        RefreshLocalPosition();
+        DisplayLibrary();
+    }
+
+    private void BakeTiming()
+    {
+        var target = _playbackState.CaptureTimingAdjustmentTarget();
+        if (target is null || target.GlobalOffsetMs == 0) return;
+        var formatted = FormatOffset(target.GlobalOffsetMs);
+        var choice = MessageBox.Show(this,
+            $"Bake {formatted} timing adjustment into this LRC?\n\nThis will rewrite the LRC timestamps and reset the global offset to 0.",
+            "Bake timing adjustment", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        if (choice != MessageBoxResult.OK) return;
+
+        var result = _playbackState.BakeTiming(target);
+        if (!result.Succeeded)
+        {
+            var message = result.Status == LyricsDisplayer.Core.Library.TimingAdjustmentStatus.NegativeTimestamp
+                ? "Bake was cancelled because at least one adjusted timestamp would be negative. Reduce the offset and try again."
+                : result.Error ?? "The timing adjustment could not be baked into the LRC.";
+            MessageBox.Show(this, message, "Bake timing adjustment", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        ShowTimingResult(result);
+    }
+
+    private void UpdateTimingControls()
+    {
+        var enabled = _playbackState.CanAdjustTiming;
+        TimingMinus500Button.IsEnabled = enabled;
+        TimingMinus100Button.IsEnabled = enabled;
+        TimingResetButton.IsEnabled = enabled;
+        TimingPlus100Button.IsEnabled = enabled;
+        TimingPlus500Button.IsEnabled = enabled;
+        TimingBakeButton.IsEnabled = enabled && _playbackState.GlobalOffsetMs != 0;
+        TimingOffsetText.Text = FormatOffset(_playbackState.GlobalOffsetMs);
+        if (!enabled) TimingStatusText.Text = string.Empty;
+    }
+
+    private static string FormatOffset(long milliseconds) =>
+        ((decimal)milliseconds / 1000m).ToString("+0.000;-0.000;0.000", CultureInfo.InvariantCulture) + "s";
 
     private void OnShowOverlayChecked(object sender, RoutedEventArgs e)
     {

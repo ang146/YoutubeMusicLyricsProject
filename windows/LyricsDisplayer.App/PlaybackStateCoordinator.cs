@@ -33,10 +33,67 @@ public sealed class PlaybackStateCoordinator
 
     public bool HasClockState => _playbackClock.HasState;
 
+    public long GlobalOffsetMs => CurrentLocalLyrics?.GlobalOffsetMs ?? 0;
+
+    public bool CanAdjustTiming => CurrentLocalLyrics is not null && _library is not null;
+
     public long GetLocalPositionMs() => _playbackClock.GetPositionMs();
 
     public LyricsTimelinePosition GetTimelinePosition() =>
-        _lyricsTimeline.Evaluate(_playbackClock.GetPositionMs());
+        _lyricsTimeline.Evaluate(LyricsTimingAdjustment.GetEvaluationPosition(
+            _playbackClock.GetPositionMs(), GlobalOffsetMs));
+
+    public TimingAdjustmentResult AdjustTiming(long deltaMs)
+    {
+        var target = CurrentLocalLyrics;
+        if (target is null || _library is null)
+            return new(TimingAdjustmentStatus.NoLocalLyrics);
+        if (!LyricsTimingAdjustment.TryAdjustOffset(target.GlobalOffsetMs, deltaMs, out var adjusted))
+            return new(TimingAdjustmentStatus.OffsetOverflow);
+
+        var result = _library.SetGlobalOffset(target.Record.LocalTrackId, adjusted);
+        if (result.Succeeded && result.Document is not null &&
+            CurrentLocalLyrics?.Record.LocalTrackId == target.Record.LocalTrackId)
+            CurrentLocalLyrics = result.Document with { EffectiveMetadata = target.EffectiveMetadata };
+        return result;
+    }
+
+    public TimingAdjustmentResult ResetTiming()
+    {
+        var target = CurrentLocalLyrics;
+        if (target is null || _library is null)
+            return new(TimingAdjustmentStatus.NoLocalLyrics);
+        if (target.GlobalOffsetMs == 0)
+            return new(TimingAdjustmentStatus.Succeeded, target);
+        var result = _library.SetGlobalOffset(target.Record.LocalTrackId, 0);
+        if (result.Succeeded && result.Document is not null &&
+            CurrentLocalLyrics?.Record.LocalTrackId == target.Record.LocalTrackId)
+            CurrentLocalLyrics = result.Document with { EffectiveMetadata = target.EffectiveMetadata };
+        return result;
+    }
+
+    public TimingAdjustmentTarget? CaptureTimingAdjustmentTarget() =>
+        CurrentLocalLyrics is null
+            ? null
+            : new(CurrentLocalLyrics.Record.LocalTrackId, CurrentLocalLyrics.GlobalOffsetMs);
+
+    public TimingAdjustmentResult BakeTiming(TimingAdjustmentTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var current = CurrentLocalLyrics;
+        if (current is null || _library is null)
+            return new(TimingAdjustmentStatus.NoLocalLyrics);
+        if (current.Record.LocalTrackId != target.LocalTrackId || current.GlobalOffsetMs != target.GlobalOffsetMs)
+            return new(TimingAdjustmentStatus.TrackChanged,
+                Error: "The current lyrics track or timing offset changed before Bake was confirmed.");
+
+        var result = _library.BakeGlobalOffset(target.LocalTrackId);
+        if (result.Succeeded && result.Document is not null &&
+            CurrentLocalLyrics?.Record.LocalTrackId == target.LocalTrackId)
+            SetLocalLyrics(result.Document with { EffectiveMetadata = current.EffectiveMetadata },
+                CurrentLyrics?.Envelope ?? Current!.Envelope);
+        return result;
+    }
 
     public SnapshotDecision Apply(PlaybackSnapshotMessage snapshot)
     {

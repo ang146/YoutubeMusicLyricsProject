@@ -14,7 +14,7 @@ internal static class AtomicFile
         Write(path, content, overwrite: true);
     }
 
-    internal static void ReplacePair(
+    internal static byte[] ReplacePair(
         string firstPath,
         string firstContent,
         string secondPath,
@@ -23,7 +23,8 @@ internal static class AtomicFile
     {
         var originalFirst = File.ReadAllBytes(firstPath);
         var preserveUtf8Bom = originalFirst.AsSpan().StartsWith(Encoding.UTF8.Preamble);
-        var firstTemporary = WriteTemporary(firstPath, firstContent, preserveUtf8Bom);
+        var savedBytes = LrcFileSnapshot.EncodeUtf8(firstContent, preserveUtf8Bom);
+        var firstTemporary = WriteTemporary(firstPath, savedBytes);
         string? secondTemporary = null;
         var firstCommitted = false;
         try
@@ -58,6 +59,27 @@ internal static class AtomicFile
             DeleteOwnTemporary(firstTemporary);
             DeleteOwnTemporary(secondTemporary);
         }
+        return savedBytes;
+    }
+
+    internal static bool TryReplaceUnchanged(string path, byte[] content, string expectedHash,
+        Action? beforeCommit = null)
+    {
+        var temporary = WriteTemporary(path, content);
+        try
+        {
+            beforeCommit?.Invoke();
+            if (LrcFileSnapshot.HashBytes(File.ReadAllBytes(path)) != expectedHash) return false;
+            if (!LrcFileSnapshot.IsWritable(path))
+                throw new UnauthorizedAccessException("The local LRC is not writable.");
+            File.Move(temporary, path, overwrite: true);
+            temporary = string.Empty;
+            return true;
+        }
+        finally
+        {
+            DeleteOwnTemporary(temporary);
+        }
     }
 
     private static void Write(string path, string content, bool overwrite)
@@ -88,7 +110,7 @@ internal static class AtomicFile
         }
     }
 
-    private static string WriteTemporary(string path, string content, bool writeUtf8Bom = false)
+    private static string WriteTemporary(string path, string content)
     {
         var directory = Path.GetDirectoryName(path) ?? throw new ArgumentException("A parent directory is required.", nameof(path));
         Directory.CreateDirectory(directory);
@@ -97,7 +119,7 @@ internal static class AtomicFile
         {
             using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                        4096, FileOptions.WriteThrough))
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(writeUtf8Bom)))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
             {
                 writer.Write(content);
                 writer.Flush();

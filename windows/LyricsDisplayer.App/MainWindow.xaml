@@ -116,6 +116,7 @@
                     CornerRadius="4" Padding="10" Margin="0,8,0,8">
                 <StackPanel>
                     <TextBlock Text="Timing Adjustment" FontSize="18" FontWeight="Bold" Margin="0,0,0,8" />
+                    <TextBlock Text="Global Timing" FontWeight="SemiBold" Margin="0,0,0,6" />
                     <WrapPanel VerticalAlignment="Center">
                         <Button x:Name="TimingMinus500Button" Content="-0.5s" Padding="10,4" Margin="0,0,6,0" />
                         <Button x:Name="TimingMinus100Button" Content="-0.1s" Padding="10,4" Margin="0,0,12,0" />
@@ -129,6 +130,18 @@
                     </WrapPanel>
                     <TextBlock x:Name="TimingStatusText" Foreground="#FF9C1C1C" Margin="0,7,0,0"
                                TextWrapping="Wrap" />
+                    <TextBlock Text="Current Line — edits the selected timestamp directly in LRC"
+                               FontWeight="SemiBold" Margin="0,12,0,6" />
+                    <TextBlock x:Name="CurrentLineTimingText" Text="No current local lyric"
+                               TextWrapping="Wrap" Margin="0,0,0,6" />
+                    <WrapPanel>
+                        <Button x:Name="CurrentLineMinus500Button" Content="-0.5s" Padding="10,4" Margin="0,0,6,0" />
+                        <Button x:Name="CurrentLineMinus100Button" Content="-0.1s" Padding="10,4" Margin="0,0,18,0" />
+                        <Button x:Name="CurrentLinePlus100Button" Content="+0.1s" Padding="10,4" Margin="0,0,6,0" />
+                        <Button x:Name="CurrentLinePlus500Button" Content="+0.5s" Padding="10,4" />
+                    </WrapPanel>
+                    <TextBlock x:Name="CurrentLineTimingStatusText" Foreground="#FF9C1C1C"
+                               TextWrapping="Wrap" Margin="0,7,0,0" />
                 </StackPanel>
             </Border>
             <TextBox Grid.Row="21" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"

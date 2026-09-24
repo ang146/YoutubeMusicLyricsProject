@@ -18,6 +18,24 @@ public static partial class LrcTimestampRewriter
     [GeneratedRegex(@"\[(?<minutes>\d+):(?<seconds>\d{2})\.(?<fraction>\d{2,3})\]")]
     private static partial Regex TimestampRegex();
 
+    public static LrcTimestampRewriteResult RewriteOccurrence(
+        string content, LrcTimestampOccurrence occurrence, long adjustedTimestampMs)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(occurrence);
+        if (adjustedTimestampMs < 0) return new(false, Error: NegativeTimestampError);
+        if (occurrence.CharacterIndex < 0 || occurrence.Length <= 0 ||
+            occurrence.CharacterIndex > content.Length - occurrence.Length)
+            return new(false, Error: "The selected timestamp occurrence is no longer valid.");
+        var token = content.Substring(occurrence.CharacterIndex, occurrence.Length);
+        var match = TimestampRegex().Match(token);
+        if (!match.Success || match.Index != 0 || match.Length != token.Length ||
+            !TryParse(match, out var start, out _) || start != occurrence.StartMs)
+            return new(false, Error: "The selected timestamp occurrence is no longer valid.");
+        return new(true, content[..occurrence.CharacterIndex] + Format(adjustedTimestampMs) +
+                         content[(occurrence.CharacterIndex + occurrence.Length)..]);
+    }
+
     public static LrcTimestampRewriteResult Rewrite(string content, long deltaMs)
     {
         ArgumentNullException.ThrowIfNull(content);

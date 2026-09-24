@@ -9,7 +9,12 @@ public sealed record LrcParseResult(
     bool Success,
     IReadOnlyList<LyricsLine> Lines,
     int SkippedPhysicalLines,
-    string? Error = null);
+    string? Error = null)
+{
+    public IReadOnlyList<LrcTimestampOccurrence> TimestampOccurrences { get; init; } = [];
+}
+
+public sealed record LrcTimestampOccurrence(int CharacterIndex, int Length, long StartMs);
 
 public static partial class LrcCodec
 {
@@ -39,11 +44,12 @@ public static partial class LrcCodec
 
     public static LrcParseResult Parse(string text, long? durationMs = null)
     {
-        var parsed = new List<(long StartMs, string Text, int Order)>();
+        var parsed = new List<(long StartMs, string Text, int Order, LrcTimestampOccurrence Occurrence)>();
         var skipped = 0;
         var order = 0;
-        foreach (var physicalLine in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+        foreach (Match physicalMatch in Regex.Matches(text, @"[^\r\n]+"))
         {
+            var physicalLine = physicalMatch.Value;
             if (physicalLine.Length == 0 || MetadataRegex().IsMatch(physicalLine)) continue;
             var matches = TimestampRegex().Matches(physicalLine);
             if (matches.Count == 0)
@@ -66,7 +72,9 @@ public static partial class LrcCodec
                 var fraction = int.Parse(fractionText, CultureInfo.InvariantCulture) * (fractionText.Length == 2 ? 10 : 1);
                 try
                 {
-                    parsed.Add((checked(minutes * 60_000 + seconds * 1_000 + fraction), lyricText, order++));
+                    var start = checked(minutes * 60_000 + seconds * 1_000 + fraction);
+                    parsed.Add((start, lyricText, order++,
+                        new(physicalMatch.Index + match.Index, match.Length, start)));
                     any = true;
                 }
                 catch (OverflowException)
@@ -90,6 +98,9 @@ public static partial class LrcCodec
                 : durationMs is > 0 && durationMs > start ? durationMs.Value : start;
             result.Add(new LyricsLine(start, Math.Max(start, end), ordered[index].Text));
         }
-        return new LrcParseResult(true, result, skipped);
+        return new LrcParseResult(true, result, skipped)
+        {
+            TimestampOccurrences = ordered.Select(item => item.Occurrence).ToArray()
+        };
     }
 }

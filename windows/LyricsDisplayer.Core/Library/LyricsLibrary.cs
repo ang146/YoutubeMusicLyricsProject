@@ -8,6 +8,7 @@ public sealed class LyricsLibrary : IDisposable
 {
     private readonly Action<string, string, string>? _log;
     private readonly Action<int>? _beforeTimingBakeCommit;
+    private readonly Action? _beforeLineCommit;
     private readonly HashSet<(string Source, string SourceTrackId)> _duplicateAssociations = [];
     private readonly HashSet<(string Source, string SourceTrackId)> _brokenAssociations = [];
     private LyricsLibraryIndex? _index;
@@ -23,11 +24,12 @@ public sealed class LyricsLibrary : IDisposable
     }
 
     internal LyricsLibrary(LibraryPaths paths, Action<string, string, string>? log,
-        Action<int>? beforeTimingBakeCommit)
+        Action<int>? beforeTimingBakeCommit, Action? beforeLineCommit = null)
     {
         Paths = paths;
         _log = log;
         _beforeTimingBakeCommit = beforeTimingBakeCommit;
+        _beforeLineCommit = beforeLineCommit;
     }
 
     public LibraryScanResult Initialise()
@@ -231,9 +233,14 @@ public sealed class LyricsLibrary : IDisposable
             if (!parsed.Success)
                 return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
 
-            AtomicFile.ReplacePair(lyricsPath, rewritten.Content!, sidecarPath, sidecarJson,
+            var savedBytes = AtomicFile.ReplacePair(lyricsPath, rewritten.Content!, sidecarPath, sidecarJson,
                 _beforeTimingBakeCommit);
-            var updated = document with { Sidecar = updatedSidecar, Lines = parsed.Lines };
+            var updated = document with
+            {
+                Sidecar = updatedSidecar, Lines = parsed.Lines,
+                LrcContentHash = LrcFileSnapshot.HashBytes(savedBytes),
+                TimestampOccurrences = parsed.TimestampOccurrences
+            };
             Log("Information", "Timing",
                 $"Timing offset baked into LRC for LocalTrackId={localTrackId}, offsetMs={offset}.");
             return new(TimingAdjustmentStatus.Succeeded, updated);
@@ -244,6 +251,77 @@ public sealed class LyricsLibrary : IDisposable
             return new(TimingAdjustmentStatus.StorageFailure, Error: exception.Message);
         }
     }
+
+    public TimingAdjustmentResult AdjustLineTiming(CurrentLineTimingTarget target, long deltaMs)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var expected = target.Document;
+        var lookup = Lookup(expected.Record.LocalTrackId);
+        var document = lookup.Document;
+        if (lookup.Status is LocalLyricsLookupStatus.LibraryUnavailable or LocalLyricsLookupStatus.IndexUnavailable)
+            return new(TimingAdjustmentStatus.StorageFailure, Error: "The local lyrics library is currently unavailable.");
+        if (lookup.Status != LocalLyricsLookupStatus.Found || document is null)
+            return new(TimingAdjustmentStatus.FileChanged, Error: "The local LRC is missing or no longer usable. Reload lyrics before editing.");
+        if (expected.LrcContentHash is null || expected.LrcContentHash != document.LrcContentHash ||
+            expected.Record.LyricsRelativePath != document.Record.LyricsRelativePath ||
+            expected.GlobalOffsetMs != document.GlobalOffsetMs)
+            return new(TimingAdjustmentStatus.FileChanged, document,
+                "The local LRC changed externally. Lyrics were reloaded; try again.");
+        var index = target.LineIndex;
+        if (index < 0 || index >= document.Lines.Count || index >= document.TimestampOccurrences.Count)
+            return new(TimingAdjustmentStatus.NoCurrentLine, Error: "There is no current local lyric to edit.");
+        if (!document.IsLrcWritable)
+            return new(TimingAdjustmentStatus.StorageFailure, document, "The local LRC is not writable.");
+        long adjusted;
+        try { adjusted = checked(document.Lines[index].StartMs + deltaMs); }
+        catch (OverflowException)
+        { return new(TimingAdjustmentStatus.TimestampOverflow, Error: LrcTimestampRewriter.TimestampOverflowError); }
+        if (adjusted < 0)
+            return new(TimingAdjustmentStatus.NegativeTimestamp, Error: "Cannot move this lyric below 0 ms.");
+        if (index > 0 && adjusted < document.Lines[index - 1].StartMs)
+            return new(TimingAdjustmentStatus.PreviousLineBoundary, Error: "Cannot move this lyric past the previous lyric.");
+        if (index + 1 < document.Lines.Count && adjusted > document.Lines[index + 1].StartMs)
+            return new(TimingAdjustmentStatus.NextLineBoundary, Error: "Cannot move this lyric past the next lyric.");
+
+        try
+        {
+            var path = ResolveRelative(document.Record.LyricsRelativePath);
+            var original = LrcFileSnapshot.Read(path);
+            if (original.Hash != expected.LrcContentHash)
+                return ChangedLineEdit(expected.Record.LocalTrackId);
+            var rewritten = LrcTimestampRewriter.RewriteOccurrence(original.Content,
+                document.TimestampOccurrences[index], adjusted);
+            if (!rewritten.Success)
+                return new(TimingAdjustmentStatus.FileChanged, Error: rewritten.Error);
+            var duration = document.Sidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
+            var parsed = LrcCodec.Parse(rewritten.Content!, duration);
+            if (!parsed.Success)
+                return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
+            var savedBytes = original.Encode(rewritten.Content!);
+            if (!AtomicFile.TryReplaceUnchanged(path, savedBytes, expected.LrcContentHash, _beforeLineCommit))
+                return ChangedLineEdit(expected.Record.LocalTrackId);
+            var updated = document with
+            {
+                Lines = parsed.Lines, TimestampOccurrences = parsed.TimestampOccurrences,
+                LrcContentHash = LrcFileSnapshot.HashBytes(savedBytes),
+                EffectiveMetadata = expected.EffectiveMetadata
+            };
+            Log("Information", "Timing", $"Current line timing changed for LocalTrackId={document.Record.LocalTrackId}, line={index}, old={document.Lines[index].StartMs}, new={adjusted}.");
+            return new(TimingAdjustmentStatus.Succeeded, updated);
+        }
+        catch (Exception exception) when (IsStorageException(exception))
+        {
+            Log("Error", "Timing", $"Current line timing save failed for LocalTrackId={expected.Record.LocalTrackId}: {exception.Message}");
+            return new(TimingAdjustmentStatus.StorageFailure, document with
+            {
+                IsLrcWritable = LrcFileSnapshot.IsWritable(ResolveRelative(document.Record.LyricsRelativePath))
+            }, exception.Message);
+        }
+    }
+
+    private TimingAdjustmentResult ChangedLineEdit(string localTrackId) =>
+        new(TimingAdjustmentStatus.FileChanged, Lookup(localTrackId).Document,
+            "The local LRC changed externally. Lyrics were reloaded; try again.");
 
     public LyricsImportResult Import(TrackInfo track, LyricsSnapshotPayload lyrics, DateTimeOffset? importedAtUtc = null)
     {
@@ -334,11 +412,17 @@ public sealed class LyricsLibrary : IDisposable
         {
             var lyricsPath = ResolveRelative(record.LyricsRelativePath);
             if (!File.Exists(lyricsPath)) return null;
-            var parsed = LrcCodec.Parse(File.ReadAllText(lyricsPath), currentMetadata.DurationMs);
+            var snapshot = LrcFileSnapshot.Read(lyricsPath);
+            var parsed = LrcCodec.Parse(snapshot.Content, currentMetadata.DurationMs);
             if (!parsed.Success) return null;
             var stored = sidecar.SourceAssociations.First().Metadata;
             return new(record, sidecar, parsed.Lines,
-                EffectiveTrackMetadata.From(stored, sidecar.UserMetadata, currentMetadata));
+                EffectiveTrackMetadata.From(stored, sidecar.UserMetadata, currentMetadata))
+            {
+                LrcContentHash = snapshot.Hash,
+                TimestampOccurrences = parsed.TimestampOccurrences,
+                IsLrcWritable = LrcFileSnapshot.IsWritable(lyricsPath)
+            };
         }
         catch (Exception exception) when (IsStorageException(exception))
         {

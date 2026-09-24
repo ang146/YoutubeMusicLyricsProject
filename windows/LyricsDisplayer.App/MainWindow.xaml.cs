@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     private readonly LyricsOverlayController _overlay;
     private Task? _serverTask;
     private bool _synchronizingOverlayToggle;
+    private string? _currentLineTimingStatusTrackId;
 
     public MainWindow()
     {
@@ -40,6 +41,10 @@ public partial class MainWindow : Window
         TimingPlus100Button.Click += (_, _) => AdjustTiming(100);
         TimingPlus500Button.Click += (_, _) => AdjustTiming(500);
         TimingBakeButton.Click += (_, _) => BakeTiming();
+        CurrentLineMinus500Button.Click += (_, _) => AdjustCurrentLineTiming(-500);
+        CurrentLineMinus100Button.Click += (_, _) => AdjustCurrentLineTiming(-100);
+        CurrentLinePlus100Button.Click += (_, _) => AdjustCurrentLineTiming(100);
+        CurrentLinePlus500Button.Click += (_, _) => AdjustCurrentLineTiming(500);
         _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() => PipeStatusText.Text = status);
         _server.SnapshotAccepted += snapshot => Dispatcher.InvokeAsync(() => DisplaySnapshot(snapshot));
         _server.LyricsChanged += () => Dispatcher.InvokeAsync(DisplayLyrics);
@@ -155,6 +160,7 @@ public partial class MainWindow : Window
         if (!_playbackState.HasClockState)
         {
             _overlay.Update(null, LyricsDisplayer.Core.Timeline.LyricsTimeline.Empty.Evaluate(0));
+            UpdateCurrentLineTimingControls();
             return;
         }
 
@@ -168,6 +174,39 @@ public partial class MainWindow : Window
         NextLyricIndexText.Text = timeline.NextIndex?.ToString() ?? "None";
         NextLyricStartText.Text = timeline.NextLine is null ? "-" : $"{timeline.NextLine.StartMs} ms";
         NextLyricText.Text = timeline.NextLine?.Text ?? "-";
+        UpdateCurrentLineTimingControls();
+    }
+
+    private void AdjustCurrentLineTiming(long deltaMs)
+    {
+        var target = _playbackState.CaptureCurrentLineTimingTarget();
+        if (target is null) return;
+        var sourceTrackId = _playbackState.Current?.Payload.Track.SourceTrackId;
+        var result = _playbackState.AdjustCurrentLineTiming(target, deltaMs);
+        _currentLineTimingStatusTrackId = sourceTrackId;
+        CurrentLineTimingStatusText.Text = result.Succeeded ? string.Empty :
+            result.Error ?? "The current lyric timestamp could not be saved.";
+        DisplayLyrics();
+    }
+
+    private void UpdateCurrentLineTimingControls()
+    {
+        var sourceTrackId = _playbackState.Current?.Payload.Track.SourceTrackId;
+        if (_currentLineTimingStatusTrackId != sourceTrackId)
+        {
+            CurrentLineTimingStatusText.Text = string.Empty;
+            _currentLineTimingStatusTrackId = sourceTrackId;
+        }
+        var enabled = _playbackState.CanAdjustCurrentLineTiming;
+        CurrentLineMinus500Button.IsEnabled = enabled;
+        CurrentLineMinus100Button.IsEnabled = enabled;
+        CurrentLinePlus100Button.IsEnabled = enabled;
+        CurrentLinePlus500Button.IsEnabled = enabled;
+        var timeline = _playbackState.GetTimelinePosition();
+        var line = timeline.CurrentLine;
+        CurrentLineTimingText.Text = _playbackState.CurrentLocalLyrics is null || line is null
+            ? "No current local lyric"
+            : $"Line {timeline.CurrentIndex + 1} — {line.StartMs / 60_000:00}:{line.StartMs % 60_000 / 1000:00}.{line.StartMs % 1000:000} — {line.Text}";
     }
 
     private static string FormatMilliseconds(long milliseconds) =>
@@ -223,6 +262,7 @@ public partial class MainWindow : Window
         TimingBakeButton.IsEnabled = enabled && _playbackState.GlobalOffsetMs != 0;
         TimingOffsetText.Text = FormatOffset(_playbackState.GlobalOffsetMs);
         if (!enabled) TimingStatusText.Text = string.Empty;
+        UpdateCurrentLineTimingControls();
     }
 
     private static string FormatOffset(long milliseconds) =>

@@ -768,6 +768,8 @@ Silent destructive rewriting is not acceptable.
 
 A persistent correction requires an authoritative local timed lyrics document. Controls remain disabled for pending, untimed, unavailable, or runtime-only results. SQLite does not store the offset. See [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md) for the implemented contract and safety details.
 
+The Milestone 8 Current Line follow-up is deliberately different: its explicit ±0.1/±0.5-second buttons directly edit only the current local LRC timestamp occurrence. Local parsing retains exact source locations and a loaded-content hash for safe targeting and stale-file rejection. Negative timestamps and crossings of adjacent starts are rejected; equal starts remain deterministic. The sidecar/global offset is unchanged, no per-line offsets are stored, and a successful save rebuilds the current timeline immediately. This is not a full editor or external-file watcher.
+
 ## 13.1 Explicit Break Markers and Future Karaoke Presentation
 
 A timestamp gap by itself must never be interpreted as an instrumental/vocal break.

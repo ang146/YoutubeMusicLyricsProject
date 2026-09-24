@@ -73,6 +73,9 @@ public sealed record LocalLyricsDocument(
     EffectiveTrackMetadata EffectiveMetadata)
 {
     public long GlobalOffsetMs => Sidecar.GlobalOffsetMs;
+    public string? LrcContentHash { get; init; }
+    public IReadOnlyList<LrcTimestampOccurrence> TimestampOccurrences { get; init; } = [];
+    public bool IsLrcWritable { get; init; }
 }
 
 public enum TimingAdjustmentStatus
@@ -84,7 +87,11 @@ public enum TimingAdjustmentStatus
     NothingToBake,
     NegativeTimestamp,
     TimestampOverflow,
-    StorageFailure
+    StorageFailure,
+    NoCurrentLine,
+    FileChanged,
+    PreviousLineBoundary,
+    NextLineBoundary
 }
 
 public sealed record TimingAdjustmentResult(
@@ -96,6 +103,8 @@ public sealed record TimingAdjustmentResult(
 }
 
 public sealed record TimingAdjustmentTarget(string LocalTrackId, long GlobalOffsetMs);
+
+public sealed record CurrentLineTimingTarget(LocalLyricsDocument Document, int LineIndex);
 
 public enum LocalLyricsLookupStatus
 {

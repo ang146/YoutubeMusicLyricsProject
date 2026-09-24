@@ -37,6 +37,64 @@ public sealed class PlaybackStateCoordinator
 
     public bool CanAdjustTiming => CurrentLocalLyrics is not null && _library is not null;
 
+    public bool CanAdjustCurrentLineTiming => _library is not null &&
+        CurrentLocalLyrics is { IsLrcWritable: true, LrcContentHash: not null } &&
+        GetTimelinePosition().CurrentIndex is not null;
+
+    public CurrentLineTimingTarget? CaptureCurrentLineTimingTarget()
+    {
+        var document = CurrentLocalLyrics;
+        var index = GetTimelinePosition().CurrentIndex;
+        return document is { IsLrcWritable: true, LrcContentHash: not null } &&
+               _library is not null && index is not null
+            ? new(document, index.Value) : null;
+    }
+
+    public TimingAdjustmentResult AdjustCurrentLineTiming(long deltaMs)
+    {
+        var target = CaptureCurrentLineTimingTarget();
+        return target is null
+            ? new(TimingAdjustmentStatus.NoCurrentLine, Error: "There is no writable current local lyric to edit.")
+            : AdjustCurrentLineTiming(target, deltaMs);
+    }
+
+    public TimingAdjustmentResult AdjustCurrentLineTiming(CurrentLineTimingTarget target, long deltaMs)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        var current = CurrentLocalLyrics;
+        if (_library is null || current is null ||
+            current.Record.LocalTrackId != target.Document.Record.LocalTrackId ||
+            current.Record.LyricsRelativePath != target.Document.Record.LyricsRelativePath ||
+            current.LrcContentHash != target.Document.LrcContentHash)
+            return new(TimingAdjustmentStatus.TrackChanged,
+                Error: "The local lyrics asset changed before the line edit could be saved.");
+
+        var result = _library.AdjustLineTiming(target, deltaMs);
+        if (CurrentLocalLyrics?.Record.LocalTrackId == target.Document.Record.LocalTrackId &&
+            CurrentLocalLyrics.Record.LyricsRelativePath == target.Document.Record.LyricsRelativePath &&
+            CurrentLocalLyrics.LrcContentHash == target.Document.LrcContentHash)
+        {
+            if (result.Succeeded || result.Status == TimingAdjustmentStatus.FileChanged)
+            {
+                if (result.Document is not null)
+                    SetLocalLyrics(result.Document with { EffectiveMetadata = current.EffectiveMetadata },
+                        CurrentLyrics?.Envelope ?? Current!.Envelope);
+                else
+                {
+                    CurrentLocalLyrics = null;
+                    CurrentLyrics = null;
+                    _lyricsTimeline = LyricsTimeline.Empty;
+                    LocalAssociationStatus = "Changed / unusable";
+                    LyricsLoadedFrom = "Local Library (changed / unusable)";
+                }
+            }
+            else if (result.Status == TimingAdjustmentStatus.StorageFailure &&
+                     result.Document is { IsLrcWritable: false })
+                CurrentLocalLyrics = current with { IsLrcWritable = false };
+        }
+        return result;
+    }
+
     public long GetLocalPositionMs() => _playbackClock.GetPositionMs();
 
     public LyricsTimelinePosition GetTimelinePosition() =>
@@ -52,9 +110,10 @@ public sealed class PlaybackStateCoordinator
             return new(TimingAdjustmentStatus.OffsetOverflow);
 
         var result = _library.SetGlobalOffset(target.Record.LocalTrackId, adjusted);
+        // A sidecar-only change must keep the loaded LRC source identity aligned with the unchanged timeline.
         if (result.Succeeded && result.Document is not null &&
             CurrentLocalLyrics?.Record.LocalTrackId == target.Record.LocalTrackId)
-            CurrentLocalLyrics = result.Document with { EffectiveMetadata = target.EffectiveMetadata };
+            CurrentLocalLyrics = target with { Sidecar = result.Document.Sidecar };
         return result;
     }
 
@@ -68,7 +127,7 @@ public sealed class PlaybackStateCoordinator
         var result = _library.SetGlobalOffset(target.Record.LocalTrackId, 0);
         if (result.Succeeded && result.Document is not null &&
             CurrentLocalLyrics?.Record.LocalTrackId == target.Record.LocalTrackId)
-            CurrentLocalLyrics = result.Document with { EffectiveMetadata = target.EffectiveMetadata };
+            CurrentLocalLyrics = target with { Sidecar = result.Document.Sidecar };
         return result;
     }
 

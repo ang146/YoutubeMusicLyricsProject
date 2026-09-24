@@ -1,6 +1,6 @@
 # Lyrics Timing Adjustment
 
-Milestone 8 adds a non-destructive timing correction to each local timed lyrics asset. The correction is an integer number of milliseconds named `GlobalOffsetMs`; it is not an application-wide preference.
+Milestone 8 adds a non-destructive timing correction to each local timed lyrics asset. The correction is an integer number of milliseconds named `GlobalOffsetMs`; it is not an application-wide preference. The Current Line follow-up adds a separate explicit edit of one authoritative LRC timestamp; it does not introduce per-line offsets.
 
 ## Sign and runtime behavior
 
@@ -39,7 +39,7 @@ Offsets are loaded from the sidecar whenever a local track is resolved. Adjustme
 
 ## Bake into LRC
 
-Bake is the only Milestone 8 operation that changes `track.lrc`, and it requires explicit confirmation. A zero offset is not baked. On success:
+Bake is the explicit operation that permanently applies the global offset to every timestamp in `track.lrc`, and it requires confirmation. Current Line buttons separately edit one timestamp directly, as described below. A zero global offset is not baked. On success:
 
 ```text
 new LRC timestamp = old LRC timestamp + GlobalOffsetMs
@@ -53,6 +53,45 @@ The complete rewrite is validated before either authoritative file changes. Bake
 For a valid bake, complete LRC and sidecar contents are written to unique same-directory temporary files and flushed before commit. The LRC is replaced first and the sidecar-with-zero second. If the second replacement fails, the app attempts to restore the original LRC and reports a storage failure; owned temporary files are cleaned up on a best-effort basis. This is a small best-effort filesystem transaction, not a cross-filesystem or power-loss-safe transactional store. A rollback failure is surfaced and logged rather than presented as success.
 
 After a successful bake, the local LRC is parsed again and the current timeline is rebuilt from its new timestamps. The local-first ownership rule remains unchanged: later provider results cannot overwrite the user-owned adjusted or baked LRC.
+
+## Current Line adjustment
+
+The Control Panel's Current Line section shows the current M6 timeline index (displayed one-based), original LRC start timestamp, and lyric text. Its `-0.5s`, `-0.1s`, `+0.1s`, and `+0.5s` buttons are explicit destructive edits: each changes only that selected timestamp token in the local LRC and persists immediately. They do not require Bake or an additional confirmation. There is no arbitrary line selection or text editor.
+
+The two mechanisms remain independent:
+
+```text
+Global Timing: sidecar GlobalOffsetMs, non-destructive, entire document
+Current Line: authoritative LRC timestamp, explicit direct edit, one occurrence
+
+EffectiveLineStartMs = LrcLineStartMs + GlobalOffsetMs
+```
+
+For example, editing a `20.000` line by `+100` with a global offset of `+500` produces an LRC start of `20.100` and an effective start of `20.600`. The sidecar is not modified. A later global Bake produces `20.600` in the LRC and resets the global offset to zero, preserving the same effective timing exactly once.
+
+### Target identity and boundaries
+
+Local LRC parsing retains each usable timestamp token's character index and length alongside the stable normalized document ordering. The current timeline index maps to that exact source occurrence, rather than matching text or timestamps alone. Duplicate text, duplicate timestamps, unsorted physical lines, and multiple timestamps on one physical line therefore do not select the wrong token. For `[00:10.000][00:20.000]Same text`, editing the second timeline entry changes only `[00:20.000]`. These locations are local-library metadata only; nothing is added to the playback protocol, sidecar, or SQLite.
+
+The app captures the local document, its `LocalTrackId`, relative LRC path, loaded-content hash, and current index at the click. A delayed operation is rejected if the current local asset/version has changed. Persistence remains bound to the captured asset; if a track change occurs during saving, another track's file and runtime state are never replaced by the result.
+
+Checked integer addition must produce a timestamp at or above zero. When present, adjacent lines impose inclusive bounds:
+
+```text
+previous.StartMs <= adjusted.StartMs <= next.StartMs
+```
+
+Crossing a neighbour or creating a negative/overflowing timestamp rejects the edit without changing files. Equality is allowed and follows the existing stable duplicate-timestamp selection rule. The first line has no previous boundary; the last line has no next boundary or artificial duration maximum. A current `♪` line uses exactly these same rules, without new break-rendering behavior.
+
+### Saving and re-evaluation
+
+The loaded LRC byte content has a SHA-256 identity. Before editing, the library re-reads and validates the authoritative asset and compares its path, global offset, and LRC identity with the captured document. After preparing and flushing a unique same-directory temporary file, it checks the LRC hash again immediately before replacement. An unexpected external change aborts the edit and safely reloads the current local document; an unusable changed document clears the stale timeline. No external-file watcher is introduced.
+
+Only the selected raw timestamp token is replaced, using canonical millisecond precision. Other timestamps, metadata/unknown tags, blank lines, mixed line endings, Unicode text, and existing encoding/BOM are retained. Failed writes clean up owned temporary files where possible and leave the previous valid runtime timing intact. File writability is checked when loading and again when saving; read-only assets have disabled current-line controls.
+
+After successful persistence, the app rebuilds the timeline from the edited parsed document and refreshed source occurrences/content identity, retaining the global offset and actual `PlaybackClock` position. Current/Next and the overlay are re-evaluated immediately. This may change which line is current; the next button click targets the newly current line, not a pinned prior selection. Later remote lyrics remain unable to overwrite the local edit.
+
+The pre-replacement hash check is best-effort write safety, not a filesystem compare-and-swap lock against arbitrary concurrent external replacements. No per-line metadata or full external-edit synchronization system is added.
 
 ## Deliberate scope limits
 

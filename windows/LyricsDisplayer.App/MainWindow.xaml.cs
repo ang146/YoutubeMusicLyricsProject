@@ -432,18 +432,7 @@ public partial class MainWindow : Window
 
     private void OnOverlayTimingCommand(OverlayCommand command)
     {
-        switch (command)
-        {
-            case OverlayCommand.AdjustCurrentLineMinus500: AdjustCurrentLineTiming(-500); break;
-            case OverlayCommand.AdjustCurrentLineMinus100: AdjustCurrentLineTiming(-100); break;
-            case OverlayCommand.AdjustCurrentLinePlus100: AdjustCurrentLineTiming(100); break;
-            case OverlayCommand.AdjustCurrentLinePlus500: AdjustCurrentLineTiming(500); break;
-            case OverlayCommand.AdjustGlobalMinus500: AdjustTiming(-500); break;
-            case OverlayCommand.AdjustGlobalMinus100: AdjustTiming(-100); break;
-            case OverlayCommand.ResetGlobalTiming: ResetTiming(); break;
-            case OverlayCommand.AdjustGlobalPlus100: AdjustTiming(100); break;
-            case OverlayCommand.AdjustGlobalPlus500: AdjustTiming(500); break;
-        }
+        OverlayTimingCommandRouter.Route(command, AdjustCurrentLineTiming, AdjustTiming, ResetTiming);
         UpdateOverlayTimingAvailability();
     }
 

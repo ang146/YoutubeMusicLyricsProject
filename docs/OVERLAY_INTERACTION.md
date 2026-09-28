@@ -14,11 +14,11 @@ Lyrics state → Content mode → Layout style → Appearance → Optional anima
 
 - `OneLine`: current lyric, or the first upcoming lyric before playback reaches the first line.
 - `TwoLines`: current lyric as primary, next lyric as secondary. Before the first lyric the primary is blank and the first upcoming line is secondary.
-- `AllLyrics`: a contextual multi-line viewport around the exact M6 timeline current occurrence. Nearby past lines appear above, upcoming lines below, and only lines that fit the overlay height are rendered. The whole document is never placed in the visual tree and there is no scrollbar or scroll-position state.
+- `AllLyrics`: a contextual multi-line viewport around the exact M6 timeline current occurrence. Current is mandatory when the timeline has a current line. Under capacity pressure, selection considers Upcoming at distance 1, Past at distance 1, Upcoming at distance 2, Past at distance 2, and so on; selected occurrences are then rendered in normal document order. Thus two rows prefer Current + Next, while three rows normally show Previous + Current + Next. If there is no current line, available upcoming rows fill the viewport without fabricated past rows. Near the final line, available past rows fill unused capacity. The whole document is never placed in the visual tree and there is no scrollbar or scroll-position state.
 
 Confirmed no-lyrics and untimed statuses remain `暫無可用歌詞` and `此歌曲暫無同步歌詞` in every content mode. All Lyrics shows these statuses in its normal text presentation rather than an empty scrolling list. Seek and line transitions use the already-evaluated `LyricsTimelinePosition`; All Lyrics does not evaluate timing independently.
 
-The current layout is `CenterStacked`. All Lyrics places the current row near the center and dims/sizes context according to distance from it. The current occurrence comes from the same timeline index used by the rest of the application; stable timestamp ordering preserves identity when text or timestamps are duplicated. Before the first lyric, the viewport contains upcoming lines only; near the end, it shows available past lines without blank placeholders. Height changes and seeks immediately rebuild the subset. `Past`, `Current`, `Upcoming`, and `Status` are semantic presentation roles; they are not domain colors. Current has scale/opacity 1.0; contextual emphasis decreases with distance to minimum scale 0.72 and opacity 0.52. These are presentation defaults and may become appearance preferences later. A future `KaraokeAlternating` layout may combine with `TwoLines` to place current and upcoming slots on alternating sides. Karaoke is a layout/rendering concern, not a content mode, and is not implemented.
+The current layout is `CenterStacked`. All Lyrics places the current row near the center and combines semantic role (`Past`, `Current`, `Upcoming`) with distance from Current. Current is strongest and modestly larger than the contextual base size; Upcoming remains readable and has greater emphasis than Past at equal distance. Past remains legible but is visually lighter. Both contextual roles decrease in size and opacity with distance, with lower bounds to preserve readability. These are presentation defaults and future user appearance preferences may override their visual values. The current occurrence comes from the same timeline index used by the rest of the application; stable timestamp ordering preserves identity when text or timestamps are duplicated. Before the first lyric, the viewport contains upcoming lines only; near the end, it shows available past lines without blank placeholders. Height changes and seeks immediately rebuild the subset. A future `KaraokeAlternating` layout may combine with `TwoLines` to place current and upcoming slots on alternating sides. Karaoke is a layout/rendering concern, not a content mode, and is not implemented.
 
 Future appearance preferences may include font family, size and weight; role-based current/upcoming/past colors; alignment; opacity; outline/shadow; line spacing; and background opacity. Future karaoke appearance may include sung/unsung colors and progressive fill. No appearance editor or karaoke animation is implemented. Explicit break rendering, preparation cues, horizontal panning, word timing, and character timing remain deferred.
 
@@ -46,19 +46,25 @@ Control Panel and the global shortcut remain independent recovery paths for clic
 
 ## Overlay context menu
 
-The current menu hierarchy is:
+Timing actions are direct quick actions in the main context menu to support repeated correction without nested navigation. The menu hierarchy is:
 
 ```text
 Open Control Panel
 Lyrics Display > One Line / Two Lines / All Lyrics
-Adjust Timing >
-  Current Line > -0.5s / -0.1s / +0.1s / +0.5s
-  Global > -0.5s / -0.1s / Reset / +0.1s / +0.5s
+Current Line -0.5s (Earlier)
+Current Line -0.1s (Earlier)
+Current Line +0.1s (Later)
+Current Line +0.5s (Later)
+Global -0.5s (Earlier)
+Global -0.1s (Earlier)
+Global Reset
+Global +0.1s (Later)
+Global +0.5s (Later)
 Overlay > Lock Position / Click Through / Always on Top
 Hide Desktop Lyrics
 ```
 
-Content and overlay toggles reflect current state. Current Line actions are disabled unless the playback coordinator exposes a writable current local timed line. Timing actions invoke the existing M8 coordinator and storage paths, including their boundary checks and safe LRC write behavior. Global timing also uses existing `GlobalOffsetMs` behavior. Bake remains in the Control Panel because it rewrites the LRC and requires confirmation.
+Content and overlay toggles reflect current state. Current Line actions are disabled unless the playback coordinator exposes a writable current local timed line. Labels identify both scope (`Current Line` or `Global`) and direction (`Earlier` for negative deltas, `Later` for positive deltas). Actions invoke the existing M8 coordinator and storage paths, including current-line boundary checks, exact timestamp occurrence selection, and safe LRC write behavior. Global timing uses existing `GlobalOffsetMs` behavior; Global Reset clears only that offset and never undoes direct LRC edits. Bake remains in the Control Panel because it rewrites the whole LRC and requires confirmation.
 
 The menu is available when click-through is on only if the pointer is over lyric text. **Open Control Panel** shows/restores and activates the Control Panel as an explicit user action. Automatic lyric updates remain non-activating.
 
@@ -111,9 +117,13 @@ The earlier M9 `displayMode` property is read as a compatibility alias. New save
 
 Missing values default to unlocked, click-through off, topmost on, two lines, 900 × 220 geometry, and close-to-tray off. Existing settings without `overlay.height` use the 220 DIP default. Malformed dimensions fall back independently; dimensions below 420 × 120 DIP or non-finite values use their safe defaults. No arbitrary maximum is imposed.
 
-## Future media controls
+## Future Media Controller
 
-A future context-menu section may be `Playback > Play / Pause / Previous Track / Next Track`. It is not implemented. Commands should go through a provider-independent `MediaControlService` and investigate Windows system media-session controls such as Global System Media Transport Controls Session APIs before simulated media keys. Firefox/YouTube Music DOM commands are not the intended normal control path. The OS active media session may not match the source session currently supplying lyrics, so matching may need a later policy.
+The future overlay composition may include the Desktop Overlay, Lyrics View, and optional Media Controller. Preferences may select Visible/Hidden and Dock Left/Dock Right. Potential contents are current title/artist, elapsed time, duration, Previous/Play-Pause/Next transport buttons, and a seekable progress bar when supported. Previous and Next mean transport buttons only, not previous/next track metadata. None of this is implemented now.
+
+Display state should reuse the existing playback model (title, artist, duration, playback position, playing/paused). Commands belong to a future provider-independent `MediaControlService`. Do not equate Windows `GetCurrentSession()` with the YouTube Music source Lyrics Displayer tracks. Future matching should enumerate `GlobalSystemMediaTransportControlsSessionManager.GetSessions()` and use multiple signals (source application identity, title, artist, duration, position, and playback state); no single weak signal is authoritative. Enable controls only for exactly one sufficiently strong match. Disable them for no strong match or multiple ambiguous matches.
+
+Do not try to make YouTube Music Windows' current/priority media session; find and control the right session directly. Firefox's behavior with multiple media-producing tabs must be tested empirically rather than assumed to be one session per tab or one session per browser. If the tracked source is not uniquely controllable, leave generic controls disabled. Seek is desired but capability-aware: send a seek request through `MediaControlService` to the matched session only if accepted. Continue using Lyrics Displayer's `PlaybackClock` for smooth elapsed-time display. If seek is unsupported or rejected, progress can remain displayed while seeking is disabled or safely reverted. No Windows media API, media command, or Firefox extension command is part of M9.
 
 ## Current limitations
 

@@ -219,13 +219,21 @@ Lyrics state → Content mode → Layout style → Appearance → Optional karao
 
 Milestone 9 content modes describe quantity: `OneLine`, `TwoLines`, and `AllLyrics`. Overlay `Left`, `Top`, `Width`, and `Height` are persistent window geometry independent of content mode; switching modes never resizes the window. `AllLyrics` is a contextual multi-line viewport around the exact current timeline occurrence, not a rendering of the whole lyrics document. Its nearby past/upcoming lines fit the available geometry; it does not use a scrollbar. The current layout is `CenterStacked`. A future `KaraokeAlternating` layout may use the same `TwoLines` content mode with different positioning; karaoke is not a line-count mode.
 
-Presentation lines carry semantic roles such as Past, Current, Upcoming, and Status. In All Lyrics, the current line is focal and nearby context receives a bounded distance-based size/opacity falloff; these are presentation defaults, not lyrics-domain semantics. The WPF appearance layer determines emphasis. Future appearance preferences may include font family/size/weight, role-based colors, alignment, opacity, outline, shadow, spacing, and background opacity. Karaoke may add sung/unsung colors or progressive fill. Those customizations and animation are not part of M9.
+Presentation lines carry semantic roles such as Past, Current, Upcoming, and Status. In All Lyrics, viewport selection is separate from timeline semantics: Current is mandatory when one exists; each available Upcoming line is considered before the Past line at the same distance, and selected lines are then rendered in normal document order. If upcoming context is exhausted or cannot use available capacity, Past fills the remaining useful space. At the beginning of a song, only available Upcoming lines are used; near the end, available Past lines fill the viewport. Resizing immediately recalculates this bounded contextual subset. No scrollbar, persistent scroll position, or full-document visual tree is used.
+
+All Lyrics appearance combines semantic role (`Past`, `Current`, or `Upcoming`) with distance from Current. Current is the strongest focal row, Upcoming is clearly readable, and Past is lighter/contextual than Upcoming at equal distance. Size and opacity fall off with distance and retain readability bounds. These are presentation defaults, not lyrics-domain semantics; the WPF appearance layer determines the actual emphasis. Future appearance preferences may include font family/size/weight, role-based colors, alignment, opacity, outline, shadow, spacing, and background opacity. User preferences may override the defaults. Karaoke may add sung/unsung colors or progressive fill. Those customizations and animation are not part of M9.
 
 The overlay remains a presentation surface over application state rather than accumulating playback, storage, or search logic.
 
-### Future playback controls
+### Future Media Controller and playback controls
 
-A future overlay context menu may include `Playback > Play / Pause, Previous Track, Next Track`. Those commands are not implemented. When added, they should route through a provider-independent `MediaControlService` to Windows system media-session controls (for example the Global System Media Transport Controls Session APIs), with simulated media keys only as a fallback. Firefox DOM commands should not become the normal media-control path. The OS active media session may differ from the playback source currently observed for lyrics, so exact source/session matching may be needed later.
+The future overlay composition may contain the Desktop Overlay, the Lyrics View, and an optional Media Controller. User preferences may control whether the controller is Visible/Hidden and whether it is docked Left/Right. Potential controls include current track title and artist, elapsed time, duration, Previous, Play/Pause, Next, and a seekable progress bar when the matched source supports seeking. Previous and Next refer only to transport buttons; do not show previous-track or next-track metadata. This controller and its commands are not implemented.
+
+Display state should primarily reuse Lyrics Displayer's existing playback model (title, artist, duration, playback position, and playing/paused state). Commands belong to a future provider-independent `MediaControlService`. Do not assume Windows `GetCurrentSession()` identifies the YouTube Music session Lyrics Displayer is tracking. The future implementation should enumerate `GlobalSystemMediaTransportControlsSessionManager.GetSessions()` and attempt to match the tracked playback source using multiple signals such as source-application identity, media title, artist, duration, playback position, and playback state. No single weak signal is authoritative.
+
+Matching must fail safe: enable transport only for exactly one sufficiently strong match; disable it for zero strong matches or multiple ambiguous matches. Do not attempt to force YouTube Music to become Windows' current/priority media session; find and control the matching session directly. Firefox behavior with multiple media-producing tabs must be empirically verified rather than assuming one Windows session per tab or one session for the whole browser. If the tracked YouTube Music source is not uniquely controllable, generic Windows media controls remain disabled rather than risking control of another application.
+
+Seek is a desired future command: a drag requests playback-position change through `MediaControlService` on the matched session only when that session accepts seeking. Lyrics Displayer's existing `PlaybackClock` remains the preferred source for smooth displayed elapsed time. If seeking is unsupported or rejected, playback progress may remain visible while seek is disabled or safely reverted. Future matched-session commands may include Play/Pause, Previous, Next, and Seek. No Firefox extension media-command path or Windows media-control implementation is part of M9.
 
 ---
 
@@ -1367,14 +1375,14 @@ Implemented:
 * topmost on/off preference
 * persistent left/top/width/height geometry independent of content mode, with invisible borderless edge/corner resizing while click-through is off and visible-work-area recovery
 * `OneLine`, `TwoLines`, and `AllLyrics` content modes
-* bounded Past/Current/Upcoming context for All Lyrics, selected by exact timeline occurrence and fitted to overlay height without scrolling
-* context-menu access to existing current-line and global timing actions
+* bounded Past/Current/Upcoming context for All Lyrics, selected by exact timeline occurrence and fitted to overlay height without scrolling; Current is mandatory, Upcoming receives capacity priority, and Past fills remaining capacity
+* direct, clearly scoped Current Line and Global timing quick actions in the overlay context menu, routed to existing M8 operations
 * system tray lifecycle/recovery with optional close-to-tray behavior
 * explicit tray exit that unregisters hotkeys and shuts down the App
 
 The overlay is the primary day-to-day lyrics surface. MainWindow is the Control Panel; the tray remains available when it is hidden.
 
-The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. A focused `WM_NCHITTEST` hook selects interactive lyric/grip regions; it does not apply whole-window `WS_EX_TRANSPARENT`. Two fixed `RegisterHotKey` shortcuts remain available while the Control Panel is hidden. Timing menu commands route to the existing playback/timing coordinator. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
+The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. A focused `WM_NCHITTEST` hook selects interactive lyric/grip regions; it does not apply whole-window `WS_EX_TRANSPARENT`. Two fixed `RegisterHotKey` shortcuts remain available while the Control Panel is hidden. Timing quick actions are intentionally direct rather than deeply nested and route to the existing playback/timing coordinator; menu hierarchy is overlay interaction behavior, not Core architecture. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
 ---
 

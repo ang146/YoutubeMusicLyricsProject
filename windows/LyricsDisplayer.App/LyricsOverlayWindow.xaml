@@ -21,21 +21,27 @@
                     <MenuItem x:Name="AllLyricsMenuItem" Header="All Lyrics" IsCheckable="True"
                               Tag="SetAllLyrics" Click="OnMenuItemClick" />
                 </MenuItem>
-                <MenuItem x:Name="AdjustTimingMenuItem" Header="Adjust Timing">
-                    <MenuItem x:Name="CurrentLineMenuItem" Header="Current Line">
-                        <MenuItem Header="-0.5s" Tag="AdjustCurrentLineMinus500" Click="OnMenuItemClick" />
-                        <MenuItem Header="-0.1s" Tag="AdjustCurrentLineMinus100" Click="OnMenuItemClick" />
-                        <MenuItem Header="+0.1s" Tag="AdjustCurrentLinePlus100" Click="OnMenuItemClick" />
-                        <MenuItem Header="+0.5s" Tag="AdjustCurrentLinePlus500" Click="OnMenuItemClick" />
-                    </MenuItem>
-                    <MenuItem x:Name="GlobalTimingMenuItem" Header="Global">
-                        <MenuItem Header="-0.5s" Tag="AdjustGlobalMinus500" Click="OnMenuItemClick" />
-                        <MenuItem Header="-0.1s" Tag="AdjustGlobalMinus100" Click="OnMenuItemClick" />
-                        <MenuItem Header="Reset" Tag="ResetGlobalTiming" Click="OnMenuItemClick" />
-                        <MenuItem Header="+0.1s" Tag="AdjustGlobalPlus100" Click="OnMenuItemClick" />
-                        <MenuItem Header="+0.5s" Tag="AdjustGlobalPlus500" Click="OnMenuItemClick" />
-                    </MenuItem>
-                </MenuItem>
+                <Separator />
+                <MenuItem x:Name="CurrentLineMinus500MenuItem" Header="Current Line -0.5s (Earlier)"
+                          Tag="AdjustCurrentLineMinus500" Click="OnMenuItemClick" />
+                <MenuItem x:Name="CurrentLineMinus100MenuItem" Header="Current Line -0.1s (Earlier)"
+                          Tag="AdjustCurrentLineMinus100" Click="OnMenuItemClick" />
+                <MenuItem x:Name="CurrentLinePlus100MenuItem" Header="Current Line +0.1s (Later)"
+                          Tag="AdjustCurrentLinePlus100" Click="OnMenuItemClick" />
+                <MenuItem x:Name="CurrentLinePlus500MenuItem" Header="Current Line +0.5s (Later)"
+                          Tag="AdjustCurrentLinePlus500" Click="OnMenuItemClick" />
+                <Separator />
+                <MenuItem x:Name="GlobalMinus500MenuItem" Header="Global -0.5s (Earlier)"
+                          Tag="AdjustGlobalMinus500" Click="OnMenuItemClick" />
+                <MenuItem x:Name="GlobalMinus100MenuItem" Header="Global -0.1s (Earlier)"
+                          Tag="AdjustGlobalMinus100" Click="OnMenuItemClick" />
+                <MenuItem x:Name="GlobalResetMenuItem" Header="Global Reset"
+                          Tag="ResetGlobalTiming" Click="OnMenuItemClick" />
+                <MenuItem x:Name="GlobalPlus100MenuItem" Header="Global +0.1s (Later)"
+                          Tag="AdjustGlobalPlus100" Click="OnMenuItemClick" />
+                <MenuItem x:Name="GlobalPlus500MenuItem" Header="Global +0.5s (Later)"
+                          Tag="AdjustGlobalPlus500" Click="OnMenuItemClick" />
+                <Separator />
                 <MenuItem x:Name="OverlayMenuItem" Header="Overlay">
                     <MenuItem x:Name="LockedMenuItem" Header="Lock Position" IsCheckable="True"
                               Tag="ToggleLocked" Click="OnMenuItemClick" />
@@ -84,11 +90,11 @@
                                    FontSize="{Binding FontSize}" Opacity="{Binding Opacity}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
-                                    <Setter Property="Foreground" Value="#C8FFFFFF" />
+                                    <Setter Property="Foreground" Value="#E8FFFFFF" />
                                     <Setter Property="FontWeight" Value="Normal" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Past}">
-                                            <Setter Property="Foreground" Value="White" />
+                                            <Setter Property="Foreground" Value="#C8FFFFFF" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Current}">
                                             <Setter Property="Foreground" Value="White" />

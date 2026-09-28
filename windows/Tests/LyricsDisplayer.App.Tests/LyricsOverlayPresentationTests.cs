@@ -155,6 +155,44 @@ public sealed class LyricsOverlayPresentationTests
         });
     }
 
+    [TestCase(1, new[] { 2 })]
+    [TestCase(2, new[] { 2, 3 })]
+    [TestCase(3, new[] { 1, 2, 3 })]
+    [TestCase(4, new[] { 1, 2, 3, 4 })]
+    [TestCase(5, new[] { 0, 1, 2, 3, 4 })]
+    public void AllLyricsCapacityPrefersUpcomingThenAlternatesPast(int capacity, int[] expectedIndexes)
+    {
+        var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
+        var window = LyricsContextWindow.Select(lines, 2, 3, 1200, HeightForCapacity(capacity));
+
+        Assert.That(window.Select(line => line.Index), Is.EqualTo(expectedIndexes));
+        Assert.That(window.Single(line => line.Role == LyricLineRole.Current).Text, Is.EqualTo("C"));
+        Assert.That(window.Where(line => line.Index > 2).All(line => line.Role == LyricLineRole.Upcoming), Is.True);
+        Assert.That(window.Where(line => line.Index < 2).All(line => line.Role == LyricLineRole.Past), Is.True);
+    }
+
+    [Test]
+    public void AllLyricsAtBeginningUsesUpcomingContextWithoutPastPlaceholders()
+    {
+        var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
+        var window = LyricsContextWindow.Select(lines, 0, 1, 1200, HeightForCapacity(4));
+
+        Assert.That(window.Select(line => line.Index), Is.EqualTo(new[] { 0, 1, 2, 3 }));
+        Assert.That(window[0].Role, Is.EqualTo(LyricLineRole.Current));
+        Assert.That(window.Skip(1).All(line => line.Role == LyricLineRole.Upcoming), Is.True);
+    }
+
+    [Test]
+    public void AllLyricsAtFinalLineFillsCapacityWithPastContext()
+    {
+        var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
+        var window = LyricsContextWindow.Select(lines, 4, null, 1200, HeightForCapacity(4));
+
+        Assert.That(window.Select(line => line.Index), Is.EqualTo(new[] { 1, 2, 3, 4 }));
+        Assert.That(window[^1].Role, Is.EqualTo(LyricLineRole.Current));
+        Assert.That(window.Take(3).All(line => line.Role == LyricLineRole.Past), Is.True);
+    }
+
     [Test]
     public void WiderViewportAccountsForLongWrappedContextLines()
     {
@@ -221,22 +259,51 @@ public sealed class LyricsOverlayPresentationTests
     }
 
     [Test]
-    public void DistanceFalloffIsMonotonicAndHasReadableLowerBounds()
+    public void CurrentHasModestSizeIncreaseAndHighestOpacity()
     {
-        var current = LyricsPresentationDefaults.ForDistance(0);
-        var one = LyricsPresentationDefaults.ForDistance(1);
-        var two = LyricsPresentationDefaults.ForDistance(2);
-        var distant = LyricsPresentationDefaults.ForDistance(100);
+        var current = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Current, 0);
+        var past = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 1);
+        var upcoming = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 1);
+        var distantPast = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 100);
+        var distantUpcoming = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 100);
         Assert.Multiple(() =>
         {
-            Assert.That(current.Scale, Is.GreaterThan(one.Scale));
-            Assert.That(one.Scale, Is.GreaterThanOrEqualTo(two.Scale));
-            Assert.That(current.Opacity, Is.GreaterThan(one.Opacity));
-            Assert.That(one.Opacity, Is.GreaterThanOrEqualTo(two.Opacity));
-            Assert.That(distant.Scale, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumScale));
-            Assert.That(distant.Opacity, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumOpacity));
+            Assert.That(LyricsPresentationDefaults.BaseContextFontSize * current.Scale,
+                Is.GreaterThan(LyricsPresentationDefaults.BaseContextFontSize));
+            Assert.That(current.Scale, Is.InRange(1.05, 1.08));
+            Assert.That(current.Opacity, Is.GreaterThanOrEqualTo(past.Opacity));
+            Assert.That(current.Opacity, Is.GreaterThanOrEqualTo(upcoming.Opacity));
+            Assert.That(current.Opacity, Is.GreaterThanOrEqualTo(distantPast.Opacity));
+            Assert.That(current.Opacity, Is.GreaterThanOrEqualTo(distantUpcoming.Opacity));
         });
     }
+
+    [Test]
+    public void UpcomingIsStrongerThanPastAtEqualDistanceAndDistanceFalloffRemainsReadable()
+    {
+        var pastOne = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 1);
+        var upcomingOne = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 1);
+        var pastTwo = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 2);
+        var upcomingTwo = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 2);
+        var pastFar = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 100);
+        var upcomingFar = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 100);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(upcomingOne.Opacity, Is.GreaterThan(pastOne.Opacity));
+            Assert.That(upcomingOne.Scale, Is.GreaterThan(pastOne.Scale));
+            Assert.That(upcomingOne.Opacity, Is.GreaterThan(upcomingTwo.Opacity));
+            Assert.That(upcomingOne.Scale, Is.GreaterThan(upcomingTwo.Scale));
+            Assert.That(pastOne.Opacity, Is.GreaterThan(pastTwo.Opacity));
+            Assert.That(pastOne.Scale, Is.GreaterThan(pastTwo.Scale));
+            Assert.That(upcomingFar.Scale, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumScale));
+            Assert.That(upcomingFar.Opacity, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumOpacity));
+            Assert.That(pastFar.Scale, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumScale));
+            Assert.That(pastFar.Opacity, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumOpacity));
+        });
+    }
+
+    private static double HeightForCapacity(int capacity) => 38 + capacity * 45;
 
     private static LyricsTimelinePosition Position(LyricsLine? current, LyricsLine? next) =>
         new(current is null ? null : 0, current, next is null ? null : 1, next);

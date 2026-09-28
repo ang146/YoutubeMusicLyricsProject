@@ -64,7 +64,13 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
     internal TextBlock PrimaryTextForTesting => PrimaryText;
     internal TextBlock SecondaryTextForTesting => SecondaryText;
     internal ItemsControl AllLyricsItemsForTesting => AllLyricsItems;
-    internal bool CurrentLineMenuEnabledForTesting => CurrentLineMenuItem.IsEnabled;
+    internal System.Windows.Controls.ContextMenu ContextMenuForTesting => OverlayContextMenu;
+    internal IReadOnlyList<MenuItem> CurrentLineTimingMenuItemsForTesting =>
+        [CurrentLineMinus500MenuItem, CurrentLineMinus100MenuItem,
+            CurrentLinePlus100MenuItem, CurrentLinePlus500MenuItem];
+    internal IReadOnlyList<MenuItem> GlobalTimingMenuItemsForTesting =>
+        [GlobalMinus500MenuItem, GlobalMinus100MenuItem, GlobalResetMenuItem,
+            GlobalPlus100MenuItem, GlobalPlus500MenuItem];
     internal Brush SurfaceBackgroundForTesting => OverlaySurface.Background;
     public event Action? CloseRequested;
     public event Action<OverlayPosition>? DragCompleted;
@@ -115,8 +121,8 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
 
     public void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs)
     {
-        CurrentLineMenuItem.IsEnabled = currentLineEnabled;
-        GlobalTimingMenuItem.IsEnabled = globalTimingEnabled;
+        foreach (var item in CurrentLineTimingMenuItemsForTesting) item.IsEnabled = currentLineEnabled;
+        foreach (var item in GlobalTimingMenuItemsForTesting) item.IsEnabled = globalTimingEnabled;
     }
 
     public void ShowWithoutActivation() => Show();

@@ -17,25 +17,37 @@ public sealed record PresentedLyricLine(
     double Scale = 1,
     double Opacity = 1)
 {
-    public double FontSize => 26 * Scale;
+    public double FontSize => LyricsPresentationDefaults.BaseContextFontSize * Scale;
 }
 
 public readonly record struct LyricEmphasis(double Scale, double Opacity);
 
 public static class LyricsPresentationDefaults
 {
+    public const double BaseContextFontSize = 26;
+    public const double CurrentRoleScale = 1.06;
     public const double ContextMinimumScale = 0.72;
     public const double ContextMinimumOpacity = 0.52;
 
-    public static LyricEmphasis ForDistance(int distance) => distance <= 0
-        ? new(1, 1)
-        : new(Math.Max(ContextMinimumScale, 1 - 0.13 * distance),
-            Math.Max(ContextMinimumOpacity, 1 - 0.19 * distance));
+    public static LyricEmphasis ForRoleAndDistance(LyricLineRole role, int distance)
+    {
+        if (role == LyricLineRole.Current) return new(CurrentRoleScale, 1);
+
+        var normalizedDistance = Math.Max(1, distance);
+        var (roleScale, roleOpacity) = role switch
+        {
+            LyricLineRole.Past => (0.95, 0.82),
+            LyricLineRole.Upcoming => (1.0, 0.98),
+            _ => (1.0, 1.0)
+        };
+        return new(
+            Math.Max(ContextMinimumScale, roleScale - 0.10 * (normalizedDistance - 1)),
+            Math.Max(ContextMinimumOpacity, roleOpacity - 0.12 * (normalizedDistance - 1)));
+    }
 }
 
 public static class LyricsContextWindow
 {
-    private const double BaseFontSize = 26;
     private const double VerticalPadding = 38;
 
     public static IReadOnlyList<PresentedLyricLine> Select(
@@ -57,13 +69,13 @@ public static class LyricsContextWindow
 
         PresentedLyricLine Create(int index, LyricLineRole role, int distance)
         {
-            var emphasis = LyricsPresentationDefaults.ForDistance(distance);
+            var emphasis = LyricsPresentationDefaults.ForRoleAndDistance(role, distance);
             return new(index, normalizedLines[index].Text, role, distance, emphasis.Scale, emphasis.Opacity);
         }
 
         double HeightOf(PresentedLyricLine line)
         {
-            var fontSize = BaseFontSize * line.Scale;
+            var fontSize = LyricsPresentationDefaults.BaseContextFontSize * line.Scale;
             var wrappedLines = line.Text.Split('\n').Sum(paragraph =>
                 Math.Max(1, Math.Ceiling(EstimateTextWidth(paragraph, fontSize) / width)));
             return wrappedLines * fontSize * 1.28 + 8;
@@ -74,46 +86,28 @@ public static class LyricsContextWindow
             var center = Create(current, LyricLineRole.Current, 0);
             selected[current] = center;
             measured = HeightOf(center);
-            var before = current - 1;
-            var after = current + 1;
-            var pastCount = 0;
-            var upcomingCount = 0;
-            var pastDone = false;
-            var upcomingDone = false;
-
-            while (!pastDone || !upcomingDone)
+            for (var distance = 1; distance < normalizedLines.Count; distance++)
             {
-                var wantPast = !pastDone && (upcomingDone || pastCount <= upcomingCount);
-                var index = wantPast ? before : after;
-                if ((wantPast && index < 0) || (!wantPast && index >= normalizedLines.Count))
+                var upcoming = current + distance;
+                if (upcoming < normalizedLines.Count)
                 {
-                    if (wantPast) pastDone = true;
-                    else upcomingDone = true;
-                    continue;
+                    TryAdd(upcoming, LyricLineRole.Upcoming, distance);
                 }
 
-                var line = Create(index, wantPast ? LyricLineRole.Past : LyricLineRole.Upcoming,
-                    Math.Abs(index - current));
+                var past = current - distance;
+                if (past >= 0)
+                {
+                    TryAdd(past, LyricLineRole.Past, distance);
+                }
+            }
+
+            void TryAdd(int index, LyricLineRole role, int distance)
+            {
+                var line = Create(index, role, distance);
                 var height = HeightOf(line);
-                if (measured + height > budget)
-                {
-                    if (wantPast) pastDone = true;
-                    else upcomingDone = true;
-                    continue;
-                }
-
+                if (measured + height > budget) return;
                 selected[index] = line;
                 measured += height;
-                if (wantPast)
-                {
-                    pastCount++;
-                    before--;
-                }
-                else
-                {
-                    upcomingCount++;
-                    after++;
-                }
             }
         }
         else

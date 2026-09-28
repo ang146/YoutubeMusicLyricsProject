@@ -340,6 +340,10 @@ public sealed class LyricsOverlayControllerTests
             Assert.That(harness.View.LastState!.AllLines.Count, Is.GreaterThanOrEqualTo(smallCount));
             Assert.That(harness.View.LastState.AllLines.Single(line => line.Role == LyricLineRole.Current).Index,
                 Is.EqualTo(50));
+            Assert.That(harness.View.LastState.AllLines.Any(line => line.Index == 51 && line.Role == LyricLineRole.Upcoming),
+                Is.True);
+            Assert.That(harness.View.LastState.AllLines.Any(line => line.Index == 52 && line.Role == LyricLineRole.Upcoming),
+                Is.True);
             Assert.That(harness.Controller.Interaction.Height, Is.EqualTo(500));
         });
     }

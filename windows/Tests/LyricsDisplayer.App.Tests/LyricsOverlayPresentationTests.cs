@@ -1,4 +1,5 @@
 using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
 
 namespace LyricsDisplayer.App.Tests;
@@ -76,6 +77,23 @@ public sealed class LyricsOverlayPresentationTests
             Assert.That(timed.PrimaryText, Is.Not.EqualTo(LyricsOverlayPresentationState.NoLyricsText));
             Assert.That(timed.PrimaryText, Is.Not.EqualTo(LyricsOverlayPresentationState.UntimedLyricsText));
         });
+    }
+
+    [Test]
+    public void OneLineModeUsesUpcomingLineBeforeFirstTimestamp()
+    {
+        var state = LyricsOverlayPresentationState.FromLyrics(
+            TimedLyrics(), Position(null, Line("First")), OverlayDisplayMode.OneLine);
+        Assert.That(state, Is.EqualTo(new LyricsOverlayPresentationState("First", string.Empty)));
+    }
+
+    [TestCase(false, false, LyricsOverlayPresentationState.NoLyricsText)]
+    [TestCase(true, false, LyricsOverlayPresentationState.UntimedLyricsText)]
+    public void OneLineModePreservesStatusPresentation(bool available, bool timed, string expected)
+    {
+        var state = LyricsOverlayPresentationState.FromLyrics(
+            Lyrics(available, timed), EmptyTimeline(), OverlayDisplayMode.OneLine);
+        Assert.That(state, Is.EqualTo(new LyricsOverlayPresentationState(expected, string.Empty)));
     }
 
     private static LyricsTimelinePosition Position(LyricsLine? current, LyricsLine? next) =>

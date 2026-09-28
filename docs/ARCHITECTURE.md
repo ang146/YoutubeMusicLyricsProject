@@ -173,7 +173,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 7, the application retains its diagnostic UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, and current/next-line timeline evaluation against the monotonic playback clock. Storage, indexing, timeline selection, overlay presentation mapping, settings parsing, and geometry validation live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), and [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md).
+Through Milestone 9, the application retains its diagnostic/control-panel UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, current/next-line timeline evaluation, timing adjustment, and explicit overlay interaction preferences. Storage, indexing, timeline selection, overlay presentation mapping, interaction state, settings parsing, and geometry validation live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), and [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
 ### User-Facing Window Roles
 
@@ -195,21 +195,21 @@ LyricsDisplayer.App
    └─ future editing/search entry points
 ```
 
-Future access to the control panel may include:
+Access to the control panel includes:
 
 * the normal taskbar/minimised application surface
 * a system-tray/taskbar entry if later adopted
-* an overlay context menu
+* the overlay context menu
 * other explicit application controls
 
 The exact close/minimise/tray lifecycle is intentionally deferred until the control-panel interaction milestone.
 
-Overlay customisation is also a later concern. Likely preferences include:
+Milestone 9 implements the basic interaction preferences:
 
 * topmost on/off
 * overlay size
 * number of displayed lyric lines
-* lyric layout/rendering mode
+* one-line or two-line rendering mode
 * long-line behaviour
 * other visual preferences
 
@@ -1346,7 +1346,7 @@ The offset is global only within one local lyrics document, not across the appli
 
 ## Milestone 9 — Overlay Interaction
 
-Add:
+Implemented:
 
 * lock/unlock
 * click-through
@@ -1359,6 +1359,8 @@ Add:
 * control-panel access from normal application/taskbar/tray surfaces as appropriate
 
 The desktop overlay is expected to be the primary day-to-day lyrics surface. The main WPF window should evolve toward a control panel/preferences role.
+
+The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. Focused Win32 adapters provide in-place click-through styles and two fixed `RegisterHotKey` shortcuts without moving playback, timeline, timing, or library responsibilities into the view. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
 ---
 

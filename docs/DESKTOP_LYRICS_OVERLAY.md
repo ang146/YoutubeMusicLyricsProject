@@ -53,7 +53,7 @@ Example:
 }
 ```
 
-The coherent settings reader accepts either section independently. Overlay coordinates must both be finite JSON numbers. Missing or malformed overlay data uses the default without discarding a valid library path. Saving replaces only the `overlay` object, preserves `lyricsLibraryPath` and unknown top-level settings, writes a unique same-directory temporary file, flushes it, and replaces the settings file.
+The coherent settings reader accepts either section independently. Overlay coordinates must both be finite JSON numbers. Missing or malformed overlay data uses the default without discarding a valid library path. Position and preference saves merge into the `overlay` object, preserve unknown nested and top-level settings, write a unique same-directory temporary file, flush it, and replace the settings file.
 
 Positions use WPF device-independent coordinates. A saved overlay rectangle must retain a usable intersection with a supplied visible work area. Otherwise the overlay falls back horizontally centered in the lower portion of the primary work area. The geometry decision is independent of physical monitors and is covered using synthetic work-area data.
 
@@ -61,7 +61,7 @@ At runtime, WPF's primary work area is used for fallback and its device-independ
 
 ## Current limitations and future break design
 
-M7 renders whole lines only. It does not provide click-through, an overlay lock, resizing preferences, skins, global hotkeys, lyric editing, timing offsets, progress fill, karaoke animation, word/character timing, countdowns, or preparation animation.
+M7 renders whole lines only. Milestone 9 adds lock, click-through, width/display preferences, and global shortcuts around that presentation without changing lyric selection; see [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md). Skins, lyric editing, progress fill, karaoke animation, word/character timing, countdowns, and preparation animation remain outside the overlay implementation.
 
 Breaks must eventually be represented explicitly. Timestamp gap length alone must never imply a break. The proposed canonical LRC marker is:
 

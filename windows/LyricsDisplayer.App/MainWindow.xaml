@@ -1,7 +1,7 @@
 <Window x:Class="LyricsDisplayer.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Lyrics Displayer - Diagnostics" Height="850" Width="980"
+        Title="Lyrics Displayer Control Panel" Height="850" Width="980"
         MinHeight="600" MinWidth="760">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <Grid Margin="16">
@@ -10,6 +10,7 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -144,14 +145,40 @@
                                TextWrapping="Wrap" Margin="0,7,0,0" />
                 </StackPanel>
             </Border>
-            <TextBox Grid.Row="21" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
+            <Border Grid.Row="21" Grid.ColumnSpan="2" BorderBrush="#FFD0D0D0" BorderThickness="1"
+                    CornerRadius="4" Padding="10" Margin="0,8,0,8">
+                <StackPanel>
+                    <TextBlock Text="Overlay Preferences" FontSize="18" FontWeight="Bold" Margin="0,0,0,8" />
+                    <WrapPanel Margin="0,0,0,8">
+                        <CheckBox x:Name="OverlayLockedCheckBox" Content="Lock position" Margin="0,0,18,0" />
+                        <CheckBox x:Name="OverlayClickThroughCheckBox" Content="Click through" Margin="0,0,18,0" />
+                        <CheckBox x:Name="OverlayTopmostCheckBox" Content="Always on top" />
+                    </WrapPanel>
+                    <WrapPanel VerticalAlignment="Center" Margin="0,0,0,8">
+                        <TextBlock Text="Display" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <ComboBox x:Name="OverlayDisplayModeComboBox" Width="130" Margin="0,0,18,0">
+                            <ComboBoxItem Content="One line" />
+                            <ComboBoxItem Content="Two lines" />
+                        </ComboBox>
+                        <TextBlock Text="Width" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBox x:Name="OverlayWidthTextBox" Width="80" VerticalContentAlignment="Center" />
+                        <Button x:Name="OverlayWidthApplyButton" Content="Apply" Padding="10,3" Margin="6,0,0,0" />
+                    </WrapPanel>
+                    <TextBlock x:Name="OverlayPreferenceStatusText" Foreground="#FF9C1C1C"
+                               TextWrapping="Wrap" Margin="0,0,0,6" />
+                    <TextBlock Text="Global shortcuts: Ctrl+Alt+Shift+L toggles the overlay; Ctrl+Alt+Shift+T toggles click-through."
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="HotkeyStatusText" Foreground="#FF9C1C1C" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+            <TextBox Grid.Row="22" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="NoWrap" />
-            <TextBlock Grid.Row="22" Grid.ColumnSpan="2" Text="Local lyrics library" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
-            <TextBox Grid.Row="23" Grid.ColumnSpan="2" x:Name="LibraryDiagnosticsText" IsReadOnly="True"
+            <TextBlock Grid.Row="23" Grid.ColumnSpan="2" Text="Local lyrics library" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
+            <TextBox Grid.Row="24" Grid.ColumnSpan="2" x:Name="LibraryDiagnosticsText" IsReadOnly="True"
                      MinHeight="240" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" />
-            <TextBlock Grid.Row="24" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
-            <TextBox Grid.Row="25" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
+            <TextBlock Grid.Row="25" Grid.ColumnSpan="2" Text="Raw JSON" FontSize="18" FontWeight="Bold" Margin="0,14,0,8" />
+            <TextBox Grid.Row="26" Grid.ColumnSpan="2" x:Name="RawJsonText" IsReadOnly="True"
                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                      FontFamily="Consolas" TextWrapping="Wrap" />
         </Grid>

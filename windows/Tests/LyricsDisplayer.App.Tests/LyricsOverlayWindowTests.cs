@@ -1,6 +1,8 @@
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
+using LyricsDisplayer.Core.Settings;
 
 namespace LyricsDisplayer.App.Tests;
 
@@ -58,5 +60,59 @@ public sealed class LyricsOverlayWindowTests
         {
             window.CloseForApplicationShutdown();
         }
+    }
+
+    [Test]
+    public void InteractionStateControlsWidthHeightTopmostSecondaryLineAndNativeStyle()
+    {
+        var clickThrough = new FakeClickThrough();
+        var window = new LyricsOverlayWindow(clickThrough);
+        try
+        {
+            window.ApplyInteractionState(new(true, true, false, OverlayDisplayMode.OneLine, 1200));
+            var grid = (Grid)((Border)window.Content).Child;
+            var secondary = (TextBlock)grid.Children[1];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(window.Width, Is.EqualTo(1200));
+                Assert.That(window.Height, Is.EqualTo(150));
+                Assert.That(window.Topmost, Is.False);
+                Assert.That(secondary.Visibility, Is.EqualTo(Visibility.Collapsed));
+                Assert.That(clickThrough.Values, Has.Some.True);
+            });
+        }
+        finally
+        {
+            window.CloseForApplicationShutdown();
+        }
+    }
+
+    [Test]
+    public void RealWindowAppliesAndRemovesTransparentHitTestStyleInPlace()
+    {
+        var window = new LyricsOverlayWindow();
+        try
+        {
+            window.Show();
+            var handle = new WindowInteropHelper(window).Handle;
+            window.ApplyInteractionState(new(false, true, true, OverlayDisplayMode.TwoLines, 900));
+            Assert.That(NativeOverlayClickThrough.GetCurrentStyle(handle) &
+                        NativeOverlayClickThrough.TransparentStyle, Is.Not.Zero);
+
+            window.ApplyInteractionState(new(false, false, true, OverlayDisplayMode.TwoLines, 900));
+            Assert.That(NativeOverlayClickThrough.GetCurrentStyle(handle) &
+                        NativeOverlayClickThrough.TransparentStyle, Is.Zero);
+        }
+        finally
+        {
+            window.CloseForApplicationShutdown();
+        }
+    }
+
+    private sealed class FakeClickThrough : IOverlayClickThroughAdapter
+    {
+        public List<bool> Values { get; } = [];
+        public void SetClickThrough(nint windowHandle, bool enabled) => Values.Add(enabled);
     }
 }

@@ -8,6 +8,25 @@
         Topmost="True">
     <Border Background="#30000000" CornerRadius="10" Padding="24,16"
             MouseLeftButtonDown="OnMouseLeftButtonDown">
+        <Border.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="Open Control Panel" Tag="OpenControlPanel" Click="OnMenuItemClick" />
+                <Separator />
+                <MenuItem x:Name="LockedMenuItem" Header="Lock position" IsCheckable="True"
+                          Tag="ToggleLocked" Click="OnMenuItemClick" />
+                <MenuItem x:Name="ClickThroughMenuItem" Header="Click through" IsCheckable="True"
+                          Tag="ToggleClickThrough" Click="OnMenuItemClick" />
+                <MenuItem x:Name="TopmostMenuItem" Header="Always on top" IsCheckable="True"
+                          Tag="ToggleTopmost" Click="OnMenuItemClick" />
+                <Separator />
+                <MenuItem x:Name="OneLineMenuItem" Header="One line" IsCheckable="True"
+                          Tag="UseOneLine" Click="OnMenuItemClick" />
+                <MenuItem x:Name="TwoLinesMenuItem" Header="Two lines" IsCheckable="True"
+                          Tag="UseTwoLines" Click="OnMenuItemClick" />
+                <Separator />
+                <MenuItem Header="Hide" Tag="Hide" Click="OnMenuItemClick" />
+            </ContextMenu>
+        </Border.ContextMenu>
         <Grid VerticalAlignment="Center">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />

@@ -2,9 +2,11 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Core.Settings;
 
 namespace LyricsDisplayer;
 
@@ -17,6 +19,8 @@ public partial class MainWindow : Window
     private readonly LyricsOverlayController _overlay;
     private Task? _serverTask;
     private bool _synchronizingOverlayToggle;
+    private bool _synchronizingOverlayPreferences;
+    private GlobalHotkeyService? _globalHotkeys;
     private string? _currentLineTimingStatusTrackId;
 
     public MainWindow()
@@ -33,8 +37,18 @@ public partial class MainWindow : Window
             DesktopWorkAreaProvider.GetVisibleWorkAreas,
             logger.Write);
         _overlay.VisibilityChanged += OnOverlayVisibilityChanged;
+        _overlay.InteractionStateChanged += OnOverlayInteractionStateChanged;
+        _overlay.OpenControlPanelRequested += OpenControlPanel;
         ShowOverlayCheckBox.Checked += OnShowOverlayChecked;
         ShowOverlayCheckBox.Unchecked += OnShowOverlayUnchecked;
+        OverlayLockedCheckBox.Checked += OnOverlayLockedChanged;
+        OverlayLockedCheckBox.Unchecked += OnOverlayLockedChanged;
+        OverlayClickThroughCheckBox.Checked += OnOverlayClickThroughChanged;
+        OverlayClickThroughCheckBox.Unchecked += OnOverlayClickThroughChanged;
+        OverlayTopmostCheckBox.Checked += OnOverlayTopmostChanged;
+        OverlayTopmostCheckBox.Unchecked += OnOverlayTopmostChanged;
+        OverlayDisplayModeComboBox.SelectionChanged += OnOverlayDisplayModeChanged;
+        OverlayWidthApplyButton.Click += OnOverlayWidthApply;
         TimingMinus500Button.Click += (_, _) => AdjustTiming(-500);
         TimingMinus100Button.Click += (_, _) => AdjustTiming(-100);
         TimingResetButton.Click += (_, _) => ResetTiming();
@@ -57,17 +71,29 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         DisplayLibrary();
         UpdateTimingControls();
+        SynchronizeOverlayPreferences(_overlay.Interaction);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_globalHotkeys is not null) return;
         _serverTask = RunServerSafelyAsync();
         _positionRefreshTimer.Start();
+        var logger = ((App)Application.Current).Logger;
+        _globalHotkeys = new GlobalHotkeyService(
+            new Win32GlobalHotkeyPlatform(new WindowInteropHelper(this).Handle),
+            _overlay.ToggleVisibility,
+            () => _overlay.SetClickThrough(!_overlay.Interaction.ClickThrough),
+            logger.Write);
+        _globalHotkeys.Start();
+        if (_globalHotkeys.RegisteredIds.Count != 2)
+            HotkeyStatusText.Text = "One or more global shortcuts are already in use and could not be registered.";
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         _positionRefreshTimer.Stop();
+        _globalHotkeys?.Dispose();
         _overlay.Shutdown();
         _shutdown.Cancel();
     }
@@ -289,5 +315,74 @@ public partial class MainWindow : Window
         {
             _synchronizingOverlayToggle = false;
         }
+    }
+
+    private void OnOverlayInteractionStateChanged(OverlayInteractionState state) =>
+        SynchronizeOverlayPreferences(state);
+
+    private void SynchronizeOverlayPreferences(OverlayInteractionState state)
+    {
+        _synchronizingOverlayPreferences = true;
+        try
+        {
+            OverlayLockedCheckBox.IsChecked = state.Locked;
+            OverlayClickThroughCheckBox.IsChecked = state.ClickThrough;
+            OverlayTopmostCheckBox.IsChecked = state.Topmost;
+            OverlayDisplayModeComboBox.SelectedIndex = state.DisplayMode == OverlayDisplayMode.OneLine ? 0 : 1;
+            OverlayWidthTextBox.Text = state.Width.ToString("0", CultureInfo.InvariantCulture);
+            OverlayPreferenceStatusText.Text = string.Empty;
+        }
+        finally
+        {
+            _synchronizingOverlayPreferences = false;
+        }
+    }
+
+    private void OnOverlayLockedChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_synchronizingOverlayPreferences)
+            _overlay.SetLocked(OverlayLockedCheckBox.IsChecked == true);
+    }
+
+    private void OnOverlayClickThroughChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_synchronizingOverlayPreferences)
+            _overlay.SetClickThrough(OverlayClickThroughCheckBox.IsChecked == true);
+    }
+
+    private void OnOverlayTopmostChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_synchronizingOverlayPreferences)
+            _overlay.SetTopmost(OverlayTopmostCheckBox.IsChecked == true);
+    }
+
+    private void OnOverlayDisplayModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!_synchronizingOverlayPreferences && OverlayDisplayModeComboBox.SelectedIndex >= 0)
+            _overlay.SetDisplayMode(OverlayDisplayModeComboBox.SelectedIndex == 0
+                ? OverlayDisplayMode.OneLine
+                : OverlayDisplayMode.TwoLines);
+    }
+
+    private void OnOverlayWidthApply(object sender, RoutedEventArgs e)
+    {
+        if (_synchronizingOverlayPreferences) return;
+        if (!double.TryParse(OverlayWidthTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture,
+                out var width) || width < OverlayPreferences.MinimumWidth ||
+            width > OverlayPreferences.MaximumWidth)
+        {
+            OverlayPreferenceStatusText.Text =
+                $"Width must be between {OverlayPreferences.MinimumWidth:0} and {OverlayPreferences.MaximumWidth:0}.";
+            return;
+        }
+        OverlayPreferenceStatusText.Text = string.Empty;
+        _overlay.SetWidth(width);
+    }
+
+    private void OpenControlPanel()
+    {
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Show();
+        Activate();
     }
 }

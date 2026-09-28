@@ -1,4 +1,5 @@
 using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
 
 namespace LyricsDisplayer;
@@ -12,12 +13,17 @@ public sealed record LyricsOverlayPresentationState(string PrimaryText, string S
 
     public static LyricsOverlayPresentationState FromLyrics(
         LyricsSnapshotPayload? lyrics,
-        LyricsTimelinePosition timeline)
+        LyricsTimelinePosition timeline,
+        OverlayDisplayMode displayMode = OverlayDisplayMode.TwoLines)
     {
         ArgumentNullException.ThrowIfNull(timeline);
         if (lyrics is null) return Empty;
         if (!lyrics.Available) return new(NoLyricsText, string.Empty);
         if (!lyrics.Timed) return new(UntimedLyricsText, string.Empty);
-        return new(timeline.CurrentLine?.Text ?? string.Empty, timeline.NextLine?.Text ?? string.Empty);
+        var current = timeline.CurrentLine?.Text ?? string.Empty;
+        var next = timeline.NextLine?.Text ?? string.Empty;
+        return displayMode == OverlayDisplayMode.OneLine
+            ? new(string.IsNullOrEmpty(current) ? next : current, string.Empty)
+            : new(current, next);
     }
 }

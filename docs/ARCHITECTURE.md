@@ -217,9 +217,9 @@ The renderer keeps these concerns separate:
 Lyrics state → Content mode → Layout style → Appearance → Optional karaoke animation → WPF visuals
 ```
 
-Milestone 9 content modes describe quantity: `OneLine`, `TwoLines`, and `AllLyrics`. The current layout is `CenterStacked`. A future `KaraokeAlternating` layout may use the same `TwoLines` content mode with different positioning; karaoke is not a line-count mode.
+Milestone 9 content modes describe quantity: `OneLine`, `TwoLines`, and `AllLyrics`. Overlay `Left`, `Top`, `Width`, and `Height` are persistent window geometry independent of content mode; switching modes never resizes the window. `AllLyrics` is a contextual multi-line viewport around the exact current timeline occurrence, not a rendering of the whole lyrics document. Its nearby past/upcoming lines fit the available geometry; it does not use a scrollbar. The current layout is `CenterStacked`. A future `KaraokeAlternating` layout may use the same `TwoLines` content mode with different positioning; karaoke is not a line-count mode.
 
-Presentation lines carry semantic roles such as Past, Current, Upcoming, and Status. The WPF appearance layer determines emphasis. Future appearance preferences may include font family/size/weight, role-based colors, alignment, opacity, outline, shadow, spacing, and background opacity. Karaoke may add sung/unsung colors or progressive fill. Those customizations and animation are not part of M9.
+Presentation lines carry semantic roles such as Past, Current, Upcoming, and Status. In All Lyrics, the current line is focal and nearby context receives a bounded distance-based size/opacity falloff; these are presentation defaults, not lyrics-domain semantics. The WPF appearance layer determines emphasis. Future appearance preferences may include font family/size/weight, role-based colors, alignment, opacity, outline, shadow, spacing, and background opacity. Karaoke may add sung/unsung colors or progressive fill. Those customizations and animation are not part of M9.
 
 The overlay remains a presentation surface over application state rather than accumulating playback, storage, or search logic.
 
@@ -1361,13 +1361,13 @@ The offset is global only within one local lyrics document, not across the appli
 Implemented:
 
 * lock/unlock
-* partial click-through: empty overlay regions pass input through while lyric text and the resize grip remain interactive
+* partial click-through: empty overlay regions pass input through while lyric text remains interactive
 * global shortcuts
 * persistent overlay preferences
 * topmost on/off preference
-* adjustable/persistent width with visible-work-area recovery
+* persistent left/top/width/height geometry independent of content mode, with invisible borderless edge/corner resizing while click-through is off and visible-work-area recovery
 * `OneLine`, `TwoLines`, and `AllLyrics` content modes
-* semantic Past/Current/Upcoming rows for All Lyrics with current-line following
+* bounded Past/Current/Upcoming context for All Lyrics, selected by exact timeline occurrence and fitted to overlay height without scrolling
 * context-menu access to existing current-line and global timing actions
 * system tray lifecycle/recovery with optional close-to-tray behavior
 * explicit tray exit that unregisters hotkeys and shuts down the App

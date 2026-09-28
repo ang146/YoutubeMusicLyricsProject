@@ -95,7 +95,7 @@ public sealed class ApplicationSettingsStoreTests
     {
         Write("""{"overlay":{"left":12,"top":34,"futureOverlayValue":"kept"},"futureRootValue":7}""");
         var store = Store();
-        var preferences = new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1230);
+        var preferences = new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1230, 377);
         store.SaveOverlayPreferences(preferences);
 
         var loaded = store.Load().Settings;
@@ -103,6 +103,7 @@ public sealed class ApplicationSettingsStoreTests
         Assert.Multiple(() =>
         {
             Assert.That(loaded.OverlayPreferences, Is.EqualTo(preferences));
+            Assert.That(document.RootElement.GetProperty("overlay").GetProperty("height").GetDouble(), Is.EqualTo(377));
             Assert.That(loaded.OverlayPosition, Is.EqualTo(new OverlayPosition(12, 34)));
             Assert.That(document.RootElement.GetProperty("overlay").GetProperty("futureOverlayValue").GetString(),
                 Is.EqualTo("kept"));
@@ -122,8 +123,48 @@ public sealed class ApplicationSettingsStoreTests
         Assert.Multiple(() =>
         {
             Assert.That(loaded.OverlayPreferences,
-                Is.EqualTo(new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1100)));
+                Is.EqualTo(new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1100, OverlayPreferences.DefaultHeight)));
             Assert.That(document.RootElement.GetProperty("overlay").GetProperty("future").GetInt32(), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void GeometrySaveAtomicallyPersistsPositionWidthHeightAndPreferences()
+    {
+        Write("""{"lyricsLibraryPath":"C:\\Lyrics","overlay":{"future":"kept"},"application":{"keep":true}}""");
+        var store = Store();
+        var preferences = OverlayPreferences.Default with
+        {
+            Width = 913,
+            Height = 377,
+            ContentMode = LyricsContentMode.AllLyrics,
+            ClickThrough = true
+        };
+        store.SaveOverlayGeometry(new(48.5, 112), preferences);
+
+        var loaded = store.Load().Settings;
+        using var json = JsonDocument.Parse(File.ReadAllText(_settingsPath));
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded.OverlayPosition, Is.EqualTo(new OverlayPosition(48.5, 112)));
+            Assert.That(loaded.OverlayPreferences, Is.EqualTo(preferences));
+            Assert.That(json.RootElement.GetProperty("lyricsLibraryPath").GetString(), Is.EqualTo("C:\\Lyrics"));
+            Assert.That(json.RootElement.GetProperty("overlay").GetProperty("future").GetString(), Is.EqualTo("kept"));
+            Assert.That(json.RootElement.GetProperty("application").GetProperty("keep").GetBoolean(), Is.True);
+        });
+    }
+
+    [TestCase("{\"overlay\":{\"width\":12,\"height\":377}}", 900, 377)]
+    [TestCase("{\"overlay\":{\"width\":913,\"height\":2}}", 913, 220)]
+    [TestCase("{\"overlay\":{\"width\":1e999,\"height\":377}}", 900, 377)]
+    public void InvalidDimensionsFallBackIndependently(string json, double expectedWidth, double expectedHeight)
+    {
+        Write(json);
+        var preferences = Store().Load().Settings.OverlayPreferences;
+        Assert.Multiple(() =>
+        {
+            Assert.That(preferences.Width, Is.EqualTo(expectedWidth));
+            Assert.That(preferences.Height, Is.EqualTo(expectedHeight));
         });
     }
 

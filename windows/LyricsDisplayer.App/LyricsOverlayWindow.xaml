@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:LyricsDisplayer"
-        Width="900" Height="220" WindowStartupLocation="Manual"
-        WindowStyle="None" ResizeMode="NoResize"
+        Width="900" Height="220" MinWidth="420" MinHeight="120" WindowStartupLocation="Manual"
+        WindowStyle="None" ResizeMode="CanResize"
         AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ShowActivated="False" Focusable="False"
         Topmost="True">
@@ -49,11 +49,7 @@
             </ContextMenu>
         </Border.ContextMenu>
         <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
-                <RowDefinition Height="12" />
-            </Grid.RowDefinitions>
-            <Grid x:Name="StackedLyrics" Grid.Row="0" VerticalAlignment="Center">
+            <Grid x:Name="StackedLyrics" VerticalAlignment="Center">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -78,47 +74,36 @@
                     </TextBlock.Effect>
                 </TextBlock>
             </Grid>
-            <ListBox x:Name="AllLyricsList" Grid.Row="0" Visibility="Collapsed"
-                     Background="Transparent" BorderThickness="0" Padding="0"
-                     HorizontalContentAlignment="Stretch" ScrollViewer.VerticalScrollBarVisibility="Auto"
-                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                     SelectionMode="Single" Focusable="False" IsTabStop="False">
-                <ListBox.ItemContainerStyle>
-                    <Style TargetType="ListBoxItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                        <Setter Property="Padding" Value="0,3" />
-                        <Setter Property="Focusable" Value="False" />
-                        <Setter Property="Background" Value="Transparent" />
-                        <Setter Property="BorderThickness" Value="0" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Past}">
-                                <Setter Property="Foreground" Value="#90FFFFFF" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Current}">
-                                <Setter Property="Foreground" Value="White" />
-                                <Setter Property="FontWeight" Value="Bold" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Upcoming}">
-                                <Setter Property="Foreground" Value="#C8FFFFFF" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </ListBox.ItemContainerStyle>
-                <ListBox.ItemTemplate>
+            <ItemsControl x:Name="AllLyricsItems" Visibility="Collapsed"
+                          HorizontalContentAlignment="Stretch" VerticalAlignment="Center"
+                          IsHitTestVisible="True">
+                <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Text}" TextAlignment="Center" TextWrapping="Wrap"
-                                   HorizontalAlignment="Center" IsHitTestVisible="True" FontSize="26">
+                                   HorizontalAlignment="Center" IsHitTestVisible="True"
+                                   FontSize="{Binding FontSize}" Opacity="{Binding Opacity}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#C8FFFFFF" />
+                                    <Setter Property="FontWeight" Value="Normal" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Past}">
+                                            <Setter Property="Foreground" Value="White" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Current}">
+                                            <Setter Property="Foreground" Value="White" />
+                                            <Setter Property="FontWeight" Value="Bold" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
                             <TextBlock.Effect>
                                 <DropShadowEffect Color="Black" BlurRadius="4" ShadowDepth="1" Opacity="0.85" />
                             </TextBlock.Effect>
                         </TextBlock>
                     </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-            <Thumb x:Name="HorizontalResizeGrip" Grid.Row="1" Width="90" Height="6"
-                   HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                   Cursor="SizeWE" Background="#80999999"
-                   DragDelta="OnResizeDragDelta" DragCompleted="OnResizeDragCompleted" />
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </Grid>
     </Border>
 </Window>

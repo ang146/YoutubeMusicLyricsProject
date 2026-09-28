@@ -393,11 +393,9 @@ public partial class MainWindow : Window
     {
         if (_synchronizingOverlayPreferences) return;
         if (!double.TryParse(OverlayWidthTextBox.Text, NumberStyles.Float, CultureInfo.InvariantCulture,
-                out var width) || width < OverlayPreferences.MinimumWidth ||
-            width > OverlayPreferences.MaximumWidth)
+                out var width) || !double.IsFinite(width) || width < OverlayPreferences.MinimumWidth)
         {
-            OverlayPreferenceStatusText.Text =
-                $"Width must be between {OverlayPreferences.MinimumWidth:0} and {OverlayPreferences.MaximumWidth:0}.";
+            OverlayPreferenceStatusText.Text = $"Width must be at least {OverlayPreferences.MinimumWidth:0}.";
             return;
         }
         OverlayPreferenceStatusText.Text = string.Empty;

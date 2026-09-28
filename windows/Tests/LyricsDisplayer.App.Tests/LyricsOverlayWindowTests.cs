@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 using LyricsDisplayer.Core.Settings;
 
 namespace LyricsDisplayer.App.Tests;
@@ -19,7 +20,7 @@ public sealed class LyricsOverlayWindowTests
             Assert.Multiple(() =>
             {
                 Assert.That(window.WindowStyle, Is.EqualTo(WindowStyle.None));
-            Assert.That(window.ResizeMode, Is.EqualTo(ResizeMode.NoResize));
+                Assert.That(window.ResizeMode, Is.EqualTo(ResizeMode.CanResize));
                 Assert.That(window.AllowsTransparency, Is.True);
                 Assert.That(window.Topmost, Is.True);
                 Assert.That(window.ShowInTaskbar, Is.False);
@@ -62,23 +63,42 @@ public sealed class LyricsOverlayWindowTests
     }
 
     [Test]
-    public void InteractionStateControlsWidthHeightTopmostSecondaryLineAndNativeStyle()
+    public void InteractionStateAppliesPersistentWidthAndHeightIndependentOfContentMode()
     {
         var window = new LyricsOverlayWindow();
         try
         {
-            window.ApplyInteractionState(new(true, true, false, LyricsContentMode.OneLine, 1200));
+            window.ApplyInteractionState(new(true, true, false, LyricsContentMode.OneLine, 1200, 420));
             var secondary = window.SecondaryTextForTesting;
 
             Assert.Multiple(() =>
             {
                 Assert.That(window.Width, Is.EqualTo(1200));
-                Assert.That(window.Height, Is.EqualTo(150));
+                Assert.That(window.Height, Is.EqualTo(420));
                 Assert.That(window.Topmost, Is.False);
                 Assert.That(secondary.Visibility, Is.EqualTo(Visibility.Collapsed));
                 Assert.That(window.Interaction.ClickThrough, Is.True);
                 Assert.That(((System.Windows.Media.SolidColorBrush)window.SurfaceBackgroundForTesting).Color.A, Is.Zero);
             });
+        }
+        finally
+        {
+            window.CloseForApplicationShutdown();
+        }
+    }
+
+    [Test]
+    public void ContentModeChangesDoNotAlterWindowGeometry()
+    {
+        var window = new LyricsOverlayWindow();
+        try
+        {
+            foreach (var mode in Enum.GetValues<LyricsContentMode>())
+            {
+                window.ApplyInteractionState(new(false, false, true, mode, 913, 377));
+                Assert.That(window.Width, Is.EqualTo(913));
+                Assert.That(window.Height, Is.EqualTo(377));
+            }
         }
         finally
         {
@@ -94,7 +114,7 @@ public sealed class LyricsOverlayWindowTests
         {
             window.Show();
             _ = new WindowInteropHelper(window).Handle;
-            window.ApplyInteractionState(new(false, true, true, LyricsContentMode.TwoLines, 900));
+            window.ApplyInteractionState(new(false, true, true, LyricsContentMode.TwoLines, 900, 220));
             Assert.That(window.Interaction.ClickThrough, Is.True);
         }
         finally
@@ -109,7 +129,7 @@ public sealed class LyricsOverlayWindowTests
         var window = new LyricsOverlayWindow();
         try
         {
-            window.ApplyInteractionState(new(false, false, true, LyricsContentMode.AllLyrics, 900));
+            window.ApplyInteractionState(new(false, false, true, LyricsContentMode.AllLyrics, 900, 300));
             window.SetLyrics(new LyricsOverlayPresentationState("", "")
             {
                 ContentMode = LyricsContentMode.AllLyrics,
@@ -124,8 +144,8 @@ public sealed class LyricsOverlayWindowTests
 
             Assert.Multiple(() =>
             {
-                Assert.That(window.AllLyricsListForTesting.Visibility, Is.EqualTo(Visibility.Visible));
-                Assert.That(window.AllLyricsListForTesting.Items.Count, Is.EqualTo(3));
+                Assert.That(window.AllLyricsItemsForTesting.Visibility, Is.EqualTo(Visibility.Visible));
+                Assert.That(window.AllLyricsItemsForTesting.Items.Count, Is.EqualTo(3));
                 Assert.That(window.CurrentLineMenuEnabledForTesting, Is.False);
             });
 
@@ -135,6 +155,37 @@ public sealed class LyricsOverlayWindowTests
         finally
         {
             window.CloseForApplicationShutdown();
+        }
+    }
+
+    [Test]
+    public void AllLyricsVisualTreeHasNoScrollViewer()
+    {
+        var window = new LyricsOverlayWindow();
+        try
+        {
+            window.Show();
+            window.SetLyrics(new LyricsOverlayPresentationState("", "")
+            {
+                ContentMode = LyricsContentMode.AllLyrics,
+                AllLines = [new(3, "current", LyricLineRole.Current)]
+            });
+            window.UpdateLayout();
+            Assert.That(Descendants(window.AllLyricsItemsForTesting).OfType<ScrollViewer>(), Is.Empty);
+        }
+        finally
+        {
+            window.CloseForApplicationShutdown();
+        }
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            yield return child;
+            foreach (var descendant in Descendants(child)) yield return descendant;
         }
     }
 

@@ -21,18 +21,20 @@ public sealed record OverlayPreferences(
     bool ClickThrough,
     bool Topmost,
     LyricsContentMode ContentMode,
-    double Width)
+    double Width,
+    double Height)
 {
     public const double DefaultWidth = 900;
+    public const double DefaultHeight = 220;
     public const double MinimumWidth = 420;
-    public const double MaximumWidth = 1800;
+    public const double MinimumHeight = 120;
 
     public static OverlayPreferences Default { get; } =
-        new(false, false, true, LyricsContentMode.TwoLines, DefaultWidth);
+        new(false, false, true, LyricsContentMode.TwoLines, DefaultWidth, DefaultHeight);
 
     public bool IsValid =>
         Enum.IsDefined(ContentMode) && double.IsFinite(Width) &&
-        Width >= MinimumWidth && Width <= MaximumWidth;
+        Width >= MinimumWidth && double.IsFinite(Height) && Height >= MinimumHeight;
 }
 
 public sealed record ApplicationSettings(
@@ -47,6 +49,7 @@ public interface IOverlayPositionStore
 {
     OverlayPosition? LoadOverlayPosition();
     void SaveOverlayPosition(OverlayPosition position);
+    void SaveOverlayGeometry(OverlayPosition position, OverlayPreferences preferences);
 }
 
 public interface IOverlaySettingsStore : IOverlayPositionStore
@@ -138,6 +141,38 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
             };
             overlay.Remove("displayMode");
             overlay["width"] = preferences.Width;
+            overlay["height"] = preferences.Height;
+            AtomicFile.Replace(SettingsPath, root.ToJsonString(WriteOptions) + Environment.NewLine);
+        }
+    }
+
+    public void SaveOverlayGeometry(OverlayPosition position, OverlayPreferences preferences)
+    {
+        if (!position.IsFinite)
+            throw new ArgumentOutOfRangeException(nameof(position), "Overlay coordinates must be finite numbers.");
+        ArgumentNullException.ThrowIfNull(preferences);
+        if (!preferences.IsValid)
+            throw new ArgumentOutOfRangeException(nameof(preferences), "Overlay preferences are invalid.");
+
+        lock (_sync)
+        {
+            var root = ReadObjectForUpdate();
+            var overlay = GetOverlayForUpdate(root);
+            overlay["left"] = position.Left;
+            overlay["top"] = position.Top;
+            overlay["locked"] = preferences.Locked;
+            overlay["clickThrough"] = preferences.ClickThrough;
+            overlay["topmost"] = preferences.Topmost;
+            overlay["contentMode"] = preferences.ContentMode switch
+            {
+                LyricsContentMode.OneLine => "oneLine",
+                LyricsContentMode.TwoLines => "twoLines",
+                LyricsContentMode.AllLyrics => "allLyrics",
+                _ => throw new ArgumentOutOfRangeException(nameof(preferences))
+            };
+            overlay.Remove("displayMode");
+            overlay["width"] = preferences.Width;
+            overlay["height"] = preferences.Height;
             AtomicFile.Replace(SettingsPath, root.ToJsonString(WriteOptions) + Environment.NewLine);
         }
     }
@@ -215,8 +250,11 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         var clickThrough = ReadBoolean(overlay, "clickThrough", defaults.ClickThrough, warnings);
         var topmost = ReadBoolean(overlay, "topmost", defaults.Topmost, warnings);
         var contentMode = ReadContentMode(overlay, warnings);
-        var width = ReadWidth(overlay, warnings);
-        return new(locked, clickThrough, topmost, contentMode, width);
+        var width = ReadDimension(overlay, "width", OverlayPreferences.Default.Width,
+            OverlayPreferences.MinimumWidth, warnings);
+        var height = ReadDimension(overlay, "height", OverlayPreferences.Default.Height,
+            OverlayPreferences.MinimumHeight, warnings);
+        return new(locked, clickThrough, topmost, contentMode, width, height);
     }
 
     private static bool ReadBoolean(
@@ -261,15 +299,18 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         return ReadBoolean(application, "closeControlPanelToTray", false, warnings, "application");
     }
 
-    private static double ReadWidth(JsonObject overlay, ICollection<string> warnings)
+    private static double ReadDimension(
+        JsonObject overlay,
+        string propertyName,
+        double defaultValue,
+        double minimum,
+        ICollection<string> warnings)
     {
-        if (!overlay.TryGetPropertyValue("width", out var node)) return OverlayPreferences.Default.Width;
-        if (TryReadFiniteDouble(node, out var width) &&
-            width >= OverlayPreferences.MinimumWidth && width <= OverlayPreferences.MaximumWidth)
-            return width;
-        warnings.Add($"overlay.width must be between {OverlayPreferences.MinimumWidth} and " +
-                     $"{OverlayPreferences.MaximumWidth}; the default is in use.");
-        return OverlayPreferences.Default.Width;
+        if (!overlay.TryGetPropertyValue(propertyName, out var node)) return defaultValue;
+        if (TryReadFiniteDouble(node, out var dimension) && dimension >= minimum)
+            return dimension;
+        warnings.Add($"overlay.{propertyName} must be a finite number of at least {minimum}; the default is in use.");
+        return defaultValue;
     }
 
     private static bool TryReadFiniteDouble(JsonNode? value, out double number)

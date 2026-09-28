@@ -1,0 +1,6 @@
+{
+  "dotnet.preferVisualStudioCodeFileSystemWatcher": true,
+  "files.watcherExclude": {
+    "**/*_wpftmp.csproj": true
+  }
+}

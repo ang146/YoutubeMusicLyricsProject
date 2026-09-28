@@ -1,15 +1,12 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Threading;
 using LyricsDisplayer.Core.Settings;
 using WpfPoint = System.Windows.Point;
 using MenuItem = System.Windows.Controls.MenuItem;
-using ListBox = System.Windows.Controls.ListBox;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
@@ -19,32 +16,46 @@ namespace LyricsDisplayer;
 public enum OverlayHitTestResult
 {
     Client,
-    Transparent
+    Transparent,
+    ResizeLeft,
+    ResizeRight,
+    ResizeTop,
+    ResizeBottom,
+    ResizeTopLeft,
+    ResizeTopRight,
+    ResizeBottomLeft,
+    ResizeBottomRight
 }
 
 public static class OverlayHitTestPolicy
 {
-    public static OverlayHitTestResult Decide(bool clickThrough, bool overLyricsOrResizeGrip) =>
-        clickThrough && !overLyricsOrResizeGrip
-            ? OverlayHitTestResult.Transparent
-            : OverlayHitTestResult.Client;
+    public static OverlayHitTestResult Decide(
+        bool clickThrough,
+        bool overLyrics,
+        OverlayHitTestResult resizeEdge)
+    {
+        if (overLyrics) return OverlayHitTestResult.Client;
+        if (!clickThrough && resizeEdge != OverlayHitTestResult.Client) return resizeEdge;
+        return clickThrough ? OverlayHitTestResult.Transparent : OverlayHitTestResult.Client;
+    }
 }
 
 public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
 {
     private const int MaNoActivate = 3;
+    private const double ResizeBorder = 7;
     private bool _allowClose;
     private OverlayInteractionState _interaction =
         OverlayInteractionState.FromPreferences(OverlayPreferences.Default);
     private LyricsOverlayPresentationState _presentation = LyricsOverlayPresentationState.Empty;
     private HwndSource? _source;
-    private int? _lastScrolledIndex;
 
     public LyricsOverlayWindow()
     {
         InitializeComponent();
         Closing += OnClosing;
         SourceInitialized += OnSourceInitialized;
+        SizeChanged += OnWindowSizeChanged;
     }
 
     public double OverlayWidth => Width;
@@ -52,13 +63,14 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
     internal OverlayInteractionState Interaction => _interaction;
     internal TextBlock PrimaryTextForTesting => PrimaryText;
     internal TextBlock SecondaryTextForTesting => SecondaryText;
-    internal ListBox AllLyricsListForTesting => AllLyricsList;
+    internal ItemsControl AllLyricsItemsForTesting => AllLyricsItems;
     internal bool CurrentLineMenuEnabledForTesting => CurrentLineMenuItem.IsEnabled;
     internal Brush SurfaceBackgroundForTesting => OverlaySurface.Background;
     public event Action? CloseRequested;
     public event Action<OverlayPosition>? DragCompleted;
     public event Action<OverlayCommand>? CommandRequested;
-    public event Action<double>? WidthChangeCompleted;
+    public event Action<double, double>? OverlaySizeChanged;
+    public event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
 
     public void SetPosition(OverlayPosition position)
     {
@@ -68,22 +80,15 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
 
     public void SetLyrics(LyricsOverlayPresentationState state)
     {
-        var currentChanged = _presentation.ContentMode != state.ContentMode ||
-                             _presentation.CurrentIndex != state.CurrentIndex;
         _presentation = state;
         PrimaryText.Text = state.PrimaryText;
         SecondaryText.Text = state.SecondaryText;
         var allLyrics = state.ContentMode == LyricsContentMode.AllLyrics && state.AllLines.Count > 0;
-        AllLyricsList.Visibility = allLyrics ? Visibility.Visible : Visibility.Collapsed;
+        AllLyricsItems.Visibility = allLyrics ? Visibility.Visible : Visibility.Collapsed;
         StackedLyrics.Visibility = allLyrics ? Visibility.Collapsed : Visibility.Visible;
-        if (!allLyrics) return;
-
-        AllLyricsList.ItemsSource = state.AllLines;
-        var current = state.CurrentIndex is int index
-            ? state.AllLines.FirstOrDefault(line => line.Index == index)
-            : null;
-        AllLyricsList.SelectedItem = current;
-        if (currentChanged && current is not null) ScrollCurrentLineToCenter(current);
+        AllLyricsItems.ItemsSource = allLyrics ? state.AllLines : null;
+        PrimaryText.MaxWidth = Math.Max(100, Width - 56);
+        SecondaryText.MaxWidth = Math.Max(100, Width - 56);
     }
 
     public void ApplyInteractionState(OverlayInteractionState state)
@@ -92,14 +97,8 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         OverlaySurface.Background = state.ClickThrough
             ? Brushes.Transparent
             : new SolidColorBrush(Color.FromArgb(0x30, 0, 0, 0));
-        Width = state.Width;
-        Height = state.ContentMode switch
-        {
-            LyricsContentMode.OneLine => 150,
-            LyricsContentMode.TwoLines => 220,
-            LyricsContentMode.AllLyrics => 380,
-            _ => 220
-        };
+        if (Math.Abs(Width - state.Width) > 0.1) Width = state.Width;
+        if (Math.Abs(Height - state.Height) > 0.1) Height = state.Height;
         Topmost = state.Topmost;
         SecondaryText.Visibility = state.ContentMode == LyricsContentMode.TwoLines
             ? Visibility.Visible
@@ -110,8 +109,8 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         LockedMenuItem.IsChecked = state.Locked;
         ClickThroughMenuItem.IsChecked = state.ClickThrough;
         TopmostMenuItem.IsChecked = state.Topmost;
-        PrimaryText.MaxWidth = Math.Max(100, state.Width - 48);
-        SecondaryText.MaxWidth = Math.Max(100, state.Width - 48);
+        PrimaryText.MaxWidth = Math.Max(100, state.Width - 56);
+        SecondaryText.MaxWidth = Math.Max(100, state.Width - 56);
     }
 
     public void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs)
@@ -142,30 +141,82 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
             return new nint(MaNoActivate);
         }
 
-        if (message != NativeOverlayClickThrough.WmNcHitTest || !_interaction.ClickThrough) return nint.Zero;
+        if (message == 0x0231) // WM_ENTERSIZEMOVE
+        {
+            return nint.Zero;
+        }
+        if (message == 0x0232) // WM_EXITSIZEMOVE
+        {
+            GeometryChangeCompleted?.Invoke(new(Left, Top), Width, Height);
+            return nint.Zero;
+        }
+
+        if (message != NativeOverlayClickThrough.WmNcHitTest) return nint.Zero;
         var packed = lParam.ToInt64();
         var screenPoint = new WpfPoint(unchecked((short)(packed & 0xffff)), unchecked((short)((packed >> 16) & 0xffff)));
         var clientPoint = PointFromScreen(screenPoint);
-        var overInteractiveContent = IsOverLyricsOrResizeGrip(clientPoint);
-        if (OverlayHitTestPolicy.Decide(true, overInteractiveContent) == OverlayHitTestResult.Transparent)
+        var overLyrics = IsOverLyrics(clientPoint);
+        var edge = GetResizeEdge(clientPoint);
+        var result = OverlayHitTestPolicy.Decide(_interaction.ClickThrough, overLyrics, edge);
+
+        if (result == OverlayHitTestResult.Client)
+        {
+            handled = _interaction.ClickThrough;
+            return handled ? new nint(NativeOverlayClickThrough.HtClient) : nint.Zero;
+        }
+        if (result == OverlayHitTestResult.Transparent)
         {
             handled = true;
             return new nint(NativeOverlayClickThrough.HtTransparent);
         }
+
+        // Edge hit-testing only applies with click-through off. Lyrics retain priority over resize zones.
         handled = true;
-        return new nint(NativeOverlayClickThrough.HtClient);
+        return new nint(ToNativeHitTest(edge));
     }
 
-    private bool IsOverLyricsOrResizeGrip(WpfPoint point)
+    private bool IsOverLyrics(WpfPoint point)
     {
         var hit = VisualTreeHelper.HitTest(this, point)?.VisualHit;
         for (var current = hit; current is not null; current = VisualTreeHelper.GetParent(current))
         {
-            if (ReferenceEquals(current, HorizontalResizeGrip)) return true;
             if (current is TextBlock text && text.IsVisible && !string.IsNullOrEmpty(text.Text)) return true;
         }
         return false;
     }
+
+    private OverlayHitTestResult GetResizeEdge(WpfPoint point)
+    {
+        var left = point.X <= ResizeBorder;
+        var right = point.X >= ActualWidth - ResizeBorder;
+        var top = point.Y <= ResizeBorder;
+        var bottom = point.Y >= ActualHeight - ResizeBorder;
+        if (top && left) return OverlayHitTestResult.ResizeTopLeft;
+        if (top && right) return OverlayHitTestResult.ResizeTopRight;
+        if (bottom && left) return OverlayHitTestResult.ResizeBottomLeft;
+        if (bottom && right) return OverlayHitTestResult.ResizeBottomRight;
+        if (left) return OverlayHitTestResult.ResizeLeft;
+        if (right) return OverlayHitTestResult.ResizeRight;
+        if (top) return OverlayHitTestResult.ResizeTop;
+        if (bottom) return OverlayHitTestResult.ResizeBottom;
+        return OverlayHitTestResult.Client;
+    }
+
+    private static int ToNativeHitTest(OverlayHitTestResult result) => result switch
+    {
+        OverlayHitTestResult.ResizeLeft => NativeOverlayClickThrough.HtLeft,
+        OverlayHitTestResult.ResizeRight => NativeOverlayClickThrough.HtRight,
+        OverlayHitTestResult.ResizeTop => NativeOverlayClickThrough.HtTop,
+        OverlayHitTestResult.ResizeTopLeft => NativeOverlayClickThrough.HtTopLeft,
+        OverlayHitTestResult.ResizeTopRight => NativeOverlayClickThrough.HtTopRight,
+        OverlayHitTestResult.ResizeBottom => NativeOverlayClickThrough.HtBottom,
+        OverlayHitTestResult.ResizeBottomLeft => NativeOverlayClickThrough.HtBottomLeft,
+        OverlayHitTestResult.ResizeBottomRight => NativeOverlayClickThrough.HtBottomRight,
+        _ => NativeOverlayClickThrough.HtClient
+    };
+
+    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) =>
+        OverlaySizeChanged?.Invoke(Width, Height);
 
     private void OnSurfaceMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -181,51 +232,10 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         DragCompleted?.Invoke(new(Left, Top));
     }
 
-    private void OnResizeDragDelta(object sender, DragDeltaEventArgs e)
-    {
-        Width = Math.Clamp(Width + e.HorizontalChange,
-            OverlayPreferences.MinimumWidth, OverlayPreferences.MaximumWidth);
-        PrimaryText.MaxWidth = Math.Max(100, Width - 48);
-        SecondaryText.MaxWidth = Math.Max(100, Width - 48);
-    }
-
-    private void OnResizeDragCompleted(object sender, DragCompletedEventArgs e)
-    {
-        WidthChangeCompleted?.Invoke(Width);
-    }
-
     private void OnMenuItemClick(object sender, RoutedEventArgs e)
     {
         if (sender is MenuItem { Tag: string tag } && Enum.TryParse<OverlayCommand>(tag, out var command))
             CommandRequested?.Invoke(command);
-    }
-
-    private void ScrollCurrentLineToCenter(PresentedLyricLine line)
-    {
-        if (_lastScrolledIndex == line.Index) return;
-        _lastScrolledIndex = line.Index;
-        AllLyricsList.ScrollIntoView(line);
-        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
-        {
-            var item = (ListBoxItem?)AllLyricsList.ItemContainerGenerator.ContainerFromItem(line);
-            if (item is null) return;
-            var scrollViewer = FindVisualChild<ScrollViewer>(AllLyricsList);
-            if (scrollViewer is null) return;
-            var itemTop = item.TransformToAncestor(scrollViewer).Transform(new WpfPoint(0, 0)).Y;
-            scrollViewer.ScrollToVerticalOffset(scrollViewer.VerticalOffset + itemTop -
-                                                (scrollViewer.ViewportHeight - item.ActualHeight) / 2);
-        });
-    }
-
-    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T match) return match;
-            if (FindVisualChild<T>(child) is { } nested) return nested;
-        }
-        return null;
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)

@@ -64,8 +64,18 @@ public static class LyricsContextWindow
 
         var width = Math.Max(80, overlayWidth - 56);
         var budget = Math.Max(1, overlayHeight - VerticalPadding);
-        var selected = new SortedDictionary<int, PresentedLyricLine>();
-        var measured = 0d;
+        var priority = BuildPrioritySequence(normalizedLines, currentIndex, nextIndex);
+        var prefix = FitPriorityPrefix(priority, budget, line => EstimateHeight(line, width));
+        return prefix.OrderBy(line => line.Index).ToArray();
+    }
+
+    internal static IReadOnlyList<PresentedLyricLine> BuildPrioritySequence(
+        IReadOnlyList<LyricsLine> normalizedLines,
+        int? currentIndex,
+        int? nextIndex)
+    {
+        ArgumentNullException.ThrowIfNull(normalizedLines);
+        var candidates = new List<PresentedLyricLine>(normalizedLines.Count);
 
         PresentedLyricLine Create(int index, LyricLineRole role, int distance)
         {
@@ -73,41 +83,18 @@ public static class LyricsContextWindow
             return new(index, normalizedLines[index].Text, role, distance, emphasis.Scale, emphasis.Opacity);
         }
 
-        double HeightOf(PresentedLyricLine line)
-        {
-            var fontSize = LyricsPresentationDefaults.BaseContextFontSize * line.Scale;
-            var wrappedLines = line.Text.Split('\n').Sum(paragraph =>
-                Math.Max(1, Math.Ceiling(EstimateTextWidth(paragraph, fontSize) / width)));
-            return wrappedLines * fontSize * 1.28 + 8;
-        }
-
         if (currentIndex is int current && current >= 0 && current < normalizedLines.Count)
         {
-            var center = Create(current, LyricLineRole.Current, 0);
-            selected[current] = center;
-            measured = HeightOf(center);
+            candidates.Add(Create(current, LyricLineRole.Current, 0));
             for (var distance = 1; distance < normalizedLines.Count; distance++)
             {
                 var upcoming = current + distance;
                 if (upcoming < normalizedLines.Count)
-                {
-                    TryAdd(upcoming, LyricLineRole.Upcoming, distance);
-                }
+                    candidates.Add(Create(upcoming, LyricLineRole.Upcoming, distance));
 
                 var past = current - distance;
                 if (past >= 0)
-                {
-                    TryAdd(past, LyricLineRole.Past, distance);
-                }
-            }
-
-            void TryAdd(int index, LyricLineRole role, int distance)
-            {
-                var line = Create(index, role, distance);
-                var height = HeightOf(line);
-                if (measured + height > budget) return;
-                selected[index] = line;
-                measured += height;
+                    candidates.Add(Create(past, LyricLineRole.Past, distance));
             }
         }
         else
@@ -115,16 +102,58 @@ public static class LyricsContextWindow
             var first = nextIndex.GetValueOrDefault(0);
             if (first < 0 || first >= normalizedLines.Count) first = 0;
             for (var index = first; index < normalizedLines.Count; index++)
-            {
-                var line = Create(index, LyricLineRole.Upcoming, index - first + 1);
-                var height = HeightOf(line);
-                if (selected.Count > 0 && measured + height > budget) break;
-                selected[index] = line;
-                measured += height;
-            }
+                candidates.Add(Create(index, LyricLineRole.Upcoming, index - first + 1));
         }
 
-        return selected.Values.ToArray();
+        return candidates;
+    }
+
+    internal static IReadOnlyList<PresentedLyricLine> FitPriorityPrefix(
+        IReadOnlyList<PresentedLyricLine> prioritySequence,
+        double availableHeight,
+        Func<PresentedLyricLine, double> measureHeight)
+    {
+        ArgumentNullException.ThrowIfNull(prioritySequence);
+        ArgumentNullException.ThrowIfNull(measureHeight);
+
+        var selected = new List<PresentedLyricLine>(prioritySequence.Count);
+        var measured = 0d;
+        var currentIsMandatory = prioritySequence.Count > 0 &&
+                                 prioritySequence[0].Role == LyricLineRole.Current;
+
+        foreach (var candidate in prioritySequence)
+        {
+            var height = measureHeight(candidate);
+            if (!double.IsFinite(height) || height < 0)
+                throw new ArgumentOutOfRangeException(nameof(measureHeight), "Measured line heights must be finite and non-negative.");
+
+            if (measured + height > availableHeight)
+            {
+                // The timeline Current occurrence is retained even if it exceeds the estimate;
+                // every later item must fit or the priority prefix ends here.
+                if (selected.Count == 0 && currentIsMandatory)
+                {
+                    selected.Add(candidate);
+                    measured += height;
+                    continue;
+                }
+
+                break;
+            }
+
+            selected.Add(candidate);
+            measured += height;
+        }
+
+        return selected;
+    }
+
+    private static double EstimateHeight(PresentedLyricLine line, double width)
+    {
+        var fontSize = LyricsPresentationDefaults.BaseContextFontSize * line.Scale;
+        var wrappedLines = line.Text.Split('\n').Sum(paragraph =>
+            Math.Max(1, Math.Ceiling(EstimateTextWidth(paragraph, fontSize) / width)));
+        return wrappedLines * fontSize * 1.28 + 8;
     }
 
     private static double EstimateTextWidth(string text, double fontSize)

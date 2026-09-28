@@ -303,6 +303,30 @@ public sealed class LyricsOverlayControllerTests
     }
 
     [Test]
+    public void AllLyricsForwardAndBackwardSeekReplaceContextAroundExactNewOccurrence()
+    {
+        var harness = new Harness(preferences: OverlayPreferences.Default with
+            { ContentMode = LyricsContentMode.AllLyrics, Height = 220 });
+        harness.Controller.Show();
+        var lines = Enumerable.Range(0, 100).Select(index => Line($"line {index}")).ToArray();
+        var lyrics = new LyricsSnapshotPayload("track", true, true, "local", lines, null);
+
+        harness.Controller.Update(lyrics, new(10, lines[10], 11, lines[11]));
+        harness.Controller.Update(lyrics, new(80, lines[80], 81, lines[81]));
+        var forward = harness.View.LastState!.AllLines;
+        harness.Controller.Update(lyrics, new(2, lines[2], 3, lines[3]));
+        var backward = harness.View.LastState!.AllLines;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(forward.Single(line => line.Role == LyricLineRole.Current).Index, Is.EqualTo(80));
+            Assert.That(forward.Select(line => line.Index), Is.EqualTo(new[] { 79, 80, 81, 82 }));
+            Assert.That(backward.Single(line => line.Role == LyricLineRole.Current).Index, Is.EqualTo(2));
+            Assert.That(backward.Select(line => line.Index), Is.EqualTo(new[] { 1, 2, 3, 4 }));
+        });
+    }
+
+    [Test]
     public void SwitchingContentModesNeverChangesPersistentOverlayGeometry()
     {
         var preferences = OverlayPreferences.Default with { Width = 1000, Height = 420 };
@@ -331,20 +355,24 @@ public sealed class LyricsOverlayControllerTests
         var lines = Enumerable.Range(0, 100).Select(index => Line($"line {index}")).ToArray();
         var lyrics = new LyricsSnapshotPayload("track", true, true, "local", lines, null);
         harness.Controller.Update(lyrics, new(50, lines[50], 51, lines[51]));
-        var smallCount = harness.View.LastState!.AllLines.Count;
+        var initial = harness.View.LastState!.AllLines.Select(line => line.Index).ToArray();
 
         harness.View.CompleteResize(900, 500);
+        var expanded = harness.View.LastState!.AllLines.Select(line => line.Index).ToArray();
+        harness.View.CompleteResize(900, 150);
+        var reduced = harness.View.LastState!.AllLines.Select(line => line.Index).ToArray();
 
         Assert.Multiple(() =>
         {
-            Assert.That(harness.View.LastState!.AllLines.Count, Is.GreaterThanOrEqualTo(smallCount));
+            Assert.That(initial, Is.EqualTo(new[] { 50, 51 }));
+            Assert.That(expanded.Length, Is.GreaterThan(initial.Length));
+            Assert.That(expanded, Does.Contain(51));
+            Assert.That(expanded, Does.Contain(52));
+            Assert.That(reduced, Is.EqualTo(new[] { 50, 51 }));
+            Assert.That(reduced.Intersect(expanded).Count(), Is.EqualTo(reduced.Length));
             Assert.That(harness.View.LastState.AllLines.Single(line => line.Role == LyricLineRole.Current).Index,
                 Is.EqualTo(50));
-            Assert.That(harness.View.LastState.AllLines.Any(line => line.Index == 51 && line.Role == LyricLineRole.Upcoming),
-                Is.True);
-            Assert.That(harness.View.LastState.AllLines.Any(line => line.Index == 52 && line.Role == LyricLineRole.Upcoming),
-                Is.True);
-            Assert.That(harness.Controller.Interaction.Height, Is.EqualTo(500));
+            Assert.That(harness.Controller.Interaction.Height, Is.EqualTo(150));
         });
     }
 

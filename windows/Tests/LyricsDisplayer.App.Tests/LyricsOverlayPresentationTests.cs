@@ -155,20 +155,106 @@ public sealed class LyricsOverlayPresentationTests
         });
     }
 
-    [TestCase(1, new[] { 2 })]
-    [TestCase(2, new[] { 2, 3 })]
-    [TestCase(3, new[] { 1, 2, 3 })]
-    [TestCase(4, new[] { 1, 2, 3, 4 })]
-    [TestCase(5, new[] { 0, 1, 2, 3, 4 })]
+    [TestCase(1, new[] { 3 })]
+    [TestCase(2, new[] { 3, 4 })]
+    [TestCase(3, new[] { 2, 3, 4 })]
+    [TestCase(4, new[] { 2, 3, 4, 5 })]
+    [TestCase(5, new[] { 1, 2, 3, 4, 5 })]
+    [TestCase(6, new[] { 1, 2, 3, 4, 5, 6 })]
     public void AllLyricsCapacityPrefersUpcomingThenAlternatesPast(int capacity, int[] expectedIndexes)
     {
-        var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
-        var window = LyricsContextWindow.Select(lines, 2, 3, 1200, HeightForCapacity(capacity));
+        var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
+        var window = LyricsContextWindow.Select(lines, 3, 4, 1200, HeightForCapacity(capacity));
 
         Assert.That(window.Select(line => line.Index), Is.EqualTo(expectedIndexes));
-        Assert.That(window.Single(line => line.Role == LyricLineRole.Current).Text, Is.EqualTo("C"));
-        Assert.That(window.Where(line => line.Index > 2).All(line => line.Role == LyricLineRole.Upcoming), Is.True);
-        Assert.That(window.Where(line => line.Index < 2).All(line => line.Role == LyricLineRole.Past), Is.True);
+        Assert.That(window.Single(line => line.Role == LyricLineRole.Current).Text, Is.EqualTo("D"));
+        Assert.That(window.Where(line => line.Index > 3).All(line => line.Role == LyricLineRole.Upcoming), Is.True);
+        Assert.That(window.Where(line => line.Index < 3).All(line => line.Role == LyricLineRole.Past), Is.True);
+    }
+
+    [Test]
+    public void PrioritySequenceIsCurrentThenAlternatingUpcomingAndPreviousOccurrences()
+    {
+        var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
+        var priority = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+
+        Assert.That(priority.Select(line => (line.Index, line.Role)), Is.EqualTo(new[]
+        {
+            (3, LyricLineRole.Current),
+            (4, LyricLineRole.Upcoming),
+            (2, LyricLineRole.Past),
+            (5, LyricLineRole.Upcoming),
+            (1, LyricLineRole.Past),
+            (6, LyricLineRole.Upcoming),
+            (0, LyricLineRole.Past)
+        }));
+    }
+
+    [Test]
+    public void FittingStopsAtFirstNonFittingPriorityCandidate()
+    {
+        var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
+        var priority = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+        var heights = new Dictionary<int, double>
+        {
+            [3] = 20, // Current
+            [4] = 100, // Upcoming 1 does not fit
+            [2] = 20, // Previous 1 must not replace it
+            [5] = 20 // Upcoming 2 must not replace it
+        };
+
+        var selected = LyricsContextWindow.FitPriorityPrefix(priority, 80, line => heights[line.Index]);
+
+        Assert.That(selected.Select(line => line.Index), Is.EqualTo(new[] { 3 }));
+    }
+
+    [Test]
+    public void TallPreviousStopsPrefixBeforeUpcomingTwo()
+    {
+        var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
+        var priority = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+        var heights = new Dictionary<int, double>
+        {
+            [3] = 20, // Current
+            [4] = 20, // Upcoming 1
+            [2] = 100, // Previous 1 is next in priority, but cannot fit
+            [5] = 20 // Upcoming 2 must not skip ahead
+        };
+
+        var selected = LyricsContextWindow.FitPriorityPrefix(priority, 50, line => heights[line.Index]);
+
+        Assert.That(selected.Select(line => line.Index), Is.EqualTo(new[] { 3, 4 }));
+    }
+
+    [Test]
+    public void WrappedUpcomingOneCannotBeSkippedForShorterUpcomingTwo()
+    {
+        var lines = new[]
+        {
+            Line("previous"), Line("current"),
+            Line(new string('漢', 36)), Line("short next")
+        };
+        var window = LyricsContextWindow.Select(lines, 1, 2, overlayWidth: 160, overlayHeight: 150);
+
+        Assert.That(window.Select(line => line.Index), Is.EqualTo(new[] { 1 }));
+    }
+
+    [Test]
+    public void WidthRebuildDropsOrAddsOnlyTheTailOfTheSemanticPrioritySequence()
+    {
+        var lines = new[]
+        {
+            Line("previous"), Line("current"),
+            Line(new string('漢', 36)), Line("short next")
+        };
+        var narrow = LyricsContextWindow.Select(lines, 1, 2, overlayWidth: 160, overlayHeight: 220);
+        var wide = LyricsContextWindow.Select(lines, 1, 2, overlayWidth: 1200, overlayHeight: 220);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(narrow.Select(line => line.Index), Is.EqualTo(new[] { 1 }));
+            Assert.That(wide.Select(line => line.Index), Is.EqualTo(new[] { 0, 1, 2, 3 }));
+        });
     }
 
     [Test]
@@ -183,6 +269,19 @@ public sealed class LyricsOverlayPresentationTests
     }
 
     [Test]
+    public void BeforeFirstTimestampSelectsUpcomingOccurrencesInOrder()
+    {
+        var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
+        var priority = LyricsContextWindow.BuildPrioritySequence(lines, null, 0);
+
+        Assert.That(priority.Select(line => (line.Index, line.Role)), Is.EqualTo(new[]
+        {
+            (0, LyricLineRole.Upcoming), (1, LyricLineRole.Upcoming), (2, LyricLineRole.Upcoming),
+            (3, LyricLineRole.Upcoming), (4, LyricLineRole.Upcoming)
+        }));
+    }
+
+    [Test]
     public void AllLyricsAtFinalLineFillsCapacityWithPastContext()
     {
         var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
@@ -191,6 +290,30 @@ public sealed class LyricsOverlayPresentationTests
         Assert.That(window.Select(line => line.Index), Is.EqualTo(new[] { 1, 2, 3, 4 }));
         Assert.That(window[^1].Role, Is.EqualTo(LyricLineRole.Current));
         Assert.That(window.Take(3).All(line => line.Role == LyricLineRole.Past), Is.True);
+    }
+
+    [Test]
+    public void ResizingOnlyShrinksOrGrowsAtTheEndOfThePriorityPrefix()
+    {
+        var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
+        var sequence = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+        var capacities = new[] { 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6 };
+        var expectedIndexes = new Dictionary<int, int[]>
+        {
+            [1] = [3],
+            [2] = [3, 4],
+            [3] = [2, 3, 4],
+            [4] = [2, 3, 4, 5],
+            [5] = [1, 2, 3, 4, 5],
+            [6] = [1, 2, 3, 4, 5, 6]
+        };
+
+        foreach (var capacity in capacities)
+        {
+            var prefix = LyricsContextWindow.FitPriorityPrefix(sequence, capacity * 30, _ => 30);
+            var displayOrder = prefix.OrderBy(line => line.Index).Select(line => line.Index);
+            Assert.That(displayOrder, Is.EqualTo(expectedIndexes[capacity]), $"Capacity {capacity}");
+        }
     }
 
     [Test]
@@ -303,7 +426,16 @@ public sealed class LyricsOverlayPresentationTests
         });
     }
 
-    private static double HeightForCapacity(int capacity) => 38 + capacity * 45;
+    private static double HeightForCapacity(int capacity) => 38 + (capacity switch
+    {
+        1 => 45,
+        2 => 90,
+        3 => 130,
+        4 => 170,
+        5 => 210,
+        6 => 250,
+        _ => throw new ArgumentOutOfRangeException(nameof(capacity))
+    });
 
     private static LyricsTimelinePosition Position(LyricsLine? current, LyricsLine? next) =>
         new(current is null ? null : 0, current, next is null ? null : 1, next);

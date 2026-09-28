@@ -154,8 +154,8 @@ public sealed class ApplicationSettingsStoreTests
         });
     }
 
-    [TestCase("{\"overlay\":{\"width\":12,\"height\":377}}", 900, 377)]
-    [TestCase("{\"overlay\":{\"width\":913,\"height\":2}}", 913, 220)]
+    [TestCase("{\"overlay\":{\"width\":0,\"height\":377}}", 900, 377)]
+    [TestCase("{\"overlay\":{\"width\":913,\"height\":0}}", 913, 220)]
     [TestCase("{\"overlay\":{\"width\":1e999,\"height\":377}}", 900, 377)]
     public void InvalidDimensionsFallBackIndependently(string json, double expectedWidth, double expectedHeight)
     {
@@ -166,6 +166,17 @@ public sealed class ApplicationSettingsStoreTests
             Assert.That(preferences.Width, Is.EqualTo(expectedWidth));
             Assert.That(preferences.Height, Is.EqualTo(expectedHeight));
         });
+    }
+
+    [Test]
+    public void SmallMonitorGeometryBelowInteractiveMinimumRoundTrips()
+    {
+        var store = Store();
+        var compact = OverlayPreferences.Default with { Width = 318, Height = 96 };
+
+        store.SaveOverlayGeometry(new(8, 12), compact);
+
+        Assert.That(store.Load().Settings.OverlayPreferences, Is.EqualTo(compact));
     }
 
     [Test]
@@ -226,7 +237,7 @@ public sealed class ApplicationSettingsStoreTests
     [Test]
     public void MalformedPreferencesFallBackIndependentlyWithoutDiscardingPosition()
     {
-        Write("""{"overlay":{"left":1,"top":2,"locked":"yes","clickThrough":true,"topmost":4,"displayMode":"many","width":12}}""");
+        Write("""{"overlay":{"left":1,"top":2,"locked":"yes","clickThrough":true,"topmost":4,"displayMode":"many","width":0}}""");
         var result = Store().Load();
         Assert.Multiple(() =>
         {

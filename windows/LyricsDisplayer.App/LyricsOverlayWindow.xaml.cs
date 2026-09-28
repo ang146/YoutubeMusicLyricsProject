@@ -60,9 +60,9 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
     private const double ResizeBorder = 7;
     private bool _allowClose;
     private bool _managedDragActive;
-    private WpfPoint _dragStartCursor;
-    private OverlayPosition _dragStartPosition;
+    private OverlayPixelPoint _dragGrabOffsetDips;
     private bool _geometryRecoveryRequired;
+    private OverlayMonitorDescriptor? _resizeMonitor;
     private OverlayInteractionState _interaction =
         OverlayInteractionState.FromPreferences(OverlayPreferences.Default);
     private LyricsOverlayPresentationState _presentation = LyricsOverlayPresentationState.Empty;
@@ -93,7 +93,7 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
             GlobalPlus100MenuItem, GlobalPlus500MenuItem];
     internal Brush SurfaceBackgroundForTesting => OverlaySurface.Background;
     public event Action? CloseRequested;
-    public event Action<OverlayPosition>? DragCompleted;
+    public event Action<OverlayPosition, double, double>? DragCompleted;
     public event Action<OverlayCommand>? CommandRequested;
     public event Action<double, double>? OverlaySizeChanged;
     public event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
@@ -187,11 +187,24 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
 
         if (message == 0x0231) // WM_ENTERSIZEMOVE
         {
+            var overlayHandle = new WindowInteropHelper(this).Handle;
+            _resizeMonitor = DesktopWorkAreaProvider.TryGetCursorPosition(out var point)
+                ? DesktopWorkAreaProvider.GetMonitorAt(point)
+                : null;
+            _resizeMonitor ??= DesktopWorkAreaProvider.GetMonitorForWindow(overlayHandle);
+            if (_resizeMonitor is not null) ApplyMonitorMinimums(_resizeMonitor);
             return nint.Zero;
+        }
+        if (message == 0x0214 && _resizeMonitor is not null) // WM_SIZING; keep the active resize monitor fixed.
+        {
+            ConstrainNativeResize(wParam, lParam, _resizeMonitor);
+            handled = true;
+            return new nint(1);
         }
         if (message == 0x0232) // WM_EXITSIZEMOVE
         {
             GeometryChangeCompleted?.Invoke(new(Left, Top), Width, Height);
+            _resizeMonitor = null;
             return nint.Zero;
         }
 
@@ -268,24 +281,28 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
     private void OnSurfaceMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left || !_interaction.CanDragOnLyrics) return;
-        if (!GetCursorPosition(out var cursor) || !OverlaySurface.CaptureMouse()) return;
+        if (!DesktopWorkAreaProvider.TryGetCursorPosition(out _) || !OverlaySurface.CaptureMouse()) return;
 
         _managedDragActive = true;
-        _dragStartCursor = new(cursor.X, cursor.Y);
-        _dragStartPosition = new(Left, Top);
+        var grab = e.GetPosition(this);
+        _dragGrabOffsetDips = new(grab.X, grab.Y);
         e.Handled = true;
     }
 
     private void OnSurfaceMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!_managedDragActive || e.LeftButton != MouseButtonState.Pressed) return;
-        if (!GetCursorPosition(out var cursor)) return;
+        if (!DesktopWorkAreaProvider.TryGetCursorPosition(out var cursor)) return;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var monitor = DesktopWorkAreaProvider.GetMonitorAt(cursor) ?? DesktopWorkAreaProvider.GetMonitorForWindow(hwnd);
+        if (monitor is null) return;
 
-        var pixelDelta = new Vector(cursor.X - _dragStartCursor.X, cursor.Y - _dragStartCursor.Y);
-        var dipDelta = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice.Transform(pixelDelta)
-                       ?? pixelDelta;
-        Left = _dragStartPosition.Left + dipDelta.X;
-        Top = _dragStartPosition.Top + dipDelta.Y;
+        var constrained = OverlayMonitorGeometry.ConstrainMove(
+            cursor, _dragGrabOffsetDips, Width, Height, monitor);
+        ApplyMonitorMinimums(monitor);
+        if (Math.Abs(Width - constrained.WidthDips) > 0.1) Width = constrained.WidthDips;
+        if (Math.Abs(Height - constrained.HeightDips) > 0.1) Height = constrained.HeightDips;
+        DesktopWorkAreaProvider.SetWindowScreenPosition(hwnd, constrained.Position);
         e.Handled = true;
     }
 
@@ -307,7 +324,7 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         _managedDragActive = false;
         if (releaseCapture && Mouse.Captured == OverlaySurface) OverlaySurface.ReleaseMouseCapture();
         if (base.WindowState == System.Windows.WindowState.Normal && !_geometryRecoveryRequired)
-            DragCompleted?.Invoke(new(Left, Top));
+            DragCompleted?.Invoke(new(Left, Top), Width, Height);
     }
 
     private void OnWindowStateChanged(object? sender, EventArgs e)
@@ -331,19 +348,54 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         CloseRequested?.Invoke();
     }
 
-    private static bool GetCursorPosition(out NativePoint point) => NativeMethods.GetCursorPos(out point);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
+    private void ApplyMonitorMinimums(OverlayMonitorDescriptor monitor)
     {
-        public int X;
-        public int Y;
+        MinWidth = Math.Min(OverlayPreferences.MinimumWidth,
+            monitor.WorkArea.Width / monitor.ScaleX);
+        MinHeight = Math.Min(OverlayPreferences.MinimumHeight,
+            monitor.WorkArea.Height / monitor.ScaleY);
     }
 
-    private static class NativeMethods
+    private void ConstrainNativeResize(nint sizingEdge, nint rectanglePointer, OverlayMonitorDescriptor monitor)
     {
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool GetCursorPos(out NativePoint point);
+        var edge = (int)sizingEdge;
+        var resizeEdge = edge switch
+        {
+            1 => OverlayResizeEdge.Left,
+            2 => OverlayResizeEdge.Right,
+            3 => OverlayResizeEdge.Top,
+            4 => OverlayResizeEdge.TopLeft,
+            5 => OverlayResizeEdge.TopRight,
+            6 => OverlayResizeEdge.Bottom,
+            7 => OverlayResizeEdge.BottomLeft,
+            8 => OverlayResizeEdge.BottomRight,
+            _ => (OverlayResizeEdge?)null
+        };
+        if (resizeEdge is null || rectanglePointer == 0) return;
+
+        var requested = Marshal.PtrToStructure<NativeRectangle>(rectanglePointer);
+        var workArea = monitor.WorkArea;
+        var constrained = OverlayMonitorGeometry.ConstrainResize(
+            new(requested.Left, requested.Top, requested.Right, requested.Bottom),
+            workArea,
+            resizeEdge.Value,
+            Math.Min(OverlayPreferences.MinimumWidth * monitor.ScaleX, workArea.Width),
+            Math.Min(OverlayPreferences.MinimumHeight * monitor.ScaleY, workArea.Height));
+        Marshal.StructureToPtr(new NativeRectangle
+        {
+            Left = (int)Math.Round(constrained.Left),
+            Top = (int)Math.Round(constrained.Top),
+            Right = (int)Math.Round(constrained.Right),
+            Bottom = (int)Math.Round(constrained.Bottom)
+        }, rectanglePointer, false);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRectangle
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 }

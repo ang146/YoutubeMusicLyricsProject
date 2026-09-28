@@ -8,6 +8,11 @@ namespace LyricsDisplayer;
 
 public partial class App : System.Windows.Application
 {
+    static App()
+    {
+        System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.PerMonitorV2);
+    }
+
     public SessionFileLogger Logger { get; private set; } = null!;
     public LyricsLibrary LyricsLibrary { get; private set; } = null!;
     public ApplicationSettingsStore SettingsStore { get; private set; } = null!;

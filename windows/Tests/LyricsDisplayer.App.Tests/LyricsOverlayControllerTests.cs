@@ -42,6 +42,27 @@ public sealed class LyricsOverlayControllerTests
         });
     }
 
+    [Test]
+    public void ShowRecoversOverlayWhenItsMonitorWasRemovedWhileHidden()
+    {
+        var harness = new Harness(new OverlayPosition(500, 260));
+        harness.Controller.Show();
+        harness.Controller.Hide();
+        harness.WorkAreas = [new OverlayWorkArea(3000, 0, 640, 160, true)];
+
+        harness.Controller.Show();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.View.Position, Is.EqualTo(new OverlayPosition(3000, 0)));
+            Assert.That(harness.View.OverlayWidth, Is.EqualTo(640));
+            Assert.That(harness.View.OverlayHeight, Is.EqualTo(160));
+            Assert.That(harness.PositionStore.Saved.Last(), Is.EqualTo(new OverlayPosition(3000, 0)));
+            Assert.That(harness.PositionStore.SavedPreferences.Last().Width, Is.EqualTo(640));
+            Assert.That(harness.PositionStore.SavedPreferences.Last().Height, Is.EqualTo(160));
+        });
+    }
+
     [TestCase(WindowState.Maximized)]
     [TestCase(WindowState.Minimized)]
     public void ShowNormalizesAbnormalHiddenWindowStateAndRestoresSavedFloatingGeometry(WindowState state)
@@ -476,10 +497,11 @@ public sealed class LyricsOverlayControllerTests
             PositionStore.Position = savedPosition;
             PositionStore.Preferences = preferences ?? OverlayPreferences.Default;
             Controller = new LyricsOverlayController(CreateView, PositionStore,
-                () => [new OverlayWorkArea(0, 0, 1920, 1040)]);
+                () => WorkAreas);
         }
 
         public FakePositionStore PositionStore { get; } = new();
+        public IReadOnlyList<OverlayWorkArea> WorkAreas { get; set; } = [new(0, 0, 1920, 1040, true)];
         public FakeView View { get; private set; } = null!;
         public LyricsOverlayController Controller { get; }
         public int CreatedViews { get; private set; }
@@ -526,7 +548,7 @@ public sealed class LyricsOverlayControllerTests
         public double OverlayWidth => Interaction?.Width ?? 900;
         public double OverlayHeight => Interaction?.Height ?? OverlayPreferences.DefaultHeight;
         public event Action? CloseRequested;
-        public event Action<OverlayPosition>? DragCompleted;
+        public event Action<OverlayPosition, double, double>? DragCompleted;
         public event Action<OverlayCommand>? CommandRequested;
         public event Action<double, double>? OverlaySizeChanged;
         public event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
@@ -560,7 +582,11 @@ public sealed class LyricsOverlayControllerTests
             WindowState = state;
             GeometryRecoveryRequired = true;
         }
-        public void CompleteDrag(OverlayPosition position) { Position = position; DragCompleted?.Invoke(position); }
+        public void CompleteDrag(OverlayPosition position)
+        {
+            Position = position;
+            DragCompleted?.Invoke(position, OverlayWidth, OverlayHeight);
+        }
         public void RequestCommand(OverlayCommand command) => CommandRequested?.Invoke(command);
         public void CompleteResize(double width, double height)
         {

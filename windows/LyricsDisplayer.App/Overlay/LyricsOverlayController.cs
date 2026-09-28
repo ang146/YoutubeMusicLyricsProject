@@ -16,7 +16,7 @@ public interface ILyricsOverlayView
     double OverlayWidth { get; }
     double OverlayHeight { get; }
     event Action? CloseRequested;
-    event Action<OverlayPosition>? DragCompleted;
+    event Action<OverlayPosition, double, double>? DragCompleted;
     event Action<OverlayCommand>? CommandRequested;
     event Action<double, double>? OverlaySizeChanged;
     event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
@@ -137,6 +137,7 @@ public sealed class LyricsOverlayController
         if (_shuttingDown) return;
         EnsureView();
         RecoverAbnormalWindowStateIfNeeded();
+        RecoverGeometryForCurrentWorkAreas();
         if (_reportedVisible) return;
         _view!.ShowWithoutActivation();
         _reportedVisible = true;
@@ -182,6 +183,7 @@ public sealed class LyricsOverlayController
 
         var saved = _settingsStore.LoadOverlayPosition();
         var placement = OverlayPositionResolver.Resolve(saved, _view.OverlayWidth, _view.OverlayHeight, _workAreas());
+        ApplyResolvedGeometry(placement);
         _view.SetPosition(placement.Position);
         if (saved is not null && placement.UsedFallback)
             _log?.Invoke("Warning", "Overlay", "Saved overlay position was not visible; using fallback position.");
@@ -202,9 +204,29 @@ public sealed class LyricsOverlayController
             _interaction.Width,
             _interaction.Height,
             _workAreas());
+        ApplyResolvedGeometry(placement);
         _view.SetPosition(placement.Position);
         _view.CompleteGeometryRecovery();
         _log?.Invoke("Warning", "Overlay", "Abnormal overlay window state was restored to normal geometry.");
+    }
+
+    private void RecoverGeometryForCurrentWorkAreas()
+    {
+        if (_view is null || _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
+        var placement = OverlayPositionResolver.Resolve(
+            new OverlayPosition(_view.Left, _view.Top), _view.OverlayWidth, _view.OverlayHeight, _workAreas());
+        if (!placement.UsedFallback) return;
+
+        ApplyResolvedGeometry(placement);
+        _view.SetPosition(placement.Position);
+        try
+        {
+            _settingsStore.SaveOverlayGeometry(placement.Position, _interaction.ToPreferences());
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            _log?.Invoke("Warning", "Overlay", $"Desktop lyrics geometry recovery could not be saved ({exception.GetType().Name}).");
+        }
     }
 
     private void OnCloseRequested()
@@ -222,10 +244,13 @@ public sealed class LyricsOverlayController
         VisibilityChanged?.Invoke(false);
     }
 
-    private void OnDragCompleted(OverlayPosition position)
+    private void OnDragCompleted(OverlayPosition position, double width, double height)
     {
         if (!_interaction.CanDragOnLyrics || _view is null ||
             _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
+        if (!position.IsFinite || !double.IsFinite(width) || width <= 0 ||
+            !double.IsFinite(height) || height <= 0) return;
+        _interaction = _interaction with { Width = width, Height = height };
         try
         {
             _settingsStore.SaveOverlayGeometry(position, _interaction.ToPreferences());
@@ -276,6 +301,7 @@ public sealed class LyricsOverlayController
                 _view.OverlayWidth,
                 _view.OverlayHeight,
                 _workAreas());
+            ApplyResolvedGeometry(placement);
             if (placement.UsedFallback)
             {
                 _view.SetPosition(placement.Position);
@@ -286,9 +312,9 @@ public sealed class LyricsOverlayController
         try
         {
             if (recoveredPosition is { } position)
-                _settingsStore.SaveOverlayGeometry(position, next.ToPreferences());
+                _settingsStore.SaveOverlayGeometry(position, _interaction.ToPreferences());
             else
-                _settingsStore.SaveOverlayPreferences(next.ToPreferences());
+                _settingsStore.SaveOverlayPreferences(_interaction.ToPreferences());
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -364,11 +390,14 @@ public sealed class LyricsOverlayController
     private void OnGeometryChangeCompleted(OverlayPosition position, double width, double height)
     {
         if (_view is null || _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
-        if (!position.IsFinite || !double.IsFinite(width) || width < OverlayPreferences.MinimumWidth ||
-            !double.IsFinite(height) || height < OverlayPreferences.MinimumHeight) return;
+        if (!position.IsFinite || !double.IsFinite(width) || width <= 0 ||
+            !double.IsFinite(height) || height <= 0) return;
 
         _interaction = _interaction with { Width = width, Height = height };
         var placement = OverlayPositionResolver.Resolve(position, width, height, _workAreas());
+        _interaction = _interaction with { Width = placement.Width, Height = placement.Height };
+        if (Math.Abs(width - placement.Width) > 0.1 || Math.Abs(height - placement.Height) > 0.1)
+            _view.ApplyInteractionState(_interaction);
         if (_view is not null && placement.UsedFallback)
         {
             _view.SetPosition(placement.Position);
@@ -382,5 +411,14 @@ public sealed class LyricsOverlayController
         {
             _log?.Invoke("Warning", "Overlay", $"Desktop lyrics geometry could not be saved ({exception.GetType().Name}).");
         }
+    }
+
+    private void ApplyResolvedGeometry(OverlayPlacement placement)
+    {
+        if (_view is null) return;
+        if (Math.Abs(placement.Width - _interaction.Width) < 0.1 &&
+            Math.Abs(placement.Height - _interaction.Height) < 0.1) return;
+        _interaction = _interaction with { Width = placement.Width, Height = placement.Height };
+        _view.ApplyInteractionState(_interaction);
     }
 }

@@ -34,7 +34,7 @@ public sealed record OverlayPreferences(
 
     public bool IsValid =>
         Enum.IsDefined(ContentMode) && double.IsFinite(Width) &&
-        Width >= MinimumWidth && double.IsFinite(Height) && Height >= MinimumHeight;
+        Width > 0 && double.IsFinite(Height) && Height > 0;
 }
 
 public sealed record ApplicationSettings(
@@ -251,9 +251,9 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         var topmost = ReadBoolean(overlay, "topmost", defaults.Topmost, warnings);
         var contentMode = ReadContentMode(overlay, warnings);
         var width = ReadDimension(overlay, "width", OverlayPreferences.Default.Width,
-            OverlayPreferences.MinimumWidth, warnings);
+            double.Epsilon, warnings);
         var height = ReadDimension(overlay, "height", OverlayPreferences.Default.Height,
-            OverlayPreferences.MinimumHeight, warnings);
+            double.Epsilon, warnings);
         return new(locked, clickThrough, topmost, contentMode, width, height);
     }
 

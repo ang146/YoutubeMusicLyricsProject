@@ -8,7 +8,10 @@
         ShowInTaskbar="False" ShowActivated="False" Focusable="False"
         Topmost="True">
     <Border x:Name="OverlaySurface" Background="#30000000" CornerRadius="10" Padding="24,12,24,8"
-            MouseLeftButtonDown="OnSurfaceMouseLeftButtonDown">
+            MouseLeftButtonDown="OnSurfaceMouseLeftButtonDown"
+            MouseMove="OnSurfaceMouseMove"
+            MouseLeftButtonUp="OnSurfaceMouseLeftButtonUp"
+            LostMouseCapture="OnSurfaceLostMouseCapture">
         <Border.ContextMenu>
             <ContextMenu x:Name="OverlayContextMenu">
                 <MenuItem Header="Open Control Panel" Tag="OpenControlPanel" Click="OnMenuItemClick" />

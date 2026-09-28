@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -40,11 +41,28 @@ public static class OverlayHitTestPolicy
     }
 }
 
+public static class OverlayWindowStatePolicy
+{
+    private const uint ScMinimize = 0xF020;
+    private const uint ScMaximize = 0xF030;
+    private const uint ScMask = 0xFFF0;
+
+    public static bool ShouldBlockSystemCommand(nint commandParameter)
+    {
+        var command = unchecked((uint)commandParameter.ToInt64()) & ScMask;
+        return command is ScMinimize or ScMaximize;
+    }
+}
+
 public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
 {
     private const int MaNoActivate = 3;
     private const double ResizeBorder = 7;
     private bool _allowClose;
+    private bool _managedDragActive;
+    private WpfPoint _dragStartCursor;
+    private OverlayPosition _dragStartPosition;
+    private bool _geometryRecoveryRequired;
     private OverlayInteractionState _interaction =
         OverlayInteractionState.FromPreferences(OverlayPreferences.Default);
     private LyricsOverlayPresentationState _presentation = LyricsOverlayPresentationState.Empty;
@@ -56,8 +74,10 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         Closing += OnClosing;
         SourceInitialized += OnSourceInitialized;
         SizeChanged += OnWindowSizeChanged;
+        StateChanged += OnWindowStateChanged;
     }
 
+    public bool GeometryRecoveryRequired => _geometryRecoveryRequired;
     public double OverlayWidth => Width;
     public double OverlayHeight => Height;
     internal OverlayInteractionState Interaction => _interaction;
@@ -125,7 +145,19 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         foreach (var item in GlobalTimingMenuItemsForTesting) item.IsEnabled = globalTimingEnabled;
     }
 
-    public void ShowWithoutActivation() => Show();
+    public void ShowWithoutActivation()
+    {
+        NormalizeWindowState();
+        Show();
+    }
+
+    public void NormalizeWindowState()
+    {
+        if (base.WindowState != System.Windows.WindowState.Normal)
+            base.WindowState = System.Windows.WindowState.Normal;
+    }
+
+    public void CompleteGeometryRecovery() => _geometryRecoveryRequired = false;
 
     public void CloseForApplicationShutdown()
     {
@@ -141,6 +173,12 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
 
     private nint WindowProcedure(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
     {
+        if (message == 0x0112 && OverlayWindowStatePolicy.ShouldBlockSystemCommand(wParam)) // WM_SYSCOMMAND
+        {
+            handled = true;
+            return nint.Zero;
+        }
+
         if (message == 0x0021)
         {
             handled = true;
@@ -221,21 +259,62 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         _ => NativeOverlayClickThrough.HtClient
     };
 
-    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) =>
-        OverlaySizeChanged?.Invoke(Width, Height);
+    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (base.WindowState == System.Windows.WindowState.Normal && !_geometryRecoveryRequired)
+            OverlaySizeChanged?.Invoke(Width, Height);
+    }
 
     private void OnSurfaceMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left || !_interaction.CanDragOnLyrics) return;
-        try
-        {
-            DragMove();
-        }
-        catch (InvalidOperationException)
-        {
-            return;
-        }
-        DragCompleted?.Invoke(new(Left, Top));
+        if (!GetCursorPosition(out var cursor) || !OverlaySurface.CaptureMouse()) return;
+
+        _managedDragActive = true;
+        _dragStartCursor = new(cursor.X, cursor.Y);
+        _dragStartPosition = new(Left, Top);
+        e.Handled = true;
+    }
+
+    private void OnSurfaceMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!_managedDragActive || e.LeftButton != MouseButtonState.Pressed) return;
+        if (!GetCursorPosition(out var cursor)) return;
+
+        var pixelDelta = new Vector(cursor.X - _dragStartCursor.X, cursor.Y - _dragStartCursor.Y);
+        var dipDelta = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice.Transform(pixelDelta)
+                       ?? pixelDelta;
+        Left = _dragStartPosition.Left + dipDelta.X;
+        Top = _dragStartPosition.Top + dipDelta.Y;
+        e.Handled = true;
+    }
+
+    private void OnSurfaceMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || !_managedDragActive) return;
+        CompleteManagedDrag(releaseCapture: true);
+        e.Handled = true;
+    }
+
+    private void OnSurfaceLostMouseCapture(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_managedDragActive) CompleteManagedDrag(releaseCapture: false);
+    }
+
+    private void CompleteManagedDrag(bool releaseCapture)
+    {
+        if (!_managedDragActive) return;
+        _managedDragActive = false;
+        if (releaseCapture && Mouse.Captured == OverlaySurface) OverlaySurface.ReleaseMouseCapture();
+        if (base.WindowState == System.Windows.WindowState.Normal && !_geometryRecoveryRequired)
+            DragCompleted?.Invoke(new(Left, Top));
+    }
+
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (base.WindowState == System.Windows.WindowState.Normal) return;
+        _geometryRecoveryRequired = true;
+        NormalizeWindowState();
     }
 
     private void OnMenuItemClick(object sender, RoutedEventArgs e)
@@ -250,5 +329,21 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         e.Cancel = true;
         Hide();
         CloseRequested?.Invoke();
+    }
+
+    private static bool GetCursorPosition(out NativePoint point) => NativeMethods.GetCursorPos(out point);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetCursorPos(out NativePoint point);
     }
 }

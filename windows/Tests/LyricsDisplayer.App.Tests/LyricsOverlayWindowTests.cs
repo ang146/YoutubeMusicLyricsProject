@@ -36,6 +36,20 @@ public sealed class LyricsOverlayWindowTests
     }
 
     [Test]
+    public void OverlayWindowStartsInNormalState()
+    {
+        var window = new LyricsOverlayWindow();
+        try
+        {
+            Assert.That(window.WindowState, Is.EqualTo(WindowState.Normal));
+        }
+        finally
+        {
+            window.CloseForApplicationShutdown();
+        }
+    }
+
+    [Test]
     public void TextBlocksWrapAndPreserveUnicodeWholeLineText()
     {
         var window = new LyricsOverlayWindow();

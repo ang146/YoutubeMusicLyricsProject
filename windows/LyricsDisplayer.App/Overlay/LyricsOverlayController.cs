@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
@@ -8,6 +9,8 @@ namespace LyricsDisplayer;
 public interface ILyricsOverlayView
 {
     bool IsVisible { get; }
+    WindowState WindowState { get; }
+    bool GeometryRecoveryRequired { get; }
     double Left { get; }
     double Top { get; }
     double OverlayWidth { get; }
@@ -21,6 +24,8 @@ public interface ILyricsOverlayView
     void SetLyrics(LyricsOverlayPresentationState state);
     void ApplyInteractionState(OverlayInteractionState state);
     void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs);
+    void NormalizeWindowState();
+    void CompleteGeometryRecovery();
     void ShowWithoutActivation();
     void Hide();
     void CloseForApplicationShutdown();
@@ -131,6 +136,7 @@ public sealed class LyricsOverlayController
     {
         if (_shuttingDown) return;
         EnsureView();
+        RecoverAbnormalWindowStateIfNeeded();
         if (_reportedVisible) return;
         _view!.ShowWithoutActivation();
         _reportedVisible = true;
@@ -183,6 +189,24 @@ public sealed class LyricsOverlayController
             _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay position restored.");
     }
 
+    private void RecoverAbnormalWindowStateIfNeeded()
+    {
+        if (_view is null ||
+            (_view.WindowState == WindowState.Normal && !_view.GeometryRecoveryRequired)) return;
+
+        _view.NormalizeWindowState();
+        _view.ApplyInteractionState(_interaction);
+        var savedPosition = _settingsStore.LoadOverlayPosition();
+        var placement = OverlayPositionResolver.Resolve(
+            savedPosition,
+            _interaction.Width,
+            _interaction.Height,
+            _workAreas());
+        _view.SetPosition(placement.Position);
+        _view.CompleteGeometryRecovery();
+        _log?.Invoke("Warning", "Overlay", "Abnormal overlay window state was restored to normal geometry.");
+    }
+
     private void OnCloseRequested()
     {
         if (_shuttingDown) return;
@@ -200,7 +224,8 @@ public sealed class LyricsOverlayController
 
     private void OnDragCompleted(OverlayPosition position)
     {
-        if (!_interaction.CanDragOnLyrics) return;
+        if (!_interaction.CanDragOnLyrics || _view is null ||
+            _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
         try
         {
             _settingsStore.SaveOverlayGeometry(position, _interaction.ToPreferences());
@@ -328,6 +353,7 @@ public sealed class LyricsOverlayController
 
     private void OnViewSizeChanged(double width, double height)
     {
+        if (_view is null || _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
         var next = LyricsOverlayPresentationState.FromLyrics(_lyrics, _timeline, _interaction.ContentMode,
             width, height, _normalizedLines);
         if (_presentation.EquivalentTo(next)) return;
@@ -337,6 +363,7 @@ public sealed class LyricsOverlayController
 
     private void OnGeometryChangeCompleted(OverlayPosition position, double width, double height)
     {
+        if (_view is null || _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
         if (!position.IsFinite || !double.IsFinite(width) || width < OverlayPreferences.MinimumWidth ||
             !double.IsFinite(height) || height < OverlayPreferences.MinimumHeight) return;
 

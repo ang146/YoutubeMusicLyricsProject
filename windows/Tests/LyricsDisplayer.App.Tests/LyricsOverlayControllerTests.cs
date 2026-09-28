@@ -1,6 +1,7 @@
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
+using System.Windows;
 
 namespace LyricsDisplayer.App.Tests;
 
@@ -29,13 +30,60 @@ public sealed class LyricsOverlayControllerTests
         harness.Controller.Show();
         harness.Controller.Hide();
         harness.Controller.Show();
+        harness.Controller.Hide();
+        harness.Controller.Show();
 
         Assert.Multiple(() =>
         {
             Assert.That(harness.CreatedViews, Is.EqualTo(1));
-            Assert.That(harness.View.HideCalls, Is.EqualTo(1));
-            Assert.That(harness.View.ShowWithoutActivationCalls, Is.EqualTo(2));
+            Assert.That(harness.View.HideCalls, Is.EqualTo(2));
+            Assert.That(harness.View.ShowWithoutActivationCalls, Is.EqualTo(3));
             Assert.That(harness.Controller.IsVisible, Is.True);
+        });
+    }
+
+    [TestCase(WindowState.Maximized)]
+    [TestCase(WindowState.Minimized)]
+    public void ShowNormalizesAbnormalHiddenWindowStateAndRestoresSavedFloatingGeometry(WindowState state)
+    {
+        var preferences = OverlayPreferences.Default with { Width = 1040, Height = 280 };
+        var harness = new Harness(new OverlayPosition(500, 260), preferences);
+        harness.Controller.Show();
+        harness.Controller.Hide();
+        harness.View.SimulateAbnormalState(state);
+        harness.View.CompleteResize(1920, 1080);
+
+        Assert.That(harness.PositionStore.Saved, Is.Empty,
+            "Geometry observed while the window is in an abnormal state must not replace floating geometry.");
+
+        harness.Controller.Show();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.View.WindowState, Is.EqualTo(WindowState.Normal));
+            Assert.That(harness.View.GeometryRecoveryRequired, Is.False);
+            Assert.That(harness.View.Position, Is.EqualTo(new OverlayPosition(500, 260)));
+            Assert.That(harness.View.OverlayWidth, Is.EqualTo(1040));
+            Assert.That(harness.View.OverlayHeight, Is.EqualTo(280));
+            Assert.That(harness.View.ShowWithoutActivationCalls, Is.EqualTo(2));
+            Assert.That(harness.CreatedViews, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void LockedPositionStillAllowsResizeAndPersistsNormalGeometry()
+    {
+        var harness = new Harness();
+        harness.Controller.Show();
+        harness.Controller.SetLocked(true);
+        harness.View.CompleteResize(1100, 300);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.View.Interaction!.CanDragOnLyrics, Is.False);
+            Assert.That(harness.View.Interaction.CanResize, Is.True);
+            Assert.That(harness.PositionStore.SavedPreferences.Last().Width, Is.EqualTo(1100));
+            Assert.That(harness.PositionStore.SavedPreferences.Last().Height, Is.EqualTo(300));
         });
     }
 
@@ -471,6 +519,8 @@ public sealed class LyricsOverlayControllerTests
     private sealed class FakeView : ILyricsOverlayView
     {
         public bool IsVisible { get; private set; }
+        public WindowState WindowState { get; private set; } = WindowState.Normal;
+        public bool GeometryRecoveryRequired { get; private set; }
         public double Left => Position.Left;
         public double Top => Position.Top;
         public double OverlayWidth => Interaction?.Width ?? 900;
@@ -490,6 +540,8 @@ public sealed class LyricsOverlayControllerTests
         public List<LyricsOverlayPresentationState> RenderedStates { get; } = [];
 
         public void SetPosition(OverlayPosition position) => Position = position;
+        public void NormalizeWindowState() => WindowState = WindowState.Normal;
+        public void CompleteGeometryRecovery() => GeometryRecoveryRequired = false;
         public void ApplyInteractionState(OverlayInteractionState state) => Interaction = state;
         public void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs) { }
         public void SetLyrics(LyricsOverlayPresentationState state)
@@ -503,6 +555,11 @@ public sealed class LyricsOverlayControllerTests
         public void CloseForApplicationShutdown() { CloseForShutdownCalls++; IsVisible = false; }
         public void RequestClose() { IsVisible = false; CloseRequested?.Invoke(); }
         public void SimulateMovement(OverlayPosition position) => Position = position;
+        public void SimulateAbnormalState(WindowState state)
+        {
+            WindowState = state;
+            GeometryRecoveryRequired = true;
+        }
         public void CompleteDrag(OverlayPosition position) { Position = position; DragCompleted?.Invoke(position); }
         public void RequestCommand(OverlayCommand command) => CommandRequested?.Invoke(command);
         public void CompleteResize(double width, double height)

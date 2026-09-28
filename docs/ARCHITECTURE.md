@@ -209,6 +209,10 @@ Access to the control panel includes:
 
 The **Close Control Panel to system tray** preference defaults off to preserve existing close-to-exit behavior. When enabled, closing the Control Panel hides it while the overlay, Named Pipe server, and hotkeys continue running. Tray Exit always shuts down the application.
 
+### Desktop overlay window-state invariant
+
+The Desktop Lyrics Overlay is a floating, application-managed surface, not a conventional application window. Its only supported state is `WindowState.Normal`; minimized and maximized states are prevented or immediately normalized. Native Windows caption movement and Snap placement are not used for moving lyrics. Application-controlled dragging changes `Left` and `Top`, while explicit edge/corner resize hit tests remain available. Overlay geometry is persisted only from a normal floating state, and show/recovery normalizes the state and reapplies validated saved geometry before displaying the singleton window.
+
 ### Renderer dimensions
 
 The renderer keeps these concerns separate:
@@ -1374,6 +1378,7 @@ Implemented:
 * persistent overlay preferences
 * topmost on/off preference
 * persistent left/top/width/height geometry independent of content mode, with invisible borderless edge/corner resizing while click-through is off and visible-work-area recovery
+* application-managed lyric dragging that bypasses the native caption move/Snap workflow, with minimized/maximized states blocked and normalized before show/recovery
 * `OneLine`, `TwoLines`, and `AllLyrics` content modes
 * bounded Past/Current/Upcoming context for All Lyrics, selected by exact timeline occurrence and fitted as a prefix of `Current, Upcoming +1, Previous -1, Upcoming +2, Previous -2, ...` without scrolling
 * direct, clearly scoped Current Line and Global timing quick actions in the overlay context menu, routed to existing M8 operations

@@ -47,4 +47,21 @@ public sealed class NativeOverlayClickThroughTests
         Assert.That(state.CanResize, Is.EqualTo(canResize));
         Assert.That(state.CanDragOnLyrics, Is.EqualTo(!locked));
     }
+
+    [TestCase(0xF020)] // SC_MINIMIZE
+    [TestCase(0xF030)] // SC_MAXIMIZE
+    [TestCase(0xF023)] // command parameters can carry low-order flags
+    public void OverlayBlocksNativeMinimizeAndMaximizeSystemCommands(int command)
+    {
+        Assert.That(OverlayWindowStatePolicy.ShouldBlockSystemCommand(new nint(command)), Is.True);
+    }
+
+    [TestCase(0xF010)] // SC_MOVE
+    [TestCase(0xF120)] // SC_RESTORE
+    [TestCase(0xF000)] // SC_SIZE
+    public void OverlayLeavesMoveRestoreAndResizeSystemCommandsUnchanged(int command)
+    {
+        Assert.That(OverlayWindowStatePolicy.ShouldBlockSystemCommand(new nint(command)), Is.False);
+    }
+
 }

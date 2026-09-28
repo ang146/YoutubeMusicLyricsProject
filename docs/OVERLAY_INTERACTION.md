@@ -24,7 +24,11 @@ Future appearance preferences may include font family, size and weight; role-bas
 
 ## Movement, resizing, and screen recovery
 
-`Lock Position` prevents movement only. It does not prevent resizing, hide the overlay, pause lyrics, or change topmost/click-through. When unlocked, users can drag the lyric surface. With click-through disabled, invisible `WM_NCHITTEST` zones at each edge and corner provide ordinary borderless width/height resizing; lyric-text hit regions take priority over edge resizing. Resizing remains available while position is locked because the setting locks position only. There is no visible resize grip, bar, border, or other resize-only control.
+`Lock Position` prevents movement only. It does not prevent resizing, hide the overlay, pause lyrics, or change topmost/click-through. When unlocked, a left-button drag on the lyric surface captures the mouse and application code updates `Left`/`Top` from cursor deltas; it does not call `Window.DragMove`, return `HTCAPTION`, or enter the native Windows caption move loop. This intentionally disables drag-to-top maximize, left/right Snap placement, Snap Assist, and Snap Layout movement for the overlay. Dragging is otherwise free; monitor-boundary clamping is not part of this fix.
+
+With click-through disabled, invisible `WM_NCHITTEST` zones at each edge and corner provide borderless width/height resizing through the existing native sizing hit tests; lyric-text hit regions take priority over edge resizing. Resizing remains available while position is locked because the setting locks position only. There is no visible resize grip, bar, border, or other resize-only control.
+
+The overlay is always intended to remain in `WindowState.Normal`. Overlay-specific `SC_MAXIMIZE` and `SC_MINIMIZE` commands are ignored, and any unexpected non-normal state is normalized. Before a hidden singleton is shown after an abnormal state, it reapplies the saved normal width/height and resolves the saved position through the existing visibility-recovery logic. Geometry completion is persisted only while the window is normal and no abnormal-state recovery is pending, so maximized monitor bounds cannot replace the user's floating geometry. Hide/show and application-level visibility toggles remain supported; they are not minimized-window states.
 
 Overlay geometry (`Left`, `Top`, `Width`, and `Height`) is persistent state independent of `OneLine`, `TwoLines`, and `AllLyrics`; changing modes never auto-sizes the window. Minimum size is 420 × 120 WPF device-independent pixels. No arbitrary upper dimension is imposed. `AllLyrics` estimates wrapped text height at the current width and fits only a prefix of the semantic priority sequence to the current height. Measurement decides visible count; semantic priority decides line identity. A tall or wrapped candidate ends the prefix—shorter later candidates cannot replace it. Width or height changes rebuild the subset from the current timeline state while retaining window dimensions. Resize completion saves position and both dimensions together. After a resize, the current rectangle is retained if it remains meaningfully visible; otherwise the work-area resolver selects a visible fallback. A valid custom position is not reset just because another monitor is available.
 
@@ -34,10 +38,10 @@ Click-through is selected per screen point through a focused `WM_NCHITTEST` hook
 
 | Click-through | Hit location | Result |
 | --- | --- | --- |
-| off | lyric text | normal WPF mouse interaction; left-drag moves when unlocked |
+| off | lyric text | normal WPF mouse interaction; application-managed left-drag moves when unlocked |
 | off | empty edge/corner resize zone | native `HTLEFT`/`HTRIGHT`/`HTTOP`/`HTBOTTOM`/corner hit test |
 | off | other overlay area | normal WPF mouse interaction |
-| on | visible lyric text | WPF receives the input; right-click menu and unlocked left-drag remain available |
+| on | visible lyric text | WPF receives the input; right-click menu and unlocked application-managed left-drag remain available |
 | on | empty/transparent overlay area, including edges | returns `HTTRANSPARENT` for the window underneath |
 
 The overlay does not set whole-window `WS_EX_TRANSPARENT`. Click-through off keeps the semi-transparent interaction backing visible and enables invisible edge/corner resizing. With click-through on, the backing becomes fully transparent and resizing is disabled; layered-window alpha hit testing and `WM_NCHITTEST` pass empty pixels through across application threads while visible lyric text remains interactive. Lock and click-through remain independent: click-through never changes the saved lock setting, and lock disables dragging over lyrics while leaving right-click available. Lock does not disable resizing when click-through is off.

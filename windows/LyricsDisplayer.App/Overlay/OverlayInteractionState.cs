@@ -6,17 +6,17 @@ public sealed record OverlayInteractionState(
     bool Locked,
     bool ClickThrough,
     bool Topmost,
-    OverlayDisplayMode DisplayMode,
+    LyricsContentMode ContentMode,
     double Width)
 {
     public static OverlayInteractionState FromPreferences(OverlayPreferences preferences) =>
         new(preferences.Locked, preferences.ClickThrough, preferences.Topmost,
-            preferences.DisplayMode, preferences.Width);
+            preferences.ContentMode, preferences.Width);
 
     public OverlayPreferences ToPreferences() =>
-        new(Locked, ClickThrough, Topmost, DisplayMode, Width);
+        new(Locked, ClickThrough, Topmost, ContentMode, Width);
 
-    public bool CanDrag => !Locked && !ClickThrough;
+    public bool CanDragOnLyrics => !Locked;
 }
 
 public enum OverlayCommand
@@ -25,7 +25,17 @@ public enum OverlayCommand
     ToggleLocked,
     ToggleClickThrough,
     ToggleTopmost,
-    UseOneLine,
-    UseTwoLines,
+    SetOneLine,
+    SetTwoLines,
+    SetAllLyrics,
+    AdjustCurrentLineMinus500,
+    AdjustCurrentLineMinus100,
+    AdjustCurrentLinePlus100,
+    AdjustCurrentLinePlus500,
+    AdjustGlobalMinus500,
+    AdjustGlobalMinus100,
+    ResetGlobalTiming,
+    AdjustGlobalPlus100,
+    AdjustGlobalPlus500,
     Hide
 }

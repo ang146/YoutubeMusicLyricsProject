@@ -6,7 +6,7 @@ using LyricsDisplayer.Core.Settings;
 
 namespace LyricsDisplayer;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     public SessionFileLogger Logger { get; private set; } = null!;
     public LyricsLibrary LyricsLibrary { get; private set; } = null!;

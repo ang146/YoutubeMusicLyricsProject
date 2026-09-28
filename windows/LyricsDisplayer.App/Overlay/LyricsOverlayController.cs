@@ -15,9 +15,11 @@ public interface ILyricsOverlayView
     event Action? CloseRequested;
     event Action<OverlayPosition>? DragCompleted;
     event Action<OverlayCommand>? CommandRequested;
+    event Action<double>? WidthChangeCompleted;
     void SetPosition(OverlayPosition position);
     void SetLyrics(LyricsOverlayPresentationState state);
     void ApplyInteractionState(OverlayInteractionState state);
+    void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs);
     void ShowWithoutActivation();
     void Hide();
     void CloseForApplicationShutdown();
@@ -34,6 +36,9 @@ public sealed class LyricsOverlayController
     private LyricsSnapshotPayload? _lyrics;
     private LyricsTimelinePosition _timeline = LyricsTimeline.Empty.Evaluate(0);
     private OverlayInteractionState _interaction;
+    private bool _currentLineTimingEnabled;
+    private bool _globalTimingEnabled;
+    private long _globalOffsetMs;
     private bool _reportedVisible;
     private bool _shuttingDown;
 
@@ -53,6 +58,7 @@ public sealed class LyricsOverlayController
     public event Action<bool>? VisibilityChanged;
     public event Action<OverlayInteractionState>? InteractionStateChanged;
     public event Action? OpenControlPanelRequested;
+    public event Action<OverlayCommand>? TimingCommandRequested;
 
     public bool IsVisible => _reportedVisible;
     public bool HasCreatedWindow => _view is not null;
@@ -63,8 +69,8 @@ public sealed class LyricsOverlayController
     {
         _lyrics = lyrics;
         _timeline = timeline;
-        var next = LyricsOverlayPresentationState.FromLyrics(lyrics, timeline, _interaction.DisplayMode);
-        if (next == _presentation) return;
+        var next = LyricsOverlayPresentationState.FromLyrics(lyrics, timeline, _interaction.ContentMode);
+        if (_presentation.EquivalentTo(next)) return;
         _presentation = next;
         _view?.SetLyrics(next);
     }
@@ -85,11 +91,19 @@ public sealed class LyricsOverlayController
     public void SetTopmost(bool value) =>
         ChangeInteraction(_interaction with { Topmost = value }, $"topmost {(value ? "enabled" : "disabled")}");
 
-    public void SetDisplayMode(OverlayDisplayMode value) =>
+    public void SetContentMode(LyricsContentMode value) =>
         ChangeInteraction(_interaction with
         {
-            DisplayMode = Enum.IsDefined(value) ? value : throw new ArgumentOutOfRangeException(nameof(value))
-        }, $"display mode changed to {(value == OverlayDisplayMode.OneLine ? "one line" : "two lines")}");
+            ContentMode = Enum.IsDefined(value) ? value : throw new ArgumentOutOfRangeException(nameof(value))
+        }, $"content mode changed to {value}");
+
+    public void SetTimingAvailability(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs)
+    {
+        _currentLineTimingEnabled = currentLineEnabled;
+        _globalTimingEnabled = globalTimingEnabled;
+        _globalOffsetMs = globalOffsetMs;
+        _view?.ApplyTimingState(currentLineEnabled, globalTimingEnabled, globalOffsetMs);
+    }
 
     public void SetWidth(double value)
     {
@@ -125,6 +139,7 @@ public sealed class LyricsOverlayController
         _view.CloseRequested -= OnCloseRequested;
         _view.DragCompleted -= OnDragCompleted;
         _view.CommandRequested -= OnCommandRequested;
+        _view.WidthChangeCompleted -= OnWidthChangeCompleted;
         _view.CloseForApplicationShutdown();
         _view = null;
         _reportedVisible = false;
@@ -137,7 +152,9 @@ public sealed class LyricsOverlayController
         _view.CloseRequested += OnCloseRequested;
         _view.DragCompleted += OnDragCompleted;
         _view.CommandRequested += OnCommandRequested;
+        _view.WidthChangeCompleted += OnWidthChangeCompleted;
         _view.ApplyInteractionState(_interaction);
+        _view.ApplyTimingState(_currentLineTimingEnabled, _globalTimingEnabled, _globalOffsetMs);
         _view.SetLyrics(_presentation);
 
         var saved = _settingsStore.LoadOverlayPosition();
@@ -166,7 +183,7 @@ public sealed class LyricsOverlayController
 
     private void OnDragCompleted(OverlayPosition position)
     {
-        if (!_interaction.CanDrag) return;
+        if (!_interaction.CanDragOnLyrics) return;
         try
         {
             _settingsStore.SaveOverlayPosition(position);
@@ -194,15 +211,15 @@ public sealed class LyricsOverlayController
     private void ChangeInteraction(OverlayInteractionState next, string settingName)
     {
         if (next == _interaction) return;
-        var sizeChanged = next.Width != _interaction.Width || next.DisplayMode != _interaction.DisplayMode;
-        var displayModeChanged = next.DisplayMode != _interaction.DisplayMode;
+        var sizeChanged = next.Width != _interaction.Width || next.ContentMode != _interaction.ContentMode;
+        var contentModeChanged = next.ContentMode != _interaction.ContentMode;
         _interaction = next;
         _view?.ApplyInteractionState(next);
 
-        if (displayModeChanged)
+        if (contentModeChanged)
         {
-            var presentation = LyricsOverlayPresentationState.FromLyrics(_lyrics, _timeline, next.DisplayMode);
-            if (presentation != _presentation)
+            var presentation = LyricsOverlayPresentationState.FromLyrics(_lyrics, _timeline, next.ContentMode);
+            if (!_presentation.EquivalentTo(presentation))
             {
                 _presentation = presentation;
                 _view?.SetLyrics(presentation);
@@ -248,17 +265,38 @@ public sealed class LyricsOverlayController
             case OverlayCommand.ToggleTopmost:
                 SetTopmost(!_interaction.Topmost);
                 break;
-            case OverlayCommand.UseOneLine:
-                SetDisplayMode(OverlayDisplayMode.OneLine);
+            case OverlayCommand.SetOneLine:
+                SetContentMode(LyricsContentMode.OneLine);
                 break;
-            case OverlayCommand.UseTwoLines:
-                SetDisplayMode(OverlayDisplayMode.TwoLines);
+            case OverlayCommand.SetTwoLines:
+                SetContentMode(LyricsContentMode.TwoLines);
+                break;
+            case OverlayCommand.SetAllLyrics:
+                SetContentMode(LyricsContentMode.AllLyrics);
                 break;
             case OverlayCommand.Hide:
                 Hide();
                 break;
+            case OverlayCommand.AdjustCurrentLineMinus500:
+            case OverlayCommand.AdjustCurrentLineMinus100:
+            case OverlayCommand.AdjustCurrentLinePlus100:
+            case OverlayCommand.AdjustCurrentLinePlus500:
+            case OverlayCommand.AdjustGlobalMinus500:
+            case OverlayCommand.AdjustGlobalMinus100:
+            case OverlayCommand.ResetGlobalTiming:
+            case OverlayCommand.AdjustGlobalPlus100:
+            case OverlayCommand.AdjustGlobalPlus500:
+                TimingCommandRequested?.Invoke(command);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(command));
         }
+    }
+
+    private void OnWidthChangeCompleted(double width)
+    {
+        if (double.IsFinite(width) && width >= OverlayPreferences.MinimumWidth &&
+            width <= OverlayPreferences.MaximumWidth)
+            SetWidth(width);
     }
 }

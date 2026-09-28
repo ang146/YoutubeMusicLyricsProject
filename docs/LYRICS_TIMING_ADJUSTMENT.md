@@ -95,4 +95,4 @@ The pre-replacement hash check is best-effort write safety, not a filesystem com
 
 ## Deliberate scope limits
 
-Milestone 8 does not add timing state to SQLite, alter Firefox or NativeHost messages, change `PlaybackClock`, or add controls to the desktop overlay. Click-through, shortcuts, overlay preferences, break rendering, preparation cues, karaoke progress, and word/character timing remain later work.
+Milestone 8 does not add timing state to SQLite, alter Firefox or NativeHost messages, or change `PlaybackClock`. Milestone 9 exposes quick current-line and global timing actions in the overlay context menu by routing them to these existing coordinator operations; Bake remains Control-Panel-only. Break rendering, preparation cues, karaoke progress, and word/character timing remain later work.

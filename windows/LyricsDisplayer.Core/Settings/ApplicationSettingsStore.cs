@@ -9,17 +9,18 @@ public readonly record struct OverlayPosition(double Left, double Top)
     public bool IsFinite => double.IsFinite(Left) && double.IsFinite(Top);
 }
 
-public enum OverlayDisplayMode
+public enum LyricsContentMode
 {
     OneLine,
-    TwoLines
+    TwoLines,
+    AllLyrics
 }
 
 public sealed record OverlayPreferences(
     bool Locked,
     bool ClickThrough,
     bool Topmost,
-    OverlayDisplayMode DisplayMode,
+    LyricsContentMode ContentMode,
     double Width)
 {
     public const double DefaultWidth = 900;
@@ -27,17 +28,18 @@ public sealed record OverlayPreferences(
     public const double MaximumWidth = 1800;
 
     public static OverlayPreferences Default { get; } =
-        new(false, false, true, OverlayDisplayMode.TwoLines, DefaultWidth);
+        new(false, false, true, LyricsContentMode.TwoLines, DefaultWidth);
 
     public bool IsValid =>
-        Enum.IsDefined(DisplayMode) && double.IsFinite(Width) &&
+        Enum.IsDefined(ContentMode) && double.IsFinite(Width) &&
         Width >= MinimumWidth && Width <= MaximumWidth;
 }
 
 public sealed record ApplicationSettings(
     string? LyricsLibraryPath,
     OverlayPosition? OverlayPosition,
-    OverlayPreferences OverlayPreferences);
+    OverlayPreferences OverlayPreferences,
+    bool CloseControlPanelToTray);
 
 public sealed record ApplicationSettingsReadResult(ApplicationSettings Settings, string? Warning = null);
 
@@ -51,6 +53,8 @@ public interface IOverlaySettingsStore : IOverlayPositionStore
 {
     OverlayPreferences LoadOverlayPreferences();
     void SaveOverlayPreferences(OverlayPreferences preferences);
+    bool LoadCloseControlPanelToTray();
+    void SaveCloseControlPanelToTray(bool value);
 }
 
 public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySettingsStore
@@ -65,26 +69,27 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         lock (_sync)
         {
             if (!File.Exists(SettingsPath))
-                return new(new(null, null, OverlayPreferences.Default));
+                return new(new(null, null, OverlayPreferences.Default, false));
 
             try
             {
                 var root = JsonNode.Parse(File.ReadAllText(SettingsPath)) as JsonObject;
                 if (root is null)
-                    return new(new(null, null, OverlayPreferences.Default),
+                    return new(new(null, null, OverlayPreferences.Default, false),
                         "settings.json must contain a JSON object; defaults are in use.");
 
                 var warnings = new List<string>();
                 var libraryPath = ReadLibraryPath(root, warnings);
                 var overlayPosition = ReadOverlayPosition(root, warnings);
                 var overlayPreferences = ReadOverlayPreferences(root, warnings);
-                return new(new(libraryPath, overlayPosition, overlayPreferences),
+                var closeToTray = ReadCloseControlPanelToTray(root, warnings);
+                return new(new(libraryPath, overlayPosition, overlayPreferences, closeToTray),
                     warnings.Count == 0 ? null : string.Join(" ", warnings));
             }
             catch (Exception exception) when (exception is JsonException or IOException or
                                                UnauthorizedAccessException or ArgumentException)
             {
-                return new(new(null, null, OverlayPreferences.Default),
+                return new(new(null, null, OverlayPreferences.Default, false),
                     $"settings.json could not be read; defaults are in use ({exception.GetType().Name}).");
             }
         }
@@ -93,6 +98,8 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
     public OverlayPosition? LoadOverlayPosition() => Load().Settings.OverlayPosition;
 
     public OverlayPreferences LoadOverlayPreferences() => Load().Settings.OverlayPreferences;
+
+    public bool LoadCloseControlPanelToTray() => Load().Settings.CloseControlPanelToTray;
 
     public void SaveOverlayPosition(OverlayPosition position)
     {
@@ -122,10 +129,30 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
             overlay["locked"] = preferences.Locked;
             overlay["clickThrough"] = preferences.ClickThrough;
             overlay["topmost"] = preferences.Topmost;
-            overlay["displayMode"] = preferences.DisplayMode == OverlayDisplayMode.OneLine
-                ? "oneLine"
-                : "twoLines";
+            overlay["contentMode"] = preferences.ContentMode switch
+            {
+                LyricsContentMode.OneLine => "oneLine",
+                LyricsContentMode.TwoLines => "twoLines",
+                LyricsContentMode.AllLyrics => "allLyrics",
+                _ => throw new ArgumentOutOfRangeException(nameof(preferences))
+            };
+            overlay.Remove("displayMode");
             overlay["width"] = preferences.Width;
+            AtomicFile.Replace(SettingsPath, root.ToJsonString(WriteOptions) + Environment.NewLine);
+        }
+    }
+
+    public void SaveCloseControlPanelToTray(bool value)
+    {
+        lock (_sync)
+        {
+            var root = ReadObjectForUpdate();
+            if (root["application"] is not JsonObject application)
+            {
+                application = new JsonObject();
+                root["application"] = application;
+            }
+            application["closeControlPanelToTray"] = value;
             AtomicFile.Replace(SettingsPath, root.ToJsonString(WriteOptions) + Environment.NewLine);
         }
     }
@@ -187,36 +214,51 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         var locked = ReadBoolean(overlay, "locked", defaults.Locked, warnings);
         var clickThrough = ReadBoolean(overlay, "clickThrough", defaults.ClickThrough, warnings);
         var topmost = ReadBoolean(overlay, "topmost", defaults.Topmost, warnings);
-        var displayMode = ReadDisplayMode(overlay, warnings);
+        var contentMode = ReadContentMode(overlay, warnings);
         var width = ReadWidth(overlay, warnings);
-        return new(locked, clickThrough, topmost, displayMode, width);
+        return new(locked, clickThrough, topmost, contentMode, width);
     }
 
     private static bool ReadBoolean(
         JsonObject overlay,
         string propertyName,
         bool defaultValue,
-        ICollection<string> warnings)
+        ICollection<string> warnings,
+        string prefix = "overlay")
     {
         if (!overlay.TryGetPropertyValue(propertyName, out var node)) return defaultValue;
         if (node is JsonValue value && value.TryGetValue<bool>(out var result)) return result;
-        warnings.Add($"overlay.{propertyName} must be a boolean; the default is in use.");
+        warnings.Add($"{prefix}.{propertyName} must be a boolean; the default is in use.");
         return defaultValue;
     }
 
-    private static OverlayDisplayMode ReadDisplayMode(JsonObject overlay, ICollection<string> warnings)
+    private static LyricsContentMode ReadContentMode(JsonObject overlay, ICollection<string> warnings)
     {
-        if (!overlay.TryGetPropertyValue("displayMode", out var node))
-            return OverlayPreferences.Default.DisplayMode;
+        if (!overlay.TryGetPropertyValue("contentMode", out var node) &&
+            !overlay.TryGetPropertyValue("displayMode", out node))
+            return OverlayPreferences.Default.ContentMode;
         if (node is JsonValue value && value.TryGetValue<string>(out var mode))
         {
             if (string.Equals(mode, "oneLine", StringComparison.OrdinalIgnoreCase))
-                return OverlayDisplayMode.OneLine;
+                return LyricsContentMode.OneLine;
             if (string.Equals(mode, "twoLines", StringComparison.OrdinalIgnoreCase))
-                return OverlayDisplayMode.TwoLines;
+                return LyricsContentMode.TwoLines;
+            if (string.Equals(mode, "allLyrics", StringComparison.OrdinalIgnoreCase))
+                return LyricsContentMode.AllLyrics;
         }
-        warnings.Add("overlay.displayMode must be 'oneLine' or 'twoLines'; the default is in use.");
-        return OverlayPreferences.Default.DisplayMode;
+        warnings.Add("overlay.contentMode must be 'oneLine', 'twoLines', or 'allLyrics'; the default is in use.");
+        return OverlayPreferences.Default.ContentMode;
+    }
+
+    private static bool ReadCloseControlPanelToTray(JsonObject root, ICollection<string> warnings)
+    {
+        if (!root.TryGetPropertyValue("application", out var node) || node is null) return false;
+        if (node is not JsonObject application)
+        {
+            warnings.Add("application must be an object; the default is in use.");
+            return false;
+        }
+        return ReadBoolean(application, "closeControlPanelToTray", false, warnings, "application");
     }
 
     private static double ReadWidth(JsonObject overlay, ICollection<string> warnings)

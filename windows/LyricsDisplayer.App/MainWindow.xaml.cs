@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Interop;
@@ -7,6 +8,8 @@ using System.Windows.Threading;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
+using Application = System.Windows.Application;
+using MessageBox = System.Windows.MessageBox;
 
 namespace LyricsDisplayer;
 
@@ -21,6 +24,8 @@ public partial class MainWindow : Window
     private bool _synchronizingOverlayToggle;
     private bool _synchronizingOverlayPreferences;
     private GlobalHotkeyService? _globalHotkeys;
+    private TrayLifecycleService? _tray;
+    private bool _allowApplicationExit;
     private string? _currentLineTimingStatusTrackId;
 
     public MainWindow()
@@ -39,6 +44,7 @@ public partial class MainWindow : Window
         _overlay.VisibilityChanged += OnOverlayVisibilityChanged;
         _overlay.InteractionStateChanged += OnOverlayInteractionStateChanged;
         _overlay.OpenControlPanelRequested += OpenControlPanel;
+        _overlay.TimingCommandRequested += OnOverlayTimingCommand;
         ShowOverlayCheckBox.Checked += OnShowOverlayChecked;
         ShowOverlayCheckBox.Unchecked += OnShowOverlayUnchecked;
         OverlayLockedCheckBox.Checked += OnOverlayLockedChanged;
@@ -47,8 +53,10 @@ public partial class MainWindow : Window
         OverlayClickThroughCheckBox.Unchecked += OnOverlayClickThroughChanged;
         OverlayTopmostCheckBox.Checked += OnOverlayTopmostChanged;
         OverlayTopmostCheckBox.Unchecked += OnOverlayTopmostChanged;
-        OverlayDisplayModeComboBox.SelectionChanged += OnOverlayDisplayModeChanged;
+        OverlayContentModeComboBox.SelectionChanged += OnOverlayContentModeChanged;
         OverlayWidthApplyButton.Click += OnOverlayWidthApply;
+        CloseControlPanelToTrayCheckBox.Checked += OnCloseToTrayChanged;
+        CloseControlPanelToTrayCheckBox.Unchecked += OnCloseToTrayChanged;
         TimingMinus500Button.Click += (_, _) => AdjustTiming(-500);
         TimingMinus100Button.Click += (_, _) => AdjustTiming(-100);
         TimingResetButton.Click += (_, _) => ResetTiming();
@@ -72,6 +80,9 @@ public partial class MainWindow : Window
         DisplayLibrary();
         UpdateTimingControls();
         SynchronizeOverlayPreferences(_overlay.Interaction);
+        _synchronizingOverlayPreferences = true;
+        CloseControlPanelToTrayCheckBox.IsChecked = app.SettingsStore.LoadCloseControlPanelToTray();
+        _synchronizingOverlayPreferences = false;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -88,12 +99,25 @@ public partial class MainWindow : Window
         _globalHotkeys.Start();
         if (_globalHotkeys.RegisteredIds.Count != 2)
             HotkeyStatusText.Text = "One or more global shortcuts are already in use and could not be registered.";
+        _tray = new TrayLifecycleService(new WindowsTrayIcon(), OpenControlPanel,
+            ToggleOverlayFromTray, ExitApplication);
+        _tray.Start(_overlay.IsVisible);
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        if (ControlPanelClosePolicy.ShouldHideToTray(
+                CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit))
+        {
+            e.Cancel = true;
+            Hide();
+            ((App)Application.Current).Logger.Write("Information", "Application",
+                "Control Panel hidden to the system tray.");
+            return;
+        }
         _positionRefreshTimer.Stop();
         _globalHotkeys?.Dispose();
+        _tray?.Dispose();
         _overlay.Shutdown();
         _shutdown.Cancel();
     }
@@ -151,6 +175,7 @@ public partial class MainWindow : Window
         if (_playbackState.HasClockState) RefreshLocalPosition();
         DisplayLibrary();
         UpdateTimingControls();
+        UpdateOverlayTimingAvailability();
     }
 
     private void DisplayLibrary()
@@ -183,6 +208,7 @@ public partial class MainWindow : Window
 
     private void RefreshLocalPosition()
     {
+        UpdateOverlayTimingAvailability();
         if (!_playbackState.HasClockState)
         {
             _overlay.Update(null, LyricsDisplayer.Core.Timeline.LyricsTimeline.Empty.Evaluate(0));
@@ -306,6 +332,7 @@ public partial class MainWindow : Window
 
     private void OnOverlayVisibilityChanged(bool visible)
     {
+        _tray?.SetOverlayVisible(visible);
         _synchronizingOverlayToggle = true;
         try
         {
@@ -328,7 +355,7 @@ public partial class MainWindow : Window
             OverlayLockedCheckBox.IsChecked = state.Locked;
             OverlayClickThroughCheckBox.IsChecked = state.ClickThrough;
             OverlayTopmostCheckBox.IsChecked = state.Topmost;
-            OverlayDisplayModeComboBox.SelectedIndex = state.DisplayMode == OverlayDisplayMode.OneLine ? 0 : 1;
+            OverlayContentModeComboBox.SelectedIndex = (int)state.ContentMode;
             OverlayWidthTextBox.Text = state.Width.ToString("0", CultureInfo.InvariantCulture);
             OverlayPreferenceStatusText.Text = string.Empty;
         }
@@ -356,12 +383,10 @@ public partial class MainWindow : Window
             _overlay.SetTopmost(OverlayTopmostCheckBox.IsChecked == true);
     }
 
-    private void OnOverlayDisplayModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private void OnOverlayContentModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (!_synchronizingOverlayPreferences && OverlayDisplayModeComboBox.SelectedIndex >= 0)
-            _overlay.SetDisplayMode(OverlayDisplayModeComboBox.SelectedIndex == 0
-                ? OverlayDisplayMode.OneLine
-                : OverlayDisplayMode.TwoLines);
+        if (!_synchronizingOverlayPreferences && OverlayContentModeComboBox.SelectedIndex >= 0)
+            _overlay.SetContentMode((LyricsContentMode)OverlayContentModeComboBox.SelectedIndex);
     }
 
     private void OnOverlayWidthApply(object sender, RoutedEventArgs e)
@@ -384,5 +409,60 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Show();
         Activate();
+    }
+
+    private void OnCloseToTrayChanged(object sender, RoutedEventArgs e)
+    {
+        if (_synchronizingOverlayPreferences) return;
+        var store = ((App)Application.Current).SettingsStore;
+        try
+        {
+            store.SaveCloseControlPanelToTray(CloseControlPanelToTrayCheckBox.IsChecked == true);
+            ApplicationPreferenceStatusText.Text = string.Empty;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            ApplicationPreferenceStatusText.Text =
+                $"The close-to-tray preference could not be saved ({exception.GetType().Name}).";
+            ((App)Application.Current).Logger.Write("Warning", "Settings",
+                $"Close-to-tray preference could not be saved ({exception.GetType().Name}).");
+            _synchronizingOverlayPreferences = true;
+            try { CloseControlPanelToTrayCheckBox.IsChecked = store.LoadCloseControlPanelToTray(); }
+            finally { _synchronizingOverlayPreferences = false; }
+        }
+    }
+
+    private void OnOverlayTimingCommand(OverlayCommand command)
+    {
+        switch (command)
+        {
+            case OverlayCommand.AdjustCurrentLineMinus500: AdjustCurrentLineTiming(-500); break;
+            case OverlayCommand.AdjustCurrentLineMinus100: AdjustCurrentLineTiming(-100); break;
+            case OverlayCommand.AdjustCurrentLinePlus100: AdjustCurrentLineTiming(100); break;
+            case OverlayCommand.AdjustCurrentLinePlus500: AdjustCurrentLineTiming(500); break;
+            case OverlayCommand.AdjustGlobalMinus500: AdjustTiming(-500); break;
+            case OverlayCommand.AdjustGlobalMinus100: AdjustTiming(-100); break;
+            case OverlayCommand.ResetGlobalTiming: ResetTiming(); break;
+            case OverlayCommand.AdjustGlobalPlus100: AdjustTiming(100); break;
+            case OverlayCommand.AdjustGlobalPlus500: AdjustTiming(500); break;
+        }
+        UpdateOverlayTimingAvailability();
+    }
+
+    private void UpdateOverlayTimingAvailability() => _overlay.SetTimingAvailability(
+        _playbackState.CanAdjustCurrentLineTiming,
+        _playbackState.CanAdjustTiming,
+        _playbackState.GlobalOffsetMs);
+
+    private void ExitApplication()
+    {
+        _allowApplicationExit = true;
+        Close();
+    }
+
+    private bool ToggleOverlayFromTray()
+    {
+        _overlay.ToggleVisibility();
+        return _overlay.IsVisible;
     }
 }

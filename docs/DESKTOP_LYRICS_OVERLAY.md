@@ -23,17 +23,17 @@ The approximately 33 ms diagnostics refresh evaluates the existing timeline and 
 
 ## Window and lifecycle
 
-`LyricsOverlayWindow` is separate from `MainWindow`. It has no system chrome, does not appear on the taskbar, uses a transparent WPF surface with a subtle translucent backing and text shadow, and keeps the lyric text at normal opacity. Current text is larger and heavier than next text. Both use WPF wrapping and normal Windows font fallback, including Chinese, Japanese, Korean, punctuation, and musical symbols.
+`LyricsOverlayWindow` is separate from `MainWindow`. It has no system chrome, does not appear on the taskbar, uses a transparent WPF surface with a subtle translucent backing and text shadow, and keeps the lyric text at normal opacity. One-line and two-line modes retain the primary/secondary sizes. All Lyrics presents semantic past/current/upcoming rows and follows the current row around the center. WPF wrapping and normal Windows font fallback support Chinese, Japanese, Korean, punctuation, and musical symbols.
 
 Normal WPF `Topmost` behavior keeps the overlay above ordinary application windows. There is no aggressive Z-order loop and no attempt to cover secure desktop, protected system UI, or exclusive fullscreen content.
 
-The window has `ShowActivated=false` and is shown through a non-activating lifecycle path. Lyric updates only assign changed `TextBlock.Text` values and never call `Activate()` or `Focus()`. Clicking and dragging the interactive M7 surface may naturally interact with the window; click-through is deferred.
+The window has `ShowActivated=false`, suppresses mouse activation, and is shown through a non-activating lifecycle path. Lyric updates do not activate or focus the window. Partial click-through uses per-point `WM_NCHITTEST`: empty regions pass through while lyric text and the resize grip remain interactive. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
-The **Show Desktop Lyrics** checkbox in the diagnostics window shows or hides one lazily created overlay instance. Repeated show operations reuse it. An ordinary overlay close request is intercepted as hide and does not stop the diagnostics application. Genuine main-application shutdown closes the overlay so it cannot keep the process alive.
+The **Show Desktop Lyrics** checkbox in the Control Panel, global shortcut, and tray menu show or hide one lazily created overlay instance. Repeated show operations reuse it. An ordinary overlay close request is intercepted as hide. If **Close Control Panel to system tray** is enabled, closing MainWindow hides it while the application continues; otherwise it keeps the existing exit behavior. Tray Exit performs real application shutdown and closes the overlay.
 
 ## Dragging and position persistence
 
-The broad overlay surface can be moved with a left-button drag. WPF `DragMove` owns movement and raises one application event when the drag finishes. Only that completion event writes the final position; mouse movement does not write settings.
+The interactive overlay surface can be moved with a left-button drag when Lock Position is off. With click-through enabled, only lyric text and the resize grip receive input. WPF `DragMove` raises one application event when movement finishes; only that completion writes position. The small horizontal resize grip changes width while dragging and saves the final width once on completion. Lock Position prevents movement but does not prevent resizing.
 
 The shared machine-local file remains:
 
@@ -48,7 +48,12 @@ Example:
   "lyricsLibraryPath": "\\\\NAS\\Media\\Lyrics",
   "overlay": {
     "left": 500,
-    "top": 800
+    "top": 800,
+    "width": 900,
+    "contentMode": "twoLines",
+    "locked": false,
+    "clickThrough": false,
+    "topmost": true
   }
 }
 ```
@@ -57,11 +62,11 @@ The coherent settings reader accepts either section independently. Overlay coord
 
 Positions use WPF device-independent coordinates. A saved overlay rectangle must retain a usable intersection with a supplied visible work area. Otherwise the overlay falls back horizontally centered in the lower portion of the primary work area. The geometry decision is independent of physical monitors and is covered using synthetic work-area data.
 
-At runtime, WPF's primary work area is used for fallback and its device-independent virtual-screen bounds permit basic restoration on secondary monitors. This intentionally avoids mixing physical pixel coordinates with WPF window coordinates. A saved position from a removed monitor falls outside the new virtual screen and recovers. Advanced handling of irregular gaps inside a virtual-screen bounding rectangle and per-monitor profiles is not part of M7.
+At runtime, WPF's primary work area is used for fallback and its device-independent virtual-screen bounds permit basic restoration on secondary monitors. Width/mode changes run the same geometry resolver against the current rectangle and size; valid custom positions are retained. This avoids mixing physical pixels with WPF window coordinates. Advanced handling of irregular gaps inside a virtual-screen bounding rectangle and per-monitor profiles is not implemented.
 
 ## Current limitations and future break design
 
-M7 renders whole lines only. Milestone 9 adds lock, click-through, width/display preferences, and global shortcuts around that presentation without changing lyric selection; see [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md). Skins, lyric editing, progress fill, karaoke animation, word/character timing, countdowns, and preparation animation remain outside the overlay implementation.
+The renderer consumes the existing timeline result for One Line, Two Lines, and All Lyrics; All Lyrics does not add another timing engine. Milestone 9 adds lock, partial click-through, width/content preferences, timing quick actions, global shortcuts, and tray lifecycle around that presentation; see [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md). Skins, lyric editing, progress fill, karaoke layouts/animation, word/character timing, countdowns, and preparation animation remain outside the overlay implementation.
 
 Breaks must eventually be represented explicitly. Timestamp gap length alone must never imply a break. The proposed canonical LRC marker is:
 

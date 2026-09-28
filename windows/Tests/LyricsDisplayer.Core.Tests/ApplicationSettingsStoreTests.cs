@@ -95,7 +95,7 @@ public sealed class ApplicationSettingsStoreTests
     {
         Write("""{"overlay":{"left":12,"top":34,"futureOverlayValue":"kept"},"futureRootValue":7}""");
         var store = Store();
-        var preferences = new OverlayPreferences(true, true, false, OverlayDisplayMode.OneLine, 1230);
+        var preferences = new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1230);
         store.SaveOverlayPreferences(preferences);
 
         var loaded = store.Load().Settings;
@@ -122,7 +122,7 @@ public sealed class ApplicationSettingsStoreTests
         Assert.Multiple(() =>
         {
             Assert.That(loaded.OverlayPreferences,
-                Is.EqualTo(new OverlayPreferences(true, true, false, OverlayDisplayMode.OneLine, 1100)));
+                Is.EqualTo(new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1100)));
             Assert.That(document.RootElement.GetProperty("overlay").GetProperty("future").GetInt32(), Is.EqualTo(1));
         });
     }
@@ -132,6 +132,54 @@ public sealed class ApplicationSettingsStoreTests
     {
         Write("""{"overlay":{"left":1,"top":2}}""");
         Assert.That(Store().Load().Settings.OverlayPreferences, Is.EqualTo(OverlayPreferences.Default));
+    }
+
+    [Test]
+    public void AllLyricsContentModeAndCloseToTrayRoundTripWithoutLosingOtherSettings()
+    {
+        Write("""{"lyricsLibraryPath":"C:\\Lyrics","overlay":{"left":100,"top":200,"future":true},"application":{"futureApp":9}}""");
+        var store = Store();
+        store.SaveOverlayPreferences(OverlayPreferences.Default with { ContentMode = LyricsContentMode.AllLyrics, Width = 1111 });
+        store.SaveCloseControlPanelToTray(true);
+
+        var loaded = store.Load();
+        using var document = JsonDocument.Parse(File.ReadAllText(_settingsPath));
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded.Settings.OverlayPreferences.ContentMode, Is.EqualTo(LyricsContentMode.AllLyrics));
+            Assert.That(loaded.Settings.OverlayPreferences.Width, Is.EqualTo(1111));
+            Assert.That(loaded.Settings.OverlayPosition, Is.EqualTo(new OverlayPosition(100, 200)));
+            Assert.That(loaded.Settings.CloseControlPanelToTray, Is.True);
+            Assert.That(loaded.Settings.LyricsLibraryPath, Is.EqualTo("C:\\Lyrics"));
+            Assert.That(document.RootElement.GetProperty("overlay").GetProperty("future").GetBoolean(), Is.True);
+            Assert.That(document.RootElement.GetProperty("application").GetProperty("futureApp").GetInt32(), Is.EqualTo(9));
+            Assert.That(document.RootElement.GetProperty("overlay").GetProperty("contentMode").GetString(),
+                Is.EqualTo("allLyrics"));
+        });
+    }
+
+    [Test]
+    public void ExistingDisplayModeAndMissingCloseToTrayUseSafeMigrationDefaults()
+    {
+        Write("""{"overlay":{"left":1,"top":2,"displayMode":"oneLine"}}""");
+        var settings = Store().Load().Settings;
+        Assert.Multiple(() =>
+        {
+            Assert.That(settings.OverlayPreferences.ContentMode, Is.EqualTo(LyricsContentMode.OneLine));
+            Assert.That(settings.CloseControlPanelToTray, Is.False);
+        });
+    }
+
+    [Test]
+    public void MalformedCloseToTrayPreferenceDefaultsToApplicationExitBehavior()
+    {
+        Write("""{"application":{"closeControlPanelToTray":"yes"}}""");
+        var result = Store().Load();
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Settings.CloseControlPanelToTray, Is.False);
+            Assert.That(result.Warning, Does.Contain("application.closeControlPanelToTray"));
+        });
     }
 
     [Test]

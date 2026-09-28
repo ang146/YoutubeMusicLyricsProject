@@ -19,7 +19,7 @@ public sealed class LyricsOverlayWindowTests
             Assert.Multiple(() =>
             {
                 Assert.That(window.WindowStyle, Is.EqualTo(WindowStyle.None));
-                Assert.That(window.ResizeMode, Is.EqualTo(ResizeMode.NoResize));
+            Assert.That(window.ResizeMode, Is.EqualTo(ResizeMode.NoResize));
                 Assert.That(window.AllowsTransparency, Is.True);
                 Assert.That(window.Topmost, Is.True);
                 Assert.That(window.ShowInTaskbar, Is.False);
@@ -40,9 +40,8 @@ public sealed class LyricsOverlayWindowTests
         var window = new LyricsOverlayWindow();
         try
         {
-            var grid = (Grid)((Border)window.Content).Child;
-            var primary = (TextBlock)grid.Children[0];
-            var secondary = (TextBlock)grid.Children[1];
+            var primary = window.PrimaryTextForTesting;
+            var secondary = window.SecondaryTextForTesting;
             var state = new LyricsOverlayPresentationState(
                 "繁體中文、简体中文、日本語、한국어 — a deliberately long whole lyric line ♪",
                 "下一行");
@@ -65,13 +64,11 @@ public sealed class LyricsOverlayWindowTests
     [Test]
     public void InteractionStateControlsWidthHeightTopmostSecondaryLineAndNativeStyle()
     {
-        var clickThrough = new FakeClickThrough();
-        var window = new LyricsOverlayWindow(clickThrough);
+        var window = new LyricsOverlayWindow();
         try
         {
-            window.ApplyInteractionState(new(true, true, false, OverlayDisplayMode.OneLine, 1200));
-            var grid = (Grid)((Border)window.Content).Child;
-            var secondary = (TextBlock)grid.Children[1];
+            window.ApplyInteractionState(new(true, true, false, LyricsContentMode.OneLine, 1200));
+            var secondary = window.SecondaryTextForTesting;
 
             Assert.Multiple(() =>
             {
@@ -79,7 +76,8 @@ public sealed class LyricsOverlayWindowTests
                 Assert.That(window.Height, Is.EqualTo(150));
                 Assert.That(window.Topmost, Is.False);
                 Assert.That(secondary.Visibility, Is.EqualTo(Visibility.Collapsed));
-                Assert.That(clickThrough.Values, Has.Some.True);
+                Assert.That(window.Interaction.ClickThrough, Is.True);
+                Assert.That(((System.Windows.Media.SolidColorBrush)window.SurfaceBackgroundForTesting).Color.A, Is.Zero);
             });
         }
         finally
@@ -89,20 +87,15 @@ public sealed class LyricsOverlayWindowTests
     }
 
     [Test]
-    public void RealWindowAppliesAndRemovesTransparentHitTestStyleInPlace()
+    public void RealWindowKeepsPartialClickThroughStateOnTheExistingWindow()
     {
         var window = new LyricsOverlayWindow();
         try
         {
             window.Show();
-            var handle = new WindowInteropHelper(window).Handle;
-            window.ApplyInteractionState(new(false, true, true, OverlayDisplayMode.TwoLines, 900));
-            Assert.That(NativeOverlayClickThrough.GetCurrentStyle(handle) &
-                        NativeOverlayClickThrough.TransparentStyle, Is.Not.Zero);
-
-            window.ApplyInteractionState(new(false, false, true, OverlayDisplayMode.TwoLines, 900));
-            Assert.That(NativeOverlayClickThrough.GetCurrentStyle(handle) &
-                        NativeOverlayClickThrough.TransparentStyle, Is.Zero);
+            _ = new WindowInteropHelper(window).Handle;
+            window.ApplyInteractionState(new(false, true, true, LyricsContentMode.TwoLines, 900));
+            Assert.That(window.Interaction.ClickThrough, Is.True);
         }
         finally
         {
@@ -110,9 +103,39 @@ public sealed class LyricsOverlayWindowTests
         }
     }
 
-    private sealed class FakeClickThrough : IOverlayClickThroughAdapter
+    [Test]
+    public void AllLyricsModeBuildsRoleAnnotatedListAndTimingAvailabilityFollowsCoordinator()
     {
-        public List<bool> Values { get; } = [];
-        public void SetClickThrough(nint windowHandle, bool enabled) => Values.Add(enabled);
+        var window = new LyricsOverlayWindow();
+        try
+        {
+            window.ApplyInteractionState(new(false, false, true, LyricsContentMode.AllLyrics, 900));
+            window.SetLyrics(new LyricsOverlayPresentationState("", "")
+            {
+                ContentMode = LyricsContentMode.AllLyrics,
+                CurrentIndex = 1,
+                AllLines = [
+                    new(0, "Past", LyricLineRole.Past),
+                    new(1, "Current", LyricLineRole.Current),
+                    new(2, "Next", LyricLineRole.Upcoming)
+                ]
+            });
+            window.ApplyTimingState(currentLineEnabled: false, globalTimingEnabled: false, globalOffsetMs: 0);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(window.AllLyricsListForTesting.Visibility, Is.EqualTo(Visibility.Visible));
+                Assert.That(window.AllLyricsListForTesting.Items.Count, Is.EqualTo(3));
+                Assert.That(window.CurrentLineMenuEnabledForTesting, Is.False);
+            });
+
+            window.ApplyTimingState(currentLineEnabled: true, globalTimingEnabled: true, globalOffsetMs: 500);
+            Assert.That(window.CurrentLineMenuEnabledForTesting, Is.True);
+        }
+        finally
+        {
+            window.CloseForApplicationShutdown();
+        }
     }
+
 }

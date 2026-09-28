@@ -177,7 +177,7 @@ Through Milestone 9, the application retains its diagnostic/control-panel UI and
 
 ### User-Facing Window Roles
 
-The desktop lyrics overlay is intended to become the application's primary day-to-day playback surface.
+The desktop lyrics overlay is the primary day-to-day lyrics surface. The Control Panel is the preferences, diagnostics, timing, and library-management surface. The system tray is the lifecycle and recovery entry point while the Control Panel is hidden.
 
 The existing main WPF window should gradually evolve into a control panel / preferences surface rather than remaining the main lyrics display.
 
@@ -191,29 +191,41 @@ LyricsDisplayer.App
 └─ Control Panel
    ├─ diagnostics
    ├─ preferences
-   ├─ library/settings controls
+   ├─ timing and library management
    └─ future editing/search entry points
+
+└─ System Tray
+   ├─ open Control Panel
+   ├─ show/hide overlay
+   └─ explicit application exit
 ```
 
 Access to the control panel includes:
 
 * the normal taskbar/minimised application surface
-* a system-tray/taskbar entry if later adopted
+* the system tray
 * the overlay context menu
 * other explicit application controls
 
-The exact close/minimise/tray lifecycle is intentionally deferred until the control-panel interaction milestone.
+The **Close Control Panel to system tray** preference defaults off to preserve existing close-to-exit behavior. When enabled, closing the Control Panel hides it while the overlay, Named Pipe server, and hotkeys continue running. Tray Exit always shuts down the application.
 
-Milestone 9 implements the basic interaction preferences:
+### Renderer dimensions
 
-* topmost on/off
-* overlay size
-* number of displayed lyric lines
-* one-line or two-line rendering mode
-* long-line behaviour
-* other visual preferences
+The renderer keeps these concerns separate:
 
-The overlay should therefore remain a presentation surface over application state rather than accumulating playback, storage, or search logic.
+```text
+Lyrics state → Content mode → Layout style → Appearance → Optional karaoke animation → WPF visuals
+```
+
+Milestone 9 content modes describe quantity: `OneLine`, `TwoLines`, and `AllLyrics`. The current layout is `CenterStacked`. A future `KaraokeAlternating` layout may use the same `TwoLines` content mode with different positioning; karaoke is not a line-count mode.
+
+Presentation lines carry semantic roles such as Past, Current, Upcoming, and Status. The WPF appearance layer determines emphasis. Future appearance preferences may include font family/size/weight, role-based colors, alignment, opacity, outline, shadow, spacing, and background opacity. Karaoke may add sung/unsung colors or progressive fill. Those customizations and animation are not part of M9.
+
+The overlay remains a presentation surface over application state rather than accumulating playback, storage, or search logic.
+
+### Future playback controls
+
+A future overlay context menu may include `Playback > Play / Pause, Previous Track, Next Track`. Those commands are not implemented. When added, they should route through a provider-independent `MediaControlService` to Windows system media-session controls (for example the Global System Media Transport Controls Session APIs), with simulated media keys only as a fallback. Firefox DOM commands should not become the normal media-control path. The OS active media session may differ from the playback source currently observed for lyrics, so exact source/session matching may be needed later.
 
 ---
 
@@ -1349,18 +1361,20 @@ The offset is global only within one local lyrics document, not across the appli
 Implemented:
 
 * lock/unlock
-* click-through
+* partial click-through: empty overlay regions pass input through while lyric text and the resize grip remain interactive
 * global shortcuts
-* preferences
+* persistent overlay preferences
 * topmost on/off preference
-* overlay sizing
-* one-line / two-line display preference
-* overlay context-menu entry points
-* control-panel access from normal application/taskbar/tray surfaces as appropriate
+* adjustable/persistent width with visible-work-area recovery
+* `OneLine`, `TwoLines`, and `AllLyrics` content modes
+* semantic Past/Current/Upcoming rows for All Lyrics with current-line following
+* context-menu access to existing current-line and global timing actions
+* system tray lifecycle/recovery with optional close-to-tray behavior
+* explicit tray exit that unregisters hotkeys and shuts down the App
 
-The desktop overlay is expected to be the primary day-to-day lyrics surface. The main WPF window should evolve toward a control panel/preferences role.
+The overlay is the primary day-to-day lyrics surface. MainWindow is the Control Panel; the tray remains available when it is hidden.
 
-The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. Focused Win32 adapters provide in-place click-through styles and two fixed `RegisterHotKey` shortcuts without moving playback, timeline, timing, or library responsibilities into the view. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
+The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. A focused `WM_NCHITTEST` hook selects interactive lyric/grip regions; it does not apply whole-window `WS_EX_TRANSPARENT`. Two fixed `RegisterHotKey` shortcuts remain available while the Control Panel is hidden. Timing menu commands route to the existing playback/timing coordinator. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
 ---
 
@@ -1432,7 +1446,7 @@ Potential work includes:
 * upcoming-lyric pre-display during explicit breaks
 * preparation/count-in cues for sufficiently long explicit breaks
 * advanced visual preferences
-* configurable one-line / two-line lyric display
+* additional content modes and renderer customization
 * configurable long-line behaviour such as wrap or horizontal pan
 * horizontal-pan lead/tail hold timing
 * installer

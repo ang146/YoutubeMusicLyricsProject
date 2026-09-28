@@ -174,7 +174,7 @@ public sealed class LyricsOverlayControllerTests
     [Test]
     public void PreferencesLoadBeforeWindowCreationAndApplyWhenWindowIsCreated()
     {
-        var preferences = new OverlayPreferences(true, true, false, OverlayDisplayMode.OneLine, 1200);
+        var preferences = new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1200);
         var harness = new Harness(preferences: preferences);
 
         Assert.That(harness.Controller.Interaction,
@@ -194,7 +194,7 @@ public sealed class LyricsOverlayControllerTests
         harness.Controller.SetLocked(true);
         harness.Controller.SetClickThrough(true);
         harness.Controller.SetTopmost(false);
-        harness.Controller.SetDisplayMode(OverlayDisplayMode.OneLine);
+        harness.Controller.SetContentMode(LyricsContentMode.OneLine);
         harness.Controller.SetWidth(1200);
 
         Assert.Multiple(() =>
@@ -203,12 +203,12 @@ public sealed class LyricsOverlayControllerTests
             Assert.That(harness.PositionStore.SavedPreferences, Has.Count.EqualTo(5));
             Assert.That(changes, Has.Count.EqualTo(5));
             Assert.That(harness.Controller.Interaction,
-                Is.EqualTo(new OverlayInteractionState(true, true, false, OverlayDisplayMode.OneLine, 1200)));
+                Is.EqualTo(new OverlayInteractionState(true, true, false, LyricsContentMode.OneLine, 1200)));
         });
     }
 
     [Test]
-    public void LockedOrClickThroughStateRejectsDragCompletion()
+    public void LockRejectsDragButUnlockedPartialClickThroughAllowsLyricDragCompletion()
     {
         var harness = new Harness();
         harness.Controller.Show();
@@ -218,7 +218,7 @@ public sealed class LyricsOverlayControllerTests
         harness.Controller.SetClickThrough(true);
         harness.View.CompleteDrag(new(500, 600));
 
-        Assert.That(harness.PositionStore.Saved, Is.Empty);
+        Assert.That(harness.PositionStore.Saved, Is.EqualTo(new[] { new OverlayPosition(500, 600) }));
     }
 
     [Test]
@@ -240,11 +240,19 @@ public sealed class LyricsOverlayControllerTests
         var harness = new Harness();
         harness.Controller.Show();
         harness.Controller.Update(TimedLyrics(), Timeline("A", "B"));
-        harness.Controller.SetDisplayMode(OverlayDisplayMode.OneLine);
-        Assert.That(harness.View.LastState, Is.EqualTo(new LyricsOverlayPresentationState("A", "")));
+        harness.Controller.SetContentMode(LyricsContentMode.OneLine);
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.View.LastState!.PrimaryText, Is.EqualTo("A"));
+            Assert.That(harness.View.LastState.SecondaryText, Is.Empty);
+        });
 
         harness.Controller.Update(TimedLyrics(), new(null, null, 0, Line("First")));
-        Assert.That(harness.View.LastState, Is.EqualTo(new LyricsOverlayPresentationState("First", "")));
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.View.LastState!.PrimaryText, Is.EqualTo("First"));
+            Assert.That(harness.View.LastState.SecondaryText, Is.Empty);
+        });
     }
 
     [Test]
@@ -256,16 +264,79 @@ public sealed class LyricsOverlayControllerTests
         harness.Controller.Show();
 
         harness.View.RequestCommand(OverlayCommand.ToggleLocked);
-        harness.View.RequestCommand(OverlayCommand.UseOneLine);
+        harness.View.RequestCommand(OverlayCommand.SetOneLine);
         harness.View.RequestCommand(OverlayCommand.OpenControlPanel);
         harness.View.RequestCommand(OverlayCommand.Hide);
 
         Assert.Multiple(() =>
         {
             Assert.That(harness.Controller.Interaction.Locked, Is.True);
-            Assert.That(harness.Controller.Interaction.DisplayMode, Is.EqualTo(OverlayDisplayMode.OneLine));
+            Assert.That(harness.Controller.Interaction.ContentMode, Is.EqualTo(LyricsContentMode.OneLine));
             Assert.That(opened, Is.EqualTo(1));
             Assert.That(harness.Controller.IsVisible, Is.False);
+        });
+    }
+
+    [Test]
+    public void AllLyricsPresentationUpdatesRolesWhenTimelineCurrentChanges()
+    {
+        var harness = new Harness(preferences: OverlayPreferences.Default with
+            { ContentMode = LyricsContentMode.AllLyrics });
+        harness.Controller.Show();
+        var lyrics = new LyricsSnapshotPayload("track", true, true, "local", [
+            Line("A"), Line("B"), Line("C"), Line("D"), Line("E")
+        ], null);
+
+        harness.Controller.Update(lyrics, new(2, Line("C"), 3, Line("D")));
+        var first = harness.View.LastState!;
+        harness.Controller.Update(lyrics, new(3, Line("D"), 4, Line("E")));
+        var second = harness.View.LastState!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.AllLines.Select(line => line.Role), Is.EqualTo(new[]
+            {
+                LyricLineRole.Past, LyricLineRole.Past, LyricLineRole.Current,
+                LyricLineRole.Upcoming, LyricLineRole.Upcoming
+            }));
+            Assert.That(first.CurrentIndex, Is.EqualTo(2));
+            Assert.That(second.AllLines[2].Role, Is.EqualTo(LyricLineRole.Past));
+            Assert.That(second.AllLines[3].Role, Is.EqualTo(LyricLineRole.Current));
+            Assert.That(second.CurrentIndex, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public void TimingContextCommandsRouteToTheExistingTimingHandler()
+    {
+        var harness = new Harness();
+        var commands = new List<OverlayCommand>();
+        harness.Controller.TimingCommandRequested += commands.Add;
+        harness.Controller.Show();
+        var expected = new[]
+        {
+            OverlayCommand.AdjustCurrentLinePlus100,
+            OverlayCommand.AdjustGlobalPlus500,
+            OverlayCommand.ResetGlobalTiming
+        };
+        foreach (var command in expected) harness.View.RequestCommand(command);
+        Assert.That(commands, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void HorizontalResizeCompletionPersistsWidthAndRecoversWhenItWouldHideTheWindow()
+    {
+        var harness = new Harness(new OverlayPosition(1750, 300));
+        harness.Controller.Show();
+        harness.View.CompleteResize(1700);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Controller.Interaction.Width, Is.EqualTo(1700));
+            Assert.That(harness.PositionStore.SavedPreferences.Last().Width, Is.EqualTo(1700));
+            Assert.That(OverlayPositionResolver.MeaningfullyIntersects(
+                new(harness.View.Position.Left, harness.View.Position.Top, harness.View.OverlayWidth,
+                    harness.View.OverlayHeight), new(0, 0, 1920, 1040)), Is.True);
         });
     }
 
@@ -306,6 +377,7 @@ public sealed class LyricsOverlayControllerTests
         public OverlayPreferences Preferences { get; set; } = OverlayPreferences.Default;
         public List<OverlayPosition> Saved { get; } = [];
         public List<OverlayPreferences> SavedPreferences { get; } = [];
+        public bool CloseToTray { get; set; }
         public OverlayPosition? LoadOverlayPosition() => Position;
         public void SaveOverlayPosition(OverlayPosition position) => Saved.Add(position);
         public OverlayPreferences LoadOverlayPreferences() => Preferences;
@@ -314,6 +386,8 @@ public sealed class LyricsOverlayControllerTests
             Preferences = preferences;
             SavedPreferences.Add(preferences);
         }
+        public bool LoadCloseControlPanelToTray() => CloseToTray;
+        public void SaveCloseControlPanelToTray(bool value) => CloseToTray = value;
     }
 
     private sealed class FakeView : ILyricsOverlayView
@@ -322,10 +396,16 @@ public sealed class LyricsOverlayControllerTests
         public double Left => Position.Left;
         public double Top => Position.Top;
         public double OverlayWidth => Interaction?.Width ?? 900;
-        public double OverlayHeight => Interaction?.DisplayMode == OverlayDisplayMode.OneLine ? 150 : 220;
+        public double OverlayHeight => Interaction?.ContentMode switch
+        {
+            LyricsContentMode.OneLine => 150,
+            LyricsContentMode.AllLyrics => 380,
+            _ => 220
+        };
         public event Action? CloseRequested;
         public event Action<OverlayPosition>? DragCompleted;
         public event Action<OverlayCommand>? CommandRequested;
+        public event Action<double>? WidthChangeCompleted;
         public OverlayPosition Position { get; private set; }
         public int ShowWithoutActivationCalls { get; private set; }
         public int HideCalls { get; private set; }
@@ -337,6 +417,7 @@ public sealed class LyricsOverlayControllerTests
 
         public void SetPosition(OverlayPosition position) => Position = position;
         public void ApplyInteractionState(OverlayInteractionState state) => Interaction = state;
+        public void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs) { }
         public void SetLyrics(LyricsOverlayPresentationState state)
         {
             SetLyricsCalls++;
@@ -350,5 +431,6 @@ public sealed class LyricsOverlayControllerTests
         public void SimulateMovement(OverlayPosition position) => Position = position;
         public void CompleteDrag(OverlayPosition position) { Position = position; DragCompleted?.Invoke(position); }
         public void RequestCommand(OverlayCommand command) => CommandRequested?.Invoke(command);
+        public void CompleteResize(double width) => WidthChangeCompleted?.Invoke(width);
     }
 }

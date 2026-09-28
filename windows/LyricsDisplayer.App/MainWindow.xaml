@@ -156,9 +156,10 @@
                     </WrapPanel>
                     <WrapPanel VerticalAlignment="Center" Margin="0,0,0,8">
                         <TextBlock Text="Display" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <ComboBox x:Name="OverlayDisplayModeComboBox" Width="130" Margin="0,0,18,0">
+                        <ComboBox x:Name="OverlayContentModeComboBox" Width="130" Margin="0,0,18,0">
                             <ComboBoxItem Content="One line" />
                             <ComboBoxItem Content="Two lines" />
+                            <ComboBoxItem Content="All lyrics" />
                         </ComboBox>
                         <TextBlock Text="Width" VerticalAlignment="Center" Margin="0,0,8,0" />
                         <TextBox x:Name="OverlayWidthTextBox" Width="80" VerticalContentAlignment="Center" />
@@ -169,6 +170,10 @@
                     <TextBlock Text="Global shortcuts: Ctrl+Alt+Shift+L toggles the overlay; Ctrl+Alt+Shift+T toggles click-through."
                                TextWrapping="Wrap" />
                     <TextBlock x:Name="HotkeyStatusText" Foreground="#FF9C1C1C" TextWrapping="Wrap" />
+                    <CheckBox x:Name="CloseControlPanelToTrayCheckBox"
+                              Content="Close Control Panel to system tray instead of exiting" Margin="0,8,0,0" />
+                    <TextBlock x:Name="ApplicationPreferenceStatusText" Foreground="#FF9C1C1C"
+                               TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
             <TextBox Grid.Row="22" Grid.ColumnSpan="2" x:Name="LyricsLinesText" IsReadOnly="True"

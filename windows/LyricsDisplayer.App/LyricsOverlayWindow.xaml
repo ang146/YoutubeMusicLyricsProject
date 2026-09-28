@@ -1,56 +1,124 @@
 <Window x:Class="LyricsDisplayer.LyricsOverlayWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:LyricsDisplayer"
         Width="900" Height="220" WindowStartupLocation="Manual"
         WindowStyle="None" ResizeMode="NoResize"
         AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ShowActivated="False" Focusable="False"
         Topmost="True">
-    <Border Background="#30000000" CornerRadius="10" Padding="24,16"
-            MouseLeftButtonDown="OnMouseLeftButtonDown">
+    <Border x:Name="OverlaySurface" Background="#30000000" CornerRadius="10" Padding="24,12,24,8"
+            MouseLeftButtonDown="OnSurfaceMouseLeftButtonDown">
         <Border.ContextMenu>
-            <ContextMenu>
+            <ContextMenu x:Name="OverlayContextMenu">
                 <MenuItem Header="Open Control Panel" Tag="OpenControlPanel" Click="OnMenuItemClick" />
                 <Separator />
-                <MenuItem x:Name="LockedMenuItem" Header="Lock position" IsCheckable="True"
-                          Tag="ToggleLocked" Click="OnMenuItemClick" />
-                <MenuItem x:Name="ClickThroughMenuItem" Header="Click through" IsCheckable="True"
-                          Tag="ToggleClickThrough" Click="OnMenuItemClick" />
-                <MenuItem x:Name="TopmostMenuItem" Header="Always on top" IsCheckable="True"
-                          Tag="ToggleTopmost" Click="OnMenuItemClick" />
+                <MenuItem x:Name="LyricsDisplayMenuItem" Header="Lyrics Display">
+                    <MenuItem x:Name="OneLineMenuItem" Header="One Line" IsCheckable="True"
+                              Tag="SetOneLine" Click="OnMenuItemClick" />
+                    <MenuItem x:Name="TwoLinesMenuItem" Header="Two Lines" IsCheckable="True"
+                              Tag="SetTwoLines" Click="OnMenuItemClick" />
+                    <MenuItem x:Name="AllLyricsMenuItem" Header="All Lyrics" IsCheckable="True"
+                              Tag="SetAllLyrics" Click="OnMenuItemClick" />
+                </MenuItem>
+                <MenuItem x:Name="AdjustTimingMenuItem" Header="Adjust Timing">
+                    <MenuItem x:Name="CurrentLineMenuItem" Header="Current Line">
+                        <MenuItem Header="-0.5s" Tag="AdjustCurrentLineMinus500" Click="OnMenuItemClick" />
+                        <MenuItem Header="-0.1s" Tag="AdjustCurrentLineMinus100" Click="OnMenuItemClick" />
+                        <MenuItem Header="+0.1s" Tag="AdjustCurrentLinePlus100" Click="OnMenuItemClick" />
+                        <MenuItem Header="+0.5s" Tag="AdjustCurrentLinePlus500" Click="OnMenuItemClick" />
+                    </MenuItem>
+                    <MenuItem x:Name="GlobalTimingMenuItem" Header="Global">
+                        <MenuItem Header="-0.5s" Tag="AdjustGlobalMinus500" Click="OnMenuItemClick" />
+                        <MenuItem Header="-0.1s" Tag="AdjustGlobalMinus100" Click="OnMenuItemClick" />
+                        <MenuItem Header="Reset" Tag="ResetGlobalTiming" Click="OnMenuItemClick" />
+                        <MenuItem Header="+0.1s" Tag="AdjustGlobalPlus100" Click="OnMenuItemClick" />
+                        <MenuItem Header="+0.5s" Tag="AdjustGlobalPlus500" Click="OnMenuItemClick" />
+                    </MenuItem>
+                </MenuItem>
+                <MenuItem x:Name="OverlayMenuItem" Header="Overlay">
+                    <MenuItem x:Name="LockedMenuItem" Header="Lock Position" IsCheckable="True"
+                              Tag="ToggleLocked" Click="OnMenuItemClick" />
+                    <MenuItem x:Name="ClickThroughMenuItem" Header="Click Through" IsCheckable="True"
+                              Tag="ToggleClickThrough" Click="OnMenuItemClick" />
+                    <MenuItem x:Name="TopmostMenuItem" Header="Always on Top" IsCheckable="True"
+                              Tag="ToggleTopmost" Click="OnMenuItemClick" />
+                </MenuItem>
                 <Separator />
-                <MenuItem x:Name="OneLineMenuItem" Header="One line" IsCheckable="True"
-                          Tag="UseOneLine" Click="OnMenuItemClick" />
-                <MenuItem x:Name="TwoLinesMenuItem" Header="Two lines" IsCheckable="True"
-                          Tag="UseTwoLines" Click="OnMenuItemClick" />
-                <Separator />
-                <MenuItem Header="Hide" Tag="Hide" Click="OnMenuItemClick" />
+                <MenuItem Header="Hide Desktop Lyrics" Tag="Hide" Click="OnMenuItemClick" />
             </ContextMenu>
         </Border.ContextMenu>
-        <Grid VerticalAlignment="Center">
+        <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="12" />
             </Grid.RowDefinitions>
-            <TextBlock x:Name="PrimaryText" Grid.Row="0"
-                       Foreground="White" FontSize="34" FontWeight="SemiBold"
-                       TextAlignment="Center" TextWrapping="Wrap"
-                       HorizontalAlignment="Stretch" VerticalAlignment="Center"
-                       IsHitTestVisible="False">
-                <TextBlock.Effect>
-                    <DropShadowEffect Color="Black" BlurRadius="5" ShadowDepth="1" Opacity="0.9" />
-                </TextBlock.Effect>
-            </TextBlock>
-            <TextBlock x:Name="SecondaryText" Grid.Row="1"
-                       Foreground="#D8FFFFFF" FontSize="24"
-                       TextAlignment="Center" TextWrapping="Wrap"
-                       Margin="0,8,0,0"
-                       HorizontalAlignment="Stretch" VerticalAlignment="Center"
-                       IsHitTestVisible="False">
-                <TextBlock.Effect>
-                    <DropShadowEffect Color="Black" BlurRadius="4" ShadowDepth="1" Opacity="0.85" />
-                </TextBlock.Effect>
-            </TextBlock>
+            <Grid x:Name="StackedLyrics" Grid.Row="0" VerticalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock x:Name="PrimaryText" Grid.Row="0"
+                           Foreground="White" FontSize="34" FontWeight="SemiBold"
+                           TextAlignment="Center" TextWrapping="Wrap"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           IsHitTestVisible="True">
+                    <TextBlock.Effect>
+                        <DropShadowEffect Color="Black" BlurRadius="5" ShadowDepth="1" Opacity="0.9" />
+                    </TextBlock.Effect>
+                </TextBlock>
+                <TextBlock x:Name="SecondaryText" Grid.Row="1"
+                           Foreground="#D8FFFFFF" FontSize="24"
+                           TextAlignment="Center" TextWrapping="Wrap"
+                           Margin="0,8,0,0"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           IsHitTestVisible="True">
+                    <TextBlock.Effect>
+                        <DropShadowEffect Color="Black" BlurRadius="4" ShadowDepth="1" Opacity="0.85" />
+                    </TextBlock.Effect>
+                </TextBlock>
+            </Grid>
+            <ListBox x:Name="AllLyricsList" Grid.Row="0" Visibility="Collapsed"
+                     Background="Transparent" BorderThickness="0" Padding="0"
+                     HorizontalContentAlignment="Stretch" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     SelectionMode="Single" Focusable="False" IsTabStop="False">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0,3" />
+                        <Setter Property="Focusable" Value="False" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Past}">
+                                <Setter Property="Foreground" Value="#90FFFFFF" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Current}">
+                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="FontWeight" Value="Bold" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Upcoming}">
+                                <Setter Property="Foreground" Value="#C8FFFFFF" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Text}" TextAlignment="Center" TextWrapping="Wrap"
+                                   HorizontalAlignment="Center" IsHitTestVisible="True" FontSize="26">
+                            <TextBlock.Effect>
+                                <DropShadowEffect Color="Black" BlurRadius="4" ShadowDepth="1" Opacity="0.85" />
+                            </TextBlock.Effect>
+                        </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <Thumb x:Name="HorizontalResizeGrip" Grid.Row="1" Width="90" Height="6"
+                   HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                   Cursor="SizeWE" Background="#80999999"
+                   DragDelta="OnResizeDragDelta" DragCompleted="OnResizeDragCompleted" />
         </Grid>
     </Border>
 </Window>

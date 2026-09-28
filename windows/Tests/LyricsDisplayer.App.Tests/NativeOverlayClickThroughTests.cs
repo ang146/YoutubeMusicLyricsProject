@@ -1,32 +1,22 @@
 namespace LyricsDisplayer.App.Tests;
 
+using LyricsDisplayer.Core.Settings;
+
 [TestFixture]
 public sealed class NativeOverlayClickThroughTests
 {
-    [Test]
-    public void EnablingAddsTransparentAndNoActivateWithoutDiscardingOtherFlags()
+    [TestCase(false, false, false, OverlayHitTestResult.Client)]
+    [TestCase(false, true, false, OverlayHitTestResult.Client)]
+    [TestCase(true, false, false, OverlayHitTestResult.Transparent)]
+    [TestCase(true, true, false, OverlayHitTestResult.Transparent)]
+    [TestCase(true, false, true, OverlayHitTestResult.Client)]
+    [TestCase(true, true, true, OverlayHitTestResult.Client)]
+    [TestCase(true, true, true, OverlayHitTestResult.Client)]
+    public void OnlyEmptyRegionsPassThroughWhenClickThroughIsEnabled(
+        bool clickThrough, bool locked, bool overLyrics, OverlayHitTestResult expected)
     {
-        const long existing = 0x00000100;
-        var result = NativeOverlayClickThrough.ApplyToStyle(existing, true);
-        Assert.Multiple(() =>
-        {
-            Assert.That(result & existing, Is.EqualTo(existing));
-            Assert.That(result & NativeOverlayClickThrough.TransparentStyle, Is.Not.Zero);
-            Assert.That(result & NativeOverlayClickThrough.NoActivateStyle, Is.Not.Zero);
-        });
-    }
-
-    [Test]
-    public void DisablingRemovesOnlyTransparentAndKeepsNoActivate()
-    {
-        var existing = 0x00000100L | NativeOverlayClickThrough.TransparentStyle |
-                       NativeOverlayClickThrough.NoActivateStyle;
-        var result = NativeOverlayClickThrough.ApplyToStyle(existing, false);
-        Assert.Multiple(() =>
-        {
-            Assert.That(result & NativeOverlayClickThrough.TransparentStyle, Is.Zero);
-            Assert.That(result & NativeOverlayClickThrough.NoActivateStyle, Is.Not.Zero);
-            Assert.That(result & 0x00000100L, Is.Not.Zero);
-        });
+        Assert.That(OverlayHitTestPolicy.Decide(clickThrough, overLyrics), Is.EqualTo(expected));
+        Assert.That(new OverlayInteractionState(locked, clickThrough, true, LyricsContentMode.TwoLines, 900)
+            .CanDragOnLyrics, Is.EqualTo(!locked));
     }
 }

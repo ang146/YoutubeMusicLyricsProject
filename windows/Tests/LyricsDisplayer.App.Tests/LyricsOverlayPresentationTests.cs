@@ -83,8 +83,13 @@ public sealed class LyricsOverlayPresentationTests
     public void OneLineModeUsesUpcomingLineBeforeFirstTimestamp()
     {
         var state = LyricsOverlayPresentationState.FromLyrics(
-            TimedLyrics(), Position(null, Line("First")), OverlayDisplayMode.OneLine);
-        Assert.That(state, Is.EqualTo(new LyricsOverlayPresentationState("First", string.Empty)));
+            TimedLyrics(), Position(null, Line("First")), LyricsContentMode.OneLine);
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.PrimaryText, Is.EqualTo("First"));
+            Assert.That(state.SecondaryText, Is.Empty);
+            Assert.That(state.ContentMode, Is.EqualTo(LyricsContentMode.OneLine));
+        });
     }
 
     [TestCase(false, false, LyricsOverlayPresentationState.NoLyricsText)]
@@ -92,8 +97,45 @@ public sealed class LyricsOverlayPresentationTests
     public void OneLineModePreservesStatusPresentation(bool available, bool timed, string expected)
     {
         var state = LyricsOverlayPresentationState.FromLyrics(
-            Lyrics(available, timed), EmptyTimeline(), OverlayDisplayMode.OneLine);
-        Assert.That(state, Is.EqualTo(new LyricsOverlayPresentationState(expected, string.Empty)));
+            Lyrics(available, timed), EmptyTimeline(), LyricsContentMode.OneLine);
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.PrimaryText, Is.EqualTo(expected));
+            Assert.That(state.SecondaryText, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void AllLyricsModeAssignsPastCurrentUpcomingRolesInDocumentOrder()
+    {
+        var lyrics = new LyricsSnapshotPayload("track", true, true, "local",
+            [Line("A"), Line("B"), Line("C"), Line("D"), Line("E")], null);
+        var state = LyricsOverlayPresentationState.FromLyrics(lyrics,
+            new(2, Line("C"), 3, Line("D")), LyricsContentMode.AllLyrics);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.ContentMode, Is.EqualTo(LyricsContentMode.AllLyrics));
+            Assert.That(state.AllLines.Select(line => line.Text), Is.EqualTo(new[] { "A", "B", "C", "D", "E" }));
+            Assert.That(state.AllLines.Select(line => line.Role), Is.EqualTo(new[]
+            {
+                LyricLineRole.Past, LyricLineRole.Past, LyricLineRole.Current,
+                LyricLineRole.Upcoming, LyricLineRole.Upcoming
+            }));
+        });
+    }
+
+    [TestCase(false, false, LyricsOverlayPresentationState.NoLyricsText)]
+    [TestCase(true, false, LyricsOverlayPresentationState.UntimedLyricsText)]
+    public void AllLyricsModeUsesStatusInsteadOfAnEmptyLyricsList(bool available, bool timed, string expected)
+    {
+        var state = LyricsOverlayPresentationState.FromLyrics(
+            Lyrics(available, timed), EmptyTimeline(), LyricsContentMode.AllLyrics);
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.PrimaryText, Is.EqualTo(expected));
+            Assert.That(state.AllLines, Is.Empty);
+        });
     }
 
     private static LyricsTimelinePosition Position(LyricsLine? current, LyricsLine? next) =>

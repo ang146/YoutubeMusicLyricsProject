@@ -1,74 +1,91 @@
 # Overlay Interaction and Basic Preferences
 
-Milestone 9 adds desktop interaction policy around the Milestone 7 lyrics overlay. The overlay remains a presentation endpoint over `PlaybackClock` and `LyricsTimeline`; it does not own playback, lyrics lookup, local-library, SQLite, or timing-adjustment logic.
+Milestone 9 makes the existing lyrics window practical as the primary daily surface. The overlay presents the current state from the playback/timeline services. The Control Panel owns preferences, diagnostics, timing controls, and library management. The system tray provides lifecycle and recovery actions while the Control Panel is hidden. None of these UI surfaces owns lyrics lookup, the playback clock, timeline selection, LRC parsing, SQLite, or timing-edit safety.
 
-## Interaction state
+## Renderer model
 
-`OverlayInteractionState` is the runtime model. It contains independent `Locked`, `ClickThrough`, `Topmost`, `DisplayMode`, and `Width` values. The controller owns this state, applies it to the existing window immediately, and persists a preference change once.
+Renderer configuration is divided into independent dimensions:
 
-Dragging follows this table:
+```text
+Lyrics state → Content mode → Layout style → Appearance → Optional animation → WPF visuals
+```
 
-| Locked | Click-through | Dragging |
+`LyricsContentMode` describes how much content to display:
+
+- `OneLine`: current lyric, or the first upcoming lyric before playback reaches the first line.
+- `TwoLines`: current lyric as primary, next lyric as secondary. Before the first lyric the primary is blank and the first upcoming line is secondary.
+- `AllLyrics`: the timed document in order, with past/current/upcoming roles and the current line followed near the center.
+
+Confirmed no-lyrics and untimed statuses remain `暫無可用歌詞` and `此歌曲暫無同步歌詞` in every content mode. All Lyrics shows these statuses in its normal text presentation rather than an empty scrolling list. Seek and line transitions use the already-evaluated `LyricsTimelinePosition`; All Lyrics does not evaluate timing independently.
+
+The current layout is `CenterStacked`. All Lyrics centers the current row and dims past/upcoming rows. `Past`, `Current`, `Upcoming`, and `Status` are semantic presentation roles; they are not domain colors. A future `KaraokeAlternating` layout may combine with `TwoLines` to place current and upcoming slots on alternating sides. Karaoke is a layout/rendering concern, not a content mode, and is not implemented.
+
+Future appearance preferences may include font family, size and weight; role-based current/upcoming/past colors; alignment; opacity; outline/shadow; line spacing; and background opacity. Future karaoke appearance may include sung/unsung colors and progressive fill. No appearance editor or karaoke animation is implemented. Explicit break rendering, preparation cues, horizontal panning, word timing, and character timing remain deferred.
+
+## Movement, resizing, and screen recovery
+
+`Lock Position` prevents movement only. It does not prevent resizing, hide the overlay, pause lyrics, or change topmost/click-through. When unlocked, users can drag the lyrics surface and use the small horizontal resize grip. Resize remains available while position is locked because the setting locks position only.
+
+The grip adjusts width from 420 to 1800 WPF device-independent pixels and re-wraps text during the drag. Its final width is written once on drag completion. Position and width are persisted independently in the shared machine-local settings file. After a resize or content-mode height change, the current position is retained if it remains meaningfully visible; otherwise the existing work-area resolver selects a visible fallback. A valid custom position is not reset just because another monitor is available.
+
+## Partial click-through and hit testing
+
+Click-through is selected per screen point through a focused `WM_NCHITTEST` hook:
+
+| Click-through | Hit location | Result |
 | --- | --- | --- |
-| off | off | enabled |
-| on | off | disabled; the context menu remains available |
-| off | on | disabled because mouse input passes through |
-| on | on | disabled |
+| off | any overlay area | normal WPF mouse interaction |
+| on | visible lyric text or resize grip | WPF receives the input |
+| on | empty/transparent overlay area | returns `HTTRANSPARENT` for the window underneath |
 
-Click-through never changes the saved lock value. Turning click-through off therefore restores the interaction behavior implied by the existing lock value.
+The overlay does not set whole-window `WS_EX_TRANSPARENT`. With click-through enabled, the decorative panel backing becomes fully transparent so Windows layered-window alpha hit testing passes empty pixels through across application threads; `WM_NCHITTEST` also classifies visible lyric and resize-grip regions. Visible lyric text can receive right-click for the context menu and left-drag for movement when unlocked. Lock and click-through remain independent: click-through never changes the saved lock setting, and lock disables dragging over the lyrics while leaving right-click available.
 
-## Click-through and recovery
+Control Panel and the global shortcut remain independent recovery paths for click-through. The shortcut is **Ctrl+Alt+Shift+T**. Click-through data that is missing or malformed defaults off. Mouse activation is suppressed so normal overlay interaction does not take keyboard focus.
 
-Click-through adds `WS_EX_TRANSPARENT` to the overlay window in place. The small `NativeOverlayClickThrough` adapter owns the `GetWindowLongPtr`/`SetWindowLongPtr` interop and preserves unrelated extended styles. The non-activating style remains in place when click-through is disabled.
+## Overlay context menu
 
-Because a click-through window cannot receive its context menu, two independent recovery paths are always available:
+The current menu hierarchy is:
 
-- clear **Click through** in the Control Panel;
-- press **Ctrl+Alt+Shift+T**.
+```text
+Open Control Panel
+Lyrics Display > One Line / Two Lines / All Lyrics
+Adjust Timing >
+  Current Line > -0.5s / -0.1s / +0.1s / +0.5s
+  Global > -0.5s / -0.1s / Reset / +0.1s / +0.5s
+Overlay > Lock Position / Click Through / Always on Top
+Hide Desktop Lyrics
+```
 
-Malformed or missing click-through data defaults to `false`, leaving the overlay mouse-interactive.
+Content and overlay toggles reflect current state. Current Line actions are disabled unless the playback coordinator exposes a writable current local timed line. Timing actions invoke the existing M8 coordinator and storage paths, including their boundary checks and safe LRC write behavior. Global timing also uses existing `GlobalOffsetMs` behavior. Bake remains in the Control Panel because it rewrites the LRC and requires confirmation.
 
-## Presentation and size
+The menu is available when click-through is on only if the pointer is over lyric text or the resize grip. **Open Control Panel** shows/restores and activates the Control Panel as an explicit user action. Automatic lyric updates remain non-activating.
 
-Two-line mode preserves the Milestone 7 mapping: current lyric in the primary line and next lyric in the secondary line. Before the first timestamp, the primary line is blank and the first upcoming lyric is secondary.
+## Topmost and hotkeys
 
-One-line mode shows current text when it exists. Before the first timestamp it shows the first upcoming lyric. It never alternates between current and next during an active line. No-lyrics and untimed status text use the same primary-line messages in both modes.
+`Topmost` maps directly to WPF `Window.Topmost`, applies immediately, and defaults true for existing settings. There is no Z-order polling loop.
 
-Width is adjustable from 420 to 1800 device-independent pixels and applies immediately. The window uses a compact height in one-line mode and the existing height in two-line mode; WPF wrapping handles long text. A size or mode change retains the current position when it remains meaningfully visible and otherwise uses the existing visible-work-area fallback. It does not recreate playback or timeline state.
-
-`Topmost` maps directly to the WPF window property and is updated in place. The compatibility default is `true`; there is no Z-order polling loop.
-
-## User surfaces
-
-The main window is titled **Lyrics Displayer Control Panel** and remains the diagnostics, timing, and preference surface. Its Overlay Preferences section controls lock, click-through, topmost, display mode, and width. The existing **Show Desktop Lyrics** control remains the recovery path after hiding the overlay.
-
-When mouse interaction is enabled, the overlay context menu provides:
-
-- Open Control Panel
-- Lock position
-- Click through
-- Always on top
-- One line / Two lines
-- Hide
-
-Checked items mirror current state. **Open Control Panel** restores a minimized window and activates it because it follows an explicit user action. Rendering and automatic lyric updates remain non-activating.
-
-## Global shortcuts
-
-The fixed initial shortcuts are:
+The fixed global shortcuts are:
 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+Alt+Shift+L` | Toggle overlay visibility |
 | `Ctrl+Alt+Shift+T` | Toggle click-through |
 
-`GlobalHotkeyService` belongs to the Control Panel/application lifetime rather than the overlay-window lifetime. It registers each shortcut once with Win32 `RegisterHotKey`, receives `WM_HOTKEY` through the Control Panel handle, and unregisters successful registrations during shutdown. It does not use a keyboard hook.
+`GlobalHotkeyService` is created for the application/Control Panel lifetime. It uses Win32 `RegisterHotKey` and `WM_HOTKEY`, not a keyboard hook. Hiding the Control Panel does not unregister shortcuts. Successful registrations are removed during explicit exit. Registration conflicts are logged and shown in the Control Panel without stopping the app; the service does not busy-retry. Hotkey actions do not activate the Control Panel.
 
-If another application owns a shortcut, registration failure is logged and shown in the Control Panel without stopping the application. There is no busy retry. These toggle actions do not activate the Control Panel or deliberately move keyboard focus.
+## Tray lifecycle
+
+The single system tray icon offers:
+
+- Open Control Panel
+- Show / Hide Desktop Lyrics
+- Exit Lyrics Displayer
+
+The Control Panel preference **Close Control Panel to system tray instead of exiting** defaults false for compatibility. When enabled, the close button hides the Control Panel while the WPF application, Named Pipe server, playback tracking, overlay, and global shortcuts continue running. Tray Open restores/activates the Control Panel. Tray Exit takes an explicit shutdown path that bypasses close-to-tray interception, closes the overlay, unregisters hotkeys, disposes the tray icon, and exits the application. The tray icon is disposed only on real shutdown.
 
 ## Persistence and compatibility
 
-Preferences share `%LOCALAPPDATA%\LyricsDisplayer\settings.json` with existing application settings:
+Overlay preferences and position share `%LOCALAPPDATA%\LyricsDisplayer\settings.json` with other machine-local application settings:
 
 ```json
 {
@@ -78,16 +95,23 @@ Preferences share `%LOCALAPPDATA%\LyricsDisplayer\settings.json` with existing a
     "locked": false,
     "clickThrough": false,
     "topmost": true,
-    "displayMode": "twoLines",
+    "contentMode": "twoLines",
     "width": 900
+  },
+  "application": {
+    "closeControlPanelToTray": false
   }
 }
 ```
 
-Position and preference writes merge properties into the existing `overlay` object. They preserve each other, unrelated top-level settings, and unknown nested overlay properties. Writes continue to use the existing same-directory atomic replacement mechanism. Settings are not rewritten merely because the application starts.
+The earlier M9 `displayMode` property is read as a compatibility alias. New saves use `contentMode` values `oneLine`, `twoLines`, or `allLyrics`. Position, width, preferences, and application lifecycle saves merge their own fields while preserving unrelated root/nested properties. The existing atomic replacement mechanism remains in use. Starting the app does not rewrite settings.
 
-Missing and malformed values are validated independently. Safe defaults are unlocked, click-through off, topmost on, two lines, and 900-pixel width. A bad preference does not discard a valid position or another valid preference.
+Missing values default to unlocked, click-through off, topmost on, two lines, 900 width, and close-to-tray off. Malformed values fall back independently. Invalid width defaults to 900, and invalid click-through defaults off so the overlay remains interactive.
+
+## Future media controls
+
+A future context-menu section may be `Playback > Play / Pause / Previous Track / Next Track`. It is not implemented. Commands should go through a provider-independent `MediaControlService` and investigate Windows system media-session controls such as Global System Media Transport Controls Session APIs before simulated media keys. Firefox/YouTube Music DOM commands are not the intended normal control path. The OS active media session may not match the source session currently supplying lyrics, so matching may need a later policy.
 
 ## Current limitations
 
-Milestone 9 does not add configurable shortcut editing, a system tray, font/theme editing, karaoke rendering, break inference, preparation cues, horizontal panning, external LRC editing, or filesystem watching. Control Panel close behavior remains the existing application shutdown behavior. Timing adjustment stays exclusively in the Control Panel and is unaffected by overlay preferences.
+The current All Lyrics list follows only when the evaluated current line changes; it does not suspend following after manual scrolling and may return to the current line at the next transition. The fixed hotkeys are not user-configurable. The renderer still uses one centered stacked layout and temporary role emphasis. Tray close-to-hide is optional and off by default. No M10 external editing/watcher, appearance editor, karaoke layout/animation, break rendering, media controls, provider search, or general plugin framework is included.

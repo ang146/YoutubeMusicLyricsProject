@@ -173,7 +173,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 10, the application retains its diagnostic/control-panel UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, current/next-line timeline evaluation, timing adjustment, overlay interaction preferences, and safe active-LRC external editing/reload. Storage, indexing, timeline selection, overlay presentation mapping, interaction state, settings parsing, geometry validation, and file-change coordination live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), and [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
+Through Milestone 10, the application retains its diagnostic/control-panel UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, current/next-line timeline evaluation, timing adjustment, overlay interaction preferences, and safe active-LRC external editing/reload, including local persistence of valid untimed provider lyrics for later authoring. Storage, indexing, timeline selection, overlay presentation mapping, interaction state, settings parsing, geometry validation, and file-change coordination live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), and [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md). The next editor architecture is specified in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md), while deferred cross-cutting features are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
 
 ### User-Facing Window Roles
 
@@ -188,12 +188,15 @@ LyricsDisplayer.App
 ├─ Desktop Lyrics Overlay
 │  └─ primary always-visible playback/lyrics surface
 │
-└─ Control Panel
-   ├─ diagnostics
-   ├─ preferences
-   ├─ timing and library management
-   └─ future editing/search entry points
-
+├─ Control Panel
+│  ├─ diagnostics
+│  ├─ preferences
+│  ├─ timing and library management
+│  └─ explicit commands such as opening the built-in editor/search tools
+│
+├─ Built-in Lyrics Editor Dialog (Milestone 11)
+│  └─ modal single-track editing workspace
+│
 └─ System Tray
    ├─ open Control Panel
    ├─ show/hide overlay
@@ -208,6 +211,22 @@ Access to the control panel includes:
 * other explicit application controls
 
 The **Close Control Panel to system tray** preference defaults off to preserve existing close-to-exit behavior. When enabled, closing the Control Panel hides it while the overlay, Named Pipe server, and hotkeys continue running. Tray Exit always shuts down the application.
+
+### Shared application commands and entry points
+
+User-facing surfaces should invoke shared application commands rather than owning duplicate feature logic. A command may be exposed from multiple surfaces while keeping one implementation and one set of enablement rules.
+
+For example, Milestone 11's built-in editor is opened through one application command:
+
+```text
+OpenBuiltInEditorCommand
+        ↓
+Built-in Editor Dialog
+```
+
+The Control Panel and Desktop Lyrics Overlay context menu may both expose this command, and a future Media Controller may expose the same command later. Opening the editor is therefore not a Control Panel-specific responsibility. The same principle applies to editor row actions: toolbar/buttons, context menus, and keyboard bindings should route to the same editor commands.
+
+Command identity and command execution are separate from input bindings. This separation allows future user-configurable hotkeys without rewriting feature logic. Global/application/editor shortcut scopes may be introduced later; Milestone 11 only needs the editor command/binding architecture described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
 ### Desktop overlay window-state invariant
 
@@ -231,7 +250,7 @@ The overlay remains a presentation surface over application state rather than ac
 
 ### Future Media Controller and playback controls
 
-The future overlay composition may contain the Desktop Overlay, the Lyrics View, and an optional Media Controller. User preferences may control whether the controller is Visible/Hidden and whether it is docked Left/Right. Potential controls include current track title and artist, elapsed time, duration, Previous, Play/Pause, Next, and a seekable progress bar when the matched source supports seeking. Previous and Next refer only to transport buttons; do not show previous-track or next-track metadata. This controller and its commands are not implemented.
+The future overlay composition may contain the Desktop Overlay, the Lyrics View, and an optional Media Controller. User preferences may control whether the controller is Visible/Hidden and whether it is docked Left/Right. Potential controls include current track title and artist, elapsed time, duration, Previous, Play/Pause, Next, a seekable progress bar when the matched source supports seeking, and explicit application actions such as **Open Built-in Editor**. Editor opening must invoke the same shared application command used by the Control Panel and overlay context menu; the Media Controller must not own a separate editor path. Previous and Next refer only to transport buttons; do not show previous-track or next-track metadata. This controller and its transport commands are not implemented.
 
 Display state should primarily reuse Lyrics Displayer's existing playback model (title, artist, duration, playback position, and playing/paused state). Commands belong to a future provider-independent `MediaControlService`. Do not assume Windows `GetCurrentSession()` identifies the YouTube Music session Lyrics Displayer is tracking. The future implementation should enumerate `GlobalSystemMediaTransportControlsSessionManager.GetSessions()` and attempt to match the tracked playback source using multiple signals such as source-application identity, media title, artist, duration, playback position, and playback state. No single weak signal is authoritative.
 
@@ -960,25 +979,51 @@ This behaviour belongs to karaoke/presentation customisation and must not alter 
 
 # 14. Editing
 
-Future editing features may include:
+Milestone 10 completed safe external editing/reload. Milestone 11 adds the built-in editor foundation documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). The built-in editor is a modal, single-track workspace over the same authoritative local LRC/sidecar data; it is not a second playback surface.
 
-* Built-in timed lyrics editor
-* Edit current line text
-* Set current line timestamp from current playback position
-* Bulk timing adjustment
-* Edit user-defined title/artist metadata
-* Open the current LRC in an external editor
-* Detect external file changes and reload
-* Insert an explicit break marker at the current playback position
-* Remove or retime an explicit break marker
+Core invariants:
 
-For portable LRC authoring, the preferred canonical break marker is:
+```text
+Playback Current Line ≠ Editor Selection
+
+Playback may provide current time to an explicit editor command.
+Playback must not move selection, switch the editor document, or mutate the editor buffer.
+```
+
+The editor is pinned to the `LocalTrackId` it was opened for. Playback may switch to other tracks while the modal dialog remains open; this never closes, switches, saves, discards, or prompts the editor. **Set Current Time as Timestamp** is enabled only while the current playback track matches the fixed editor track.
+
+The editor uses a structured `EditorDocument`, not a simple list of timestamp/text pairs. It must preserve ordered physical LRC structure, existing multi-timestamp lines, metadata/unknown/blank structure where practical, stable editor-row identity, validation diagnostics, dirty state, and undo/redo history. A lyric row supports zero or more timestamps from the beginning. Document order remains user-controlled and is never silently resorted by timestamp.
+
+Core row commands include:
+
+```text
+Insert Row Above
+Insert Row Below
+Append Row
+Delete Row
+Set Current Time as Timestamp
+Undo
+Redo
+Save
+```
+
+Inserted/appended rows begin with an empty lyric cell and no timestamps. No timestamp is interpolated or inferred from neighbouring rows. The user may type timing explicitly or invoke the playback-time command.
+
+Editor operations are commands first. Buttons/toolbars, row context menus, and keyboard shortcuts are bindings over the same commands. Initial navigation follows grid conventions such as Enter/Shift+Enter for next/previous row in the same logical column and Tab/Shift+Tab for adjacent editable cells. Stable command IDs/scopes should leave room for later user-configurable shortcuts without coupling feature logic to key-event handlers.
+
+Validation is advisory. Invalid/suspicious cells may be highlighted clearly (for example, a red background plus diagnostic text), but the editor does not act as an automatic corrector and does not forbid Save solely because content is malformed. M10 runtime safety remains separate: a saved malformed LRC may remain on disk exactly as authored while active playback retains last-known-good runtime lyrics.
+
+Dirty close/exit behavior uses `Save / Discard / Cancel`. If the authoritative file changes externally while the editor has unsaved changes, conflict handling remains intentionally simple: `Discard My Changes / Reload`, `Overwrite External Changes`, or `Cancel`; no three-way/collaborative merge is required.
+
+The editor header may edit portable `UserTitle` / `UserArtist` overrides while showing source metadata for reference and allowing the override to be cleared. These remain sidecar metadata according to the existing effective-metadata rules; the editor must not silently create a second authority by writing user overrides into LRC `[ti:]` / `[ar:]` tags.
+
+The canonical portable explicit break marker remains:
 
 ```lrc
 [timestamp]♪
 ```
 
-These are deliberately later milestones.
+Break insertion/removal/retiming, richer multi-timestamp management, bulk timing tools, destructive Traditional/Simplified editor conversion, custom hotkeys, and other advanced commands are later additive features rather than requirements for the M11 foundation. See [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
 
 ---
 
@@ -1410,19 +1455,34 @@ See [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md) for behavior, limitations, and SM
 
 ---
 
-## Milestone 11 — Built-in Lyrics Editor
+## Milestone 11 — Built-in Lyrics Editor Foundation
 
-Add interactive lyrics editing and timestamp authoring.
+Add the expandable built-in editor foundation described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
-Editing may also expose the current track's persistent user-defined title and artist overrides.
+Required foundation:
 
-The editor should eventually support inserting, removing and retiming explicit break markers using the canonical portable LRC representation:
+* modal, single-track editor dialog pinned to one `LocalTrackId`
+* one shared `OpenBuiltInEditorCommand`, invokable from the Control Panel and overlay context menu; future surfaces such as the Media Controller reuse the same command
+* structured round-trippable `EditorDocument` that preserves LRC structure and existing multi-timestamp data
+* stable row identity and explicit row/cell/timestamp selection
+* complete separation between playback current line and editor selection
+* lyric-text and timestamp editing
+* zero/multiple-timestamp-capable row model
+* Insert Above / Insert Below / Append / Delete row commands, with new rows receiving no inferred timestamp
+* Set Current Time as Timestamp command that reads `PlaybackClock` only when playback track identity matches the editor track
+* spreadsheet-style keyboard navigation
+* command-driven toolbar/context-menu/keyboard bindings
+* undo/redo and dirty-state tracking
+* advisory validation that highlights errors without taking away the user's ability to save
+* safe save and simple external-change conflict handling (`Reload/Discard Mine`, `Overwrite`, `Cancel`)
+* editor/application close guard with `Save / Discard / Cancel`
+* user title/artist override editing in portable sidecar metadata
 
-```lrc
-[timestamp]♪
-```
+Playback may change tracks while the editor remains open; it must not close, switch, prompt, or mutate the editor session. The modal dialog blocks duplicate Control Panel editing sessions while playback, NativeHost communication, and the desktop overlay continue normally.
 
-Break markers are explicit semantic boundaries and must not be inferred automatically from timestamp-gap length.
+The primary end-to-end acceptance workflow is an untimed local LRC: open it in the built-in editor, select rows, assign timestamps from the current playback position, save, and allow the existing M10 reload path to transition the same local record into timed overlay presentation without restart.
+
+Advanced editor commands are deliberately deferred so they can be added on top of the command/document foundation.
 
 ---
 
@@ -1468,12 +1528,17 @@ Potential work includes:
 * upcoming-lyric pre-display during explicit breaks
 * preparation/count-in cues for sufficiently long explicit breaks
 * advanced visual preferences
+* display-only Original / Traditional / Simplified lyric conversion
 * additional content modes and renderer customization
 * configurable long-line behaviour such as wrap or horizontal pan
 * horizontal-pan lead/tail hold timing
-* installer
-* optional auto-launch
+* user-configurable hotkeys built on stable command IDs/scopes
+* optional Media Controller and safe matched-session transport controls
+* installer / extension distribution / optional auto-launch
 * provider management
+* Chromium browser-extension support using shared source logic plus a thin runtime adapter
 * additional playback-source adapters
+
+Editor-specific additions such as explicit-break authoring, richer multi-timestamp management, destructive buffer script conversion, and bulk timing tools are tracked separately from the M11 foundation. See [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
 
 Karaoke rendering must not infer breaks solely from elapsed gap length. Explicit break notation remains authoritative.

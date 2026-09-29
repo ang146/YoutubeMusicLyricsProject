@@ -1,0 +1,200 @@
+# Future Features and Roadmap
+
+This document collects agreed future directions that should not be silently folded into earlier milestones. It is a roadmap, not a promise that every item ships in the listed order. Existing local-first authority, protocol boundaries, playback ownership, and user-controlled editing rules remain the foundation.
+
+## Current milestone status
+
+Milestones 1–10 are complete through transport, YouTube Music integration, local-first storage, timeline/overlay, timing adjustment, overlay interaction, and external/untimed local editing.
+
+The next implementation milestone is:
+
+```text
+Milestone 11 — Built-in Lyrics Editor Foundation
+```
+
+See [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+
+## Editor expansion after M11 foundation
+
+Potential editor commands/features include:
+
+- add the current playback time as an additional timestamp occurrence
+- add/remove/reorder timestamp occurrences on a multi-timestamp lyric row
+- explicit `♪` break insertion, removal, and retiming
+- bulk timing shift/transform tools
+- multi-row selection and bulk operations
+- import/export helpers
+- improved timestamp formatting/input helpers
+- richer search/replace
+- user-selected script conversion of editor text
+
+### Traditional / Simplified Chinese conversion in the editor
+
+An editor conversion is an explicit destructive buffer transformation initiated by the user:
+
+```text
+Editor buffer
+→ Convert Lyrics to Traditional / Simplified
+→ user reviews result
+→ normal Save required
+```
+
+It should be undoable and should modify lyric text only unless an explicit command says otherwise. Timestamps, line order, and multi-timestamp structure remain intact.
+
+The app should not perform regional wording localization. The goal is script conversion, not rewriting lyrics for Hong Kong/Taiwan/Mainland vocabulary.
+
+## Presentation-only script conversion
+
+A separate later presentation preference may convert lyric text only for rendering:
+
+```text
+Original
+Traditional
+Simplified
+```
+
+This is non-destructive and must not modify the authoritative LRC or editor buffer. It belongs with appearance/presentation settings, not the M11 editor foundation.
+
+## Customisable hotkeys
+
+The command architecture should later allow users to change shortcuts without changing command behaviour.
+
+Scopes should remain distinct:
+
+```text
+Global
+Application
+Editor
+```
+
+Examples:
+
+- global/application: show/hide overlay, toggle click-through
+- editor: next/previous row, insert row, Set Current Time, save, undo/redo
+
+Context menus and other command surfaces should display the current binding where useful. The hotkey editor/settings UI is deferred until after M11 foundation.
+
+## Karaoke and explicit breaks
+
+The canonical portable break marker remains:
+
+```lrc
+[timestamp]♪
+```
+
+Breaks are explicit; elapsed gap length alone must never create one.
+
+Future work may include:
+
+- break-aware end-of-line semantics
+- sung/unsung progressive karaoke rendering
+- preparation/count-in cues during sufficiently long explicit breaks
+- karaoke alternating layout
+- per-character/word timing if a future source format supports it
+- long-line wrapping or horizontal pan with configurable lead/tail holds
+
+## Appearance and renderer customisation
+
+Potential preferences include:
+
+- font family
+- font size
+- font weight
+- Current / Upcoming / Past colours
+- opacity
+- alignment
+- outline/shadow
+- line spacing
+- background opacity
+- role/distance styling controls
+- Original / Traditional / Simplified display conversion
+
+Content mode, layout style, appearance, and karaoke animation remain separate concepts.
+
+## Media Controller
+
+A future optional Media Controller may sit alongside the overlay Lyrics View and be shown/hidden or docked left/right.
+
+Potential display/actions:
+
+```text
+Title / Artist
+Previous
+Play / Pause
+Next
+Elapsed / Duration
+Seekable progress
+Open Built-in Editor
+```
+
+`Open Built-in Editor` is the same application command used by the Control Panel and overlay context menu; the Media Controller must not implement a separate editor-opening path.
+
+Playback display should reuse the existing Lyrics Displayer playback model. Transport commands should use a provider-independent `MediaControlService` and fail safe when Windows media-session matching is ambiguous. Do not assume `GetCurrentSession()` is the tracked YouTube Music session.
+
+## Additional lyrics providers and manual search
+
+Milestone 12 remains the provider/search expansion milestone. Potential sources include LRCLib and community lyrics services.
+
+Remote services remain importers into the local-first library. Manual search should use effective metadata and may optionally save user title/artist overrides. Once imported and associated, the local copy remains authoritative.
+
+## Additional browser platforms
+
+Chromium support is deliberately late-stage platform expansion.
+
+The preferred architecture is shared source logic with thin browser-runtime adapters rather than independent copies that drift:
+
+```text
+Browser Extension
+├─ shared YouTube Music/source logic
+├─ Firefox runtime/manifest adapter
+└─ Chromium runtime/manifest adapter
+```
+
+Chrome, Edge, Brave, and similar Chromium browsers should reuse the same source detection, lyrics retrieval, ownership, and protocol logic where platform APIs permit it.
+
+Browser host/runtime is separate from playback source identity:
+
+```text
+Playback source: YouTube Music
+Browser host: Firefox / Chromium
+```
+
+Chromium support should be tackled after the core Windows app, editing, installer/distribution, and major presentation work are stable.
+
+## Extension distribution and installation
+
+Development may continue using Firefox temporary add-ons. Production distribution should eventually include a signed Firefox extension and a reliable Native Messaging Host installation/registration flow.
+
+Installer/distribution work should keep browser-extension installation/confirmation separate from Windows app/native-host installation where browser security models require explicit user approval.
+
+## Additional playback sources
+
+Future playback-source adapters may be added only after the source-independent app/core boundaries remain stable. New adapters should feed the existing playback/lyrics protocol rather than adding provider-specific logic directly to WPF presentation code.
+
+## Feature-boundary rules
+
+Future work should preserve these boundaries:
+
+```text
+Lyrics source data
+≠ local authoritative user data
+
+Playback current line
+≠ editor selection
+
+Editor command
+≠ button/context-menu/hotkey binding
+
+Content mode
+≠ layout style
+≠ appearance
+≠ karaoke animation
+
+Display conversion
+≠ destructive editor conversion
+
+Browser host
+≠ playback source
+```
+
+These separations are intended to keep later features additive instead of forcing rewrites of the earlier milestones.

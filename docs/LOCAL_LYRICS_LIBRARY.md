@@ -76,7 +76,7 @@ Lyrics\
 }
 ```
 
-Source metadata records what the playback source supplied. `album` remains `null` when no reliable album value exists. User title and artist values are portable overrides; blank overrides normalize to `null`. Display metadata is resolved independently for each field in this order:
+Source metadata records what the playback source supplied. `album` remains `null` when no reliable album value exists. User title and artist values are portable overrides; blank overrides normalize to `null`. Milestone 11's built-in editor may edit/clear these sidecar overrides while showing source metadata for reference. The editor must not silently mirror the overrides into LRC `[ti:]` / `[ar:]` tags, because the sidecar remains the portable metadata authority. Display metadata is resolved independently for each field in this order:
 
 ```text
 user override -> current live source value -> stored source value
@@ -94,7 +94,7 @@ Timed lyrics are UTF-8 without a byte-order mark and use one standard millisecon
 [00:12.340]A lyric line
 ```
 
-The reader accepts both `[mm:ss.ff]` and `[mm:ss.fff]`, ignores common `ar`, `ti`, `al`, `by`, `offset`, `re`, `ve`, and `length` metadata tags, expands multiple timestamps on one physical line, and isolates malformed lines when other usable lines remain. It does not perform Chinese-script conversion.
+The reader accepts both `[mm:ss.ff]` and `[mm:ss.fff]`, recognises/ignores common `ar`, `ti`, `al`, `by`, `offset`, `re`, `ve`, and `length` metadata tags for timeline purposes, expands multiple timestamps on one physical line, and reports malformed timestamp-like syntax through parser diagnostics. Some parser consumers may inspect usable lines despite diagnostics, but M10 external reload rejects a document with fatal timestamp-syntax diagnostics as a whole and retains last-known-good runtime state. It does not perform Chinese-script conversion.
 
 LRC stores start times only. At runtime, each line ends at the next line's start. The final line ends at a reliable track duration when that duration is later than the final start; otherwise its end equals its start. Milestone 6 timeline selection uses these start timestamps as documented in [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), and Milestone 7 displays the resolved whole current/next lines as documented in [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md). Karaoke highlighting remains a later milestone.
 
@@ -158,4 +158,4 @@ Invalid JSON, unsupported schemas, mismatched IDs, missing/unusable LRC files, a
 
 If two valid sidecars claim the same source identity, neither is selected by directory enumeration order. The conflict is reported, the association is excluded from the index, both portable records remain untouched, and automatic import for that identity is blocked. SQLite's primary key supplies an additional uniqueness guard.
 
-There is no automatic refresh or overwrite operation in Milestone 5. Fix questionable portable files manually while the App is stopped, or remove the complete intended track directory yourself if a fresh automatic import is desired.
+There is no automatic provider refresh/overwrite operation. M10 may reload user-authored changes to the active local LRC, and M11 may edit the same authoritative LRC/sidecar through the built-in editor; neither operation changes the local-first rule. Remove the complete intended track directory yourself only when a fresh automatic provider import is actually desired.

@@ -25,3 +25,7 @@ On activation and when the overlay is shown, the active file is fingerprint-chec
 ## UNC/SMB and limitations
 
 Paths are resolved through the configured library root and normal filesystem APIs, including absolute UNC paths. Filesystem notifications can be delayed, duplicated, or unavailable on SMB/NAS implementations; activation/overlay-show checks and watcher recovery reduce, but cannot eliminate, that platform limitation. The app does not promise perfect real-time network-share notifications and does not monitor inactive tracks.
+
+## Built-in editor boundary
+
+Milestone 11 reuses the same authoritative local LRC/sidecar and safe-save principles but owns a separate modal editor buffer. Opening the built-in editor is a shared application command that may be invoked from the Control Panel or overlay context menu, and later from other surfaces such as the Media Controller. The active-file watcher remains an application/current-playback concern; it must not silently overwrite a dirty built-in editor buffer. Built-in-editor conflict/dirty-state rules are documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).

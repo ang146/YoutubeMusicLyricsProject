@@ -71,7 +71,9 @@ Hide Desktop Lyrics
 
 Content and overlay toggles reflect current state. Current Line actions are disabled unless the playback coordinator exposes a writable current local timed line. Labels identify both scope (`Current Line` or `Global`) and direction (`Earlier` for negative deltas, `Later` for positive deltas). Actions invoke the existing M8 coordinator and storage paths, including current-line boundary checks, exact timestamp occurrence selection, and safe LRC write behavior. Global timing uses existing `GlobalOffsetMs` behavior; Global Reset clears only that offset and never undoes direct LRC edits. Bake remains in the Control Panel because it rewrites the whole LRC and requires confirmation.
 
-**Open LRC Externally** is enabled only for a safely resolved, usable active local timed LRC and routes to the same app command as the Control Panel button. Active-file watching and reload behavior are documented in [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
+**Open LRC Externally** is enabled for any safely resolved, usable authoritative local LRC, whether timed or untimed, and routes to the same app command as the Control Panel button. Active-file watching and reload behavior are documented in [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
+
+Milestone 11 adds **Open Built-in Editor** as another shared application command entry point. The overlay context menu does not own editor logic; it invokes the same `OpenBuiltInEditorCommand` as the Control Panel. A future Media Controller may expose the same command.
 
 The menu is available when click-through is on only if the pointer is over lyric text. **Open Control Panel** shows/restores and activates the Control Panel as an explicit user action. Automatic lyric updates remain non-activating.
 
@@ -87,6 +89,8 @@ The fixed global shortcuts are:
 | `Ctrl+Alt+Shift+T` | Toggle click-through |
 
 `GlobalHotkeyService` is created for the application/Control Panel lifetime. It uses Win32 `RegisterHotKey` and `WM_HOTKEY`, not a keyboard hook. Hiding the Control Panel does not unregister shortcuts. Successful registrations are removed during explicit exit. Registration conflicts are logged and shown in the Control Panel without stopping the app; the service does not busy-retry. Hotkey actions do not activate the Control Panel.
+
+These two M9 shortcuts are currently fixed. A later custom-hotkey feature should map stable command IDs to user-selected bindings and keep Global/Application/Editor scopes separate; it must not duplicate action logic inside key handlers.
 
 ## Tray lifecycle
 
@@ -126,7 +130,7 @@ Missing values default to unlocked, click-through off, topmost on, two lines, 90
 
 ## Future Media Controller
 
-The future overlay composition may include the Desktop Overlay, Lyrics View, and optional Media Controller. Preferences may select Visible/Hidden and Dock Left/Dock Right. Potential contents are current title/artist, elapsed time, duration, Previous/Play-Pause/Next transport buttons, and a seekable progress bar when supported. Previous and Next mean transport buttons only, not previous/next track metadata. None of this is implemented now.
+The future overlay composition may include the Desktop Overlay, Lyrics View, and optional Media Controller. Preferences may select Visible/Hidden and Dock Left/Dock Right. Potential contents are current title/artist, elapsed time, duration, Previous/Play-Pause/Next transport buttons, a seekable progress bar when supported, and explicit application actions such as **Open Built-in Editor**. Previous and Next mean transport buttons only, not previous/next track metadata. Opening the editor must invoke the same shared `OpenBuiltInEditorCommand` used by the Control Panel and overlay context menu; the Media Controller does not own editor state. None of the media-control functionality is implemented now.
 
 Display state should reuse the existing playback model (title, artist, duration, playback position, playing/paused). Commands belong to a future provider-independent `MediaControlService`. Do not equate Windows `GetCurrentSession()` with the YouTube Music source Lyrics Displayer tracks. Future matching should enumerate `GlobalSystemMediaTransportControlsSessionManager.GetSessions()` and use multiple signals (source application identity, title, artist, duration, position, and playback state); no single weak signal is authoritative. Enable controls only for exactly one sufficiently strong match. Disable them for no strong match or multiple ambiguous matches.
 

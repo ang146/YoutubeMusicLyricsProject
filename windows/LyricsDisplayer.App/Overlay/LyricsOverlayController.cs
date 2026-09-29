@@ -51,6 +51,7 @@ public sealed class LyricsOverlayController
     private bool _reportedVisible;
     private bool _shuttingDown;
     private bool _canOpenExternalLyrics;
+    private bool _localFileMissing;
 
     public LyricsOverlayController(
         Func<ILyricsOverlayView> viewFactory,
@@ -76,7 +77,7 @@ public sealed class LyricsOverlayController
     public LyricsOverlayPresentationState Presentation => _presentation;
     public OverlayInteractionState Interaction => _interaction;
 
-    public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline)
+    public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline, bool localFileMissing = false)
     {
         if (!ReferenceEquals(_sourceLines, lyrics?.Lines))
         {
@@ -85,6 +86,7 @@ public sealed class LyricsOverlayController
         }
         _lyrics = lyrics;
         _timeline = timeline;
+        _localFileMissing = localFileMissing;
         var next = CreatePresentation(lyrics, timeline);
         if (_presentation.EquivalentTo(next)) return;
         _presentation = next;
@@ -388,13 +390,14 @@ public sealed class LyricsOverlayController
         LyricsOverlayPresentationState.FromLyrics(lyrics, timeline, _interaction.ContentMode,
             _view?.OverlayWidth ?? _interaction.Width,
             _view?.OverlayHeight ?? _interaction.Height,
-            _normalizedLines);
+            _normalizedLines,
+            _localFileMissing);
 
     private void OnViewSizeChanged(double width, double height)
     {
         if (_view is null || _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
         var next = LyricsOverlayPresentationState.FromLyrics(_lyrics, _timeline, _interaction.ContentMode,
-            width, height, _normalizedLines);
+            width, height, _normalizedLines, _localFileMissing);
         if (_presentation.EquivalentTo(next)) return;
         _presentation = next;
         _view?.SetLyrics(next);

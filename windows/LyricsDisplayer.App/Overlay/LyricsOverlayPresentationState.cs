@@ -180,16 +180,18 @@ public sealed record LyricsOverlayPresentationState(string PrimaryText, string S
 {
     public const string NoLyricsText = "暫無可用歌詞";
     public const string UntimedLyricsText = "此歌曲暫無同步歌詞";
+    public const string LocalFileMissingText = "本機歌詞檔案遺失";
     public static LyricsOverlayPresentationState Empty { get; } = new(string.Empty, string.Empty);
     public LyricsContentMode ContentMode { get; init; } = LyricsContentMode.TwoLines;
     public LyricsLayoutStyle LayoutStyle { get; init; } = LyricsLayoutStyle.CenterStacked;
     public int? CurrentIndex { get; init; }
     public IReadOnlyList<PresentedLyricLine> AllLines { get; init; } = [];
+    public bool IsLocalFileMissing { get; init; }
 
     public bool EquivalentTo(LyricsOverlayPresentationState other) =>
         PrimaryText == other.PrimaryText && SecondaryText == other.SecondaryText &&
         ContentMode == other.ContentMode && LayoutStyle == other.LayoutStyle && CurrentIndex == other.CurrentIndex &&
-        AllLines.SequenceEqual(other.AllLines);
+        IsLocalFileMissing == other.IsLocalFileMissing && AllLines.SequenceEqual(other.AllLines);
 
     public static LyricsOverlayPresentationState FromLyrics(
         LyricsSnapshotPayload? lyrics,
@@ -197,9 +199,16 @@ public sealed record LyricsOverlayPresentationState(string PrimaryText, string S
         LyricsContentMode contentMode = LyricsContentMode.TwoLines,
         double overlayWidth = OverlayPreferences.DefaultWidth,
         double overlayHeight = OverlayPreferences.DefaultHeight,
-        IReadOnlyList<LyricsLine>? normalizedLines = null)
+        IReadOnlyList<LyricsLine>? normalizedLines = null,
+        bool localFileMissing = false)
     {
         ArgumentNullException.ThrowIfNull(timeline);
+        if (localFileMissing)
+            return new(LocalFileMissingText, string.Empty)
+            {
+                ContentMode = contentMode,
+                IsLocalFileMissing = true
+            };
         if (lyrics is null) return Empty with { ContentMode = contentMode };
         if (!lyrics.Available) return new(NoLyricsText, string.Empty) { ContentMode = contentMode };
         if (!lyrics.Timed) return new(UntimedLyricsText, string.Empty) { ContentMode = contentMode };

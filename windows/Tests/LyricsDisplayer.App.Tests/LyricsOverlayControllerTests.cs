@@ -43,6 +43,32 @@ public sealed class LyricsOverlayControllerTests
     }
 
     [Test]
+    public void MissingFilePresentationPersistsWhileHiddenAndClearsOnRestoredLyrics()
+    {
+        var harness = new Harness();
+        harness.Controller.SetContentMode(LyricsContentMode.AllLyrics);
+        harness.Controller.Update(null, EmptyTimeline(), localFileMissing: true);
+        harness.Controller.Show();
+        harness.Controller.Hide();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Controller.Presentation.PrimaryText,
+                Is.EqualTo(LyricsOverlayPresentationState.LocalFileMissingText));
+            Assert.That(harness.Controller.Presentation.AllLines, Is.Empty);
+            Assert.That(harness.Controller.Presentation.IsLocalFileMissing, Is.True);
+        });
+
+        harness.Controller.Update(TimedLyrics() with { Lines = [Line("A"), Line("B")] }, Timeline("A", "B"));
+        harness.Controller.Show();
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Controller.Presentation.IsLocalFileMissing, Is.False);
+            Assert.That(harness.Controller.Presentation.AllLines.Select(line => line.Text), Is.EqualTo(new[] { "A", "B" }));
+        });
+    }
+
+    [Test]
     public void ExternalLrcMenuCommandUsesAvailabilityAndRoutesToSharedAction()
     {
         var harness = new Harness();

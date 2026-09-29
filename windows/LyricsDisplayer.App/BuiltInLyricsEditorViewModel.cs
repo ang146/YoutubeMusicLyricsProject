@@ -114,7 +114,14 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         RedoCommand = new("editor.redo", _ => { _buffer.Redo(); RefreshFromBuffer(); }, _ => CanRedo);
         InsertRowAboveCommand = new("editor.row.insert-above", _ => InsertRelative(true), _ => FindSelectedRow() is not null);
         InsertRowBelowCommand = new("editor.row.insert-below", _ => InsertRelative(false), _ => FindSelectedRow() is not null);
-        AppendRowCommand = new("editor.row.append", _ => { CommitStagedEdits(); CommitMetadata(); SelectRow(_buffer.Append()); }, _ => true);
+        AppendRowCommand = new("editor.row.append", _ =>
+        {
+            CommitStagedEdits();
+            CommitMetadata();
+            var inserted = _buffer.Append();
+            RefreshFromBuffer(keepSelection: true);
+            SelectRow(inserted);
+        }, _ => true);
         DeleteRowCommand = new("editor.row.delete", _ => DeleteSelected(), _ => FindSelectedRow() is not null);
         SetTimestampFromPlaybackCommand = new("editor.timestamp.from-playback", _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
         CommitMetadataCommand = new("editor.metadata.commit", _ => CommitMetadata());
@@ -267,7 +274,11 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         CommitMetadata();
         var rowId = FindSelectedRow()!.EditorLineId;
         var inserted = above ? _buffer.InsertAbove(rowId) : _buffer.InsertBelow(rowId);
-        if (inserted is { } id) SelectRow(id);
+        if (inserted is { } id)
+        {
+            RefreshFromBuffer(keepSelection: true);
+            SelectRow(id);
+        }
         else RefreshFromBuffer();
     }
 

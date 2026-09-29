@@ -255,10 +255,30 @@ public static class ProtocolSerializer
         }
         var available = payload.GetProperty("available").GetBoolean();
         var timed = payload.GetProperty("timed").GetBoolean();
-        if ((timed && (!available || lines.GetArrayLength() == 0)) ||
-            (!timed && lines.GetArrayLength() != 0))
+        var untimedLineCount = 0;
+        if (payload.TryGetProperty("untimedLines", out var untimedLines))
         {
-            error = "Timed lyrics require available=true and lines; untimed/unavailable lyrics require empty lines.";
+            if (untimedLines.ValueKind != JsonValueKind.Array)
+            {
+                error = "Optional field 'untimedLines' must be an array of strings.";
+                return false;
+            }
+            foreach (var line in untimedLines.EnumerateArray())
+            {
+                if (line.ValueKind != JsonValueKind.String)
+                {
+                    error = "Every untimed lyric line must be a string.";
+                    return false;
+                }
+                untimedLineCount++;
+            }
+        }
+        if ((timed && (!available || lines.GetArrayLength() == 0)) ||
+            (!timed && lines.GetArrayLength() != 0) ||
+            (timed && untimedLineCount != 0) ||
+            (!available && untimedLineCount != 0))
+        {
+            error = "Timed lyrics require available=true and timed lines; untimed/unavailable lyrics require empty timed lines.";
             return false;
         }
         long previousStart = -1;

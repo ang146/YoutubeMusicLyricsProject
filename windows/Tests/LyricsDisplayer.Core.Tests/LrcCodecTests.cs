@@ -87,6 +87,7 @@ public sealed class LrcCodecTests
             Assert.That(result.HasTimedLyrics, Is.False);
             Assert.That(result.Lines, Is.Empty);
             Assert.That(result.Diagnostics, Is.Empty);
+            Assert.That(result.UntimedLines, Is.EqualTo(new[] { "Line one", "Line two" }));
         });
     }
 
@@ -99,6 +100,20 @@ public sealed class LrcCodecTests
             Assert.That(result.Success, Is.True);
             Assert.That(result.HasTimedLyrics, Is.False);
             Assert.That(result.Diagnostics, Is.Empty);
+            Assert.That(result.UntimedLines, Does.Contain("Lyrics without timestamps"));
+        });
+    }
+
+    [Test]
+    public void MixedTimedAndUntimedTextUsesExistingAnyTimestampMeansTimedRuleWithoutDroppingText()
+    {
+        var result = LrcCodec.Parse("[00:10.000]Timed line\nUntimed line\n[ar:Artist]");
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.HasTimedLyrics, Is.True);
+            Assert.That(result.Lines.Select(line => line.Text), Is.EqualTo(new[] { "Timed line" }));
+            Assert.That(result.UntimedLines, Is.EqualTo(new[] { "Untimed line" }));
         });
     }
 

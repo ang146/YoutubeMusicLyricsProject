@@ -46,13 +46,15 @@ test('malformed individual cues are skipped; no times are invented', () => {
   ])), /no-usable-timed-lines/);
 });
 test('timedLyricsData without cueRange is valid untimed lyrics', () => {
-  const { result, skippedLines } = parser.parse(timedResponse([
+  const untimedEntries = [
     { lyricLine: '測試 歌詞' },
     { lyricLine: '第二行' }
-  ]));
+  ];
+  const { result, skippedLines } = parser.parse(timedResponse(untimedEntries));
   assert.equal(result.available, true);
   assert.equal(result.timed, false);
   assert.deepEqual(result.lines, []);
+  assert.deepEqual(result.untimedLines, untimedEntries.map(entry => entry.lyricLine));
   assert.equal(skippedLines, 0);
 });
 test('valid timed lines survive malformed neighbours', () => {
@@ -70,11 +72,12 @@ test('known no-lyrics result remains unavailable', () => {
 });
 test('untimed text is available without fake lines; unknown response is a failure', () => {
   const parsed = parser.parse({ contents: { sectionListRenderer: { contents: [
-    { musicDescriptionShelfRenderer: { description: { runs: [{ text: 'Untimed test' }] } } }
+    { musicDescriptionShelfRenderer: { description: { runs: [{ text: '第一行\n第二行' }] } } }
   ] } } });
   assert.equal(parsed.result.available, true);
   assert.equal(parsed.result.timed, false);
   assert.deepEqual(parsed.result.lines, []);
+  assert.deepEqual(parsed.result.untimedLines, ['第一行', '第二行']);
   assert.throws(() => parser.parse({ contents: {} }));
 });
 

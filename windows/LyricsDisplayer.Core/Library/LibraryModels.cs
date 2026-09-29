@@ -73,6 +73,8 @@ public sealed record LocalLyricsDocument(
     EffectiveTrackMetadata EffectiveMetadata)
 {
     public long GlobalOffsetMs => Sidecar.GlobalOffsetMs;
+    public bool IsTimed => Lines.Count > 0;
+    public IReadOnlyList<string> UntimedLines { get; init; } = [];
     public string? LrcContentHash { get; init; }
     public IReadOnlyList<LrcTimestampOccurrence> TimestampOccurrences { get; init; } = [];
     public bool IsLrcWritable { get; init; }

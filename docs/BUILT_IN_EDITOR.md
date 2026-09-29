@@ -2,7 +2,7 @@
 
 Milestone 11 introduces a built-in, single-track lyrics editing workspace. The editor is a modal dialog owned by `LyricsDisplayer.App`; it edits one fixed local track at a time and reuses the local-first LRC/sidecar authority established by earlier milestones.
 
-The editor is not a playback surface and playback is not allowed to mutate editor state. It may read current playback position only when the user invokes an explicit editor command such as **Set Current Time as Timestamp**.
+The editor is not a playback surface and playback is not allowed to mutate editor state. It may read current playback position only when the user invokes an explicit editor command such as **Set Current Playback Time**.
 
 ## Current implementation notes (manual acceptance pending)
 
@@ -58,21 +58,26 @@ The user may edit the final lyric row while playback is at the beginning of the 
 
 ## Playback-assisted timestamp command
 
-The editor may read `PlaybackClock.Position` through an explicit command:
+The editor may read `PlaybackClock.Position` through one explicit row command:
 
 ```text
-SetSelectedTimestampFromPlayback
+SetCurrentPlaybackTimeCommand
 ```
 
 The command is enabled only when the currently playing track identity matches the fixed `EditorTrack`. If playback switches to another track, the editor remains fully usable but this command is disabled. Switching playback back to the editor's track re-enables it.
 
-Initial semantics:
+The command adds the current playback position to the selected lyric row using the first free timestamp slot. It is deliberately row-oriented rather than requiring the user to preselect an empty timestamp cell:
 
-- if the selected timestamp cell exists, replace that selected timestamp with the current playback position
-- if the selected row has no timestamp, create its first timestamp from the current playback position
-- do not guess whether the user wants a second timestamp when one already exists
+```text
+0 existing timestamps -> Timestamp 1
+1 existing timestamp  -> Timestamp 2
+2 existing timestamps -> Timestamp 3
+3 existing timestamps -> Timestamp 4
+4 existing timestamps -> Timestamp 5
+5 existing timestamps -> CanExecute = false
+```
 
-A future command may explicitly add the current playback time as an additional timestamp occurrence.
+Five timestamp occurrences per lyric row is the agreed editor UI limit for this command. Existing source data with more occurrences must still be preserved losslessly even if the initial UI cannot add beyond five. Editing/replacing an existing timestamp remains a normal cell edit rather than a separate playback command. Do not split this workflow into separate **Set Current Time** and **Add Current Time** commands.
 
 ## Editor document model
 
@@ -103,6 +108,8 @@ EditorLyricRow
 The model supports zero or more timestamps per lyric row from the beginning. Existing multi-timestamp physical lines must round-trip without loss even if the first UI version exposes only a limited set of management commands.
 
 Unedited LRC structure should be preserved as far as practical. Metadata, unknown harmless tags, blank lines, and multi-timestamp physical lines must not be silently discarded or reordered merely because the file passed through the built-in editor.
+
+A user-created empty lyric row is meaningful editor content. If the user inserts an empty row, saves, closes, and reopens the editor, that row must still be represented in the editor. Blank physical lines must therefore survive the disk -> `EditorDocument` projection instead of being silently collapsed away. The implementation may distinguish structural blank entries from editable empty lyric rows internally, but Save -> Close -> Reopen must preserve the user's empty-row structure.
 
 ## Row operations
 
@@ -161,7 +168,7 @@ InsertRowAboveCommand
 InsertRowBelowCommand
 AppendRowCommand
 DeleteRowCommand
-SetTimestampFromPlaybackCommand
+SetCurrentPlaybackTimeCommand
 UndoCommand
 RedoCommand
 SaveCommand
@@ -172,7 +179,7 @@ Commands expose appropriate `CanExecute` state. For example, row-relative comman
 A row context menu should expose the same operations as other bindings, for example:
 
 ```text
-Set Current Time as Timestamp
+Set Current Playback Time
 --------------------
 Insert Row Above
 Insert Row Below
@@ -204,7 +211,21 @@ Editor navigation keys such as Enter/Tab are editor-local. Existing overlay visi
 
 Built-in editor validation is advisory, not permission enforcement.
 
-Malformed or suspicious cells may use a clear visual diagnostic such as a red background and tooltip/message, but the user remains allowed to save the exact content they chose.
+Validation severity should be immediately visible in the grid:
+
+- errors use a clear red error background
+- warnings use a clear yellow warning background
+- the grid includes an explicit line-number column so diagnostics can identify the affected line
+
+The validation area should summarize rather than render an unbounded list of messages, for example:
+
+```text
+Warnings: 4    Errors: 1
+```
+
+Hovering or otherwise inspecting the summary may show diagnostic details including line number and reason. When there are no warnings or errors, the validation summary and the advisory message should disappear rather than leaving a permanent warning notice on screen.
+
+Validation remains non-blocking: the user may save the exact content they chose even when warnings or errors are present.
 
 ```text
 Validation = awareness
@@ -258,7 +279,7 @@ untimed local LRC
 → open Built-in Editor
 → select row
 → play song to desired moment
-→ Set Current Time as Timestamp
+→ Set Current Playback Time
 → Enter to next row
 → repeat
 → Save
@@ -298,6 +319,9 @@ While open:
 - the desktop overlay continues updating normally
 - the Control Panel cannot open another editor instance
 - the editor remains pinned to its own track even if playback changes
+- the editor dialog must remain visually above the Desktop Lyrics Overlay, including when the overlay's configured **Always on Top** preference is enabled
+
+The preferred Z-order behaviour is to temporarily suppress the overlay's effective topmost state for the lifetime of the modal editor, without changing the saved user preference. When the editor closes, restore the overlay's effective topmost state from the existing preference. Do not make the editor a permanently Topmost window merely to outrank the overlay.
 
 Application shutdown must route through the editor's dirty close guard before final exit.
 
@@ -317,7 +341,7 @@ Required foundation:
 - zero/multiple-timestamp-capable model
 - insert above / insert below / append / delete
 - no synthetic timestamps for new rows
-- Set Current Time as Timestamp with track-identity safety
+- Set Current Playback Time with track-identity safety
 - spreadsheet-style navigation
 - command-driven buttons/context menu/keyboard bindings
 - undo/redo

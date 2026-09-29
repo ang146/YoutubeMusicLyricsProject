@@ -981,6 +981,8 @@ This behaviour belongs to karaoke/presentation customisation and must not alter 
 
 Milestone 10 completed safe external editing/reload. Milestone 11 adds the built-in editor foundation documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). The built-in editor is a modal, single-track workspace over the same authoritative local LRC/sidecar data; it is not a second playback surface.
 
+While the modal editor is open, it must remain visually above the Desktop Lyrics Overlay. If the overlay is configured Always on Top, suppress only the overlay's effective topmost state for the editor lifetime without changing the saved preference, then restore the effective state when the editor closes.
+
 Core invariants:
 
 ```text
@@ -990,7 +992,7 @@ Playback may provide current time to an explicit editor command.
 Playback must not move selection, switch the editor document, or mutate the editor buffer.
 ```
 
-The editor is pinned to the `LocalTrackId` it was opened for. Playback may switch to other tracks while the modal dialog remains open; this never closes, switches, saves, discards, or prompts the editor. **Set Current Time as Timestamp** is enabled only while the current playback track matches the fixed editor track.
+The editor is pinned to the `LocalTrackId` it was opened for. Playback may switch to other tracks while the modal dialog remains open; this never closes, switches, saves, discards, or prompts the editor. **Set Current Playback Time** is enabled only while the current playback track matches the fixed editor track. The command is row-oriented: it appends the current playback position into the first free timestamp slot, up to five UI-managed occurrences; with five existing timestamps its `CanExecute` is false. Existing source data with more occurrences must still round-trip losslessly.
 
 The editor uses a structured `EditorDocument`, not a simple list of timestamp/text pairs. It must preserve ordered physical LRC structure, existing multi-timestamp lines, metadata/unknown/blank structure where practical, stable editor-row identity, validation diagnostics, dirty state, and undo/redo history. A lyric row supports zero or more timestamps from the beginning. Document order remains user-controlled and is never silently resorted by timestamp.
 
@@ -1001,17 +1003,17 @@ Insert Row Above
 Insert Row Below
 Append Row
 Delete Row
-Set Current Time as Timestamp
+Set Current Playback Time
 Undo
 Redo
 Save
 ```
 
-Inserted/appended rows begin with an empty lyric cell and no timestamps. No timestamp is interpolated or inferred from neighbouring rows. The user may type timing explicitly or invoke the playback-time command.
+Inserted/appended rows begin with an empty lyric cell and no timestamps. No timestamp is interpolated or inferred from neighbouring rows. The user may type timing explicitly or invoke the playback-time command. A user-created empty lyric row is meaningful editor content and must survive Save -> Close -> Reopen rather than being collapsed out of `EditorDocument`.
 
 Editor operations are commands first. Buttons/toolbars, row context menus, and keyboard shortcuts are bindings over the same commands. Initial navigation follows grid conventions such as Enter/Shift+Enter for next/previous row in the same logical column and Tab/Shift+Tab for adjacent editable cells. Stable command IDs/scopes should leave room for later user-configurable shortcuts without coupling feature logic to key-event handlers.
 
-Validation is advisory. Invalid/suspicious cells may be highlighted clearly (for example, a red background plus diagnostic text), but the editor does not act as an automatic corrector and does not forbid Save solely because content is malformed. M10 runtime safety remains separate: a saved malformed LRC may remain on disk exactly as authored while active playback retains last-known-good runtime lyrics.
+Validation is advisory. Errors should use clear red emphasis, warnings clear yellow emphasis, and the grid should expose a line-number column. The validation area should show compact warning/error counts with inspectable details rather than an unbounded message list, and it should disappear entirely when no diagnostics remain. The editor does not act as an automatic corrector and does not forbid Save solely because content is malformed. M10 runtime safety remains separate: a saved malformed LRC may remain on disk exactly as authored while active playback retains last-known-good runtime lyrics.
 
 Dirty close/exit behavior uses `Save / Discard / Cancel`. If the authoritative file changes externally while the editor has unsaved changes, conflict handling remains intentionally simple: `Discard My Changes / Reload`, `Overwrite External Changes`, or `Cancel`; no three-way/collaborative merge is required.
 
@@ -1462,6 +1464,7 @@ Add the expandable built-in editor foundation described in [BUILT_IN_EDITOR.md](
 Required foundation:
 
 * modal, single-track editor dialog pinned to one `LocalTrackId`
+* modal editor remains visually above the Desktop Lyrics Overlay; overlay Always on Top is temporarily suppressed only as effective runtime state and its saved preference is restored when the editor closes
 * one shared `OpenBuiltInEditorCommand`, invokable from the Control Panel and overlay context menu; future surfaces such as the Media Controller reuse the same command
 * structured round-trippable `EditorDocument` that preserves LRC structure and existing multi-timestamp data
 * stable row identity and explicit row/cell/timestamp selection
@@ -1469,11 +1472,12 @@ Required foundation:
 * lyric-text and timestamp editing
 * zero/multiple-timestamp-capable row model
 * Insert Above / Insert Below / Append / Delete row commands, with new rows receiving no inferred timestamp
-* Set Current Time as Timestamp command that reads `PlaybackClock` only when playback track identity matches the editor track
+* user-created empty lyric rows survive Save -> Close -> Reopen and are not silently collapsed during `EditorDocument` reconstruction
+* one row-oriented Set Current Playback Time command that reads `PlaybackClock` only when playback track identity matches the editor track and appends into the first free timestamp slot up to five UI-managed occurrences
 * spreadsheet-style keyboard navigation
 * command-driven toolbar/context-menu/keyboard bindings
 * undo/redo and dirty-state tracking
-* advisory validation that highlights errors without taking away the user's ability to save
+* advisory validation with explicit line numbers, yellow warning/red error emphasis, compact warning/error counts, and details on inspection; validation never takes away the user's ability to save
 * safe save and simple external-change conflict handling (`Reload/Discard Mine`, `Overwrite`, `Cancel`)
 * editor/application close guard with `Save / Discard / Cancel`
 * user title/artist override editing in portable sidecar metadata
@@ -1490,34 +1494,54 @@ Advanced editor commands are deliberately deferred so they can be added on top o
 
 ## Milestone 12 — Additional Lyrics Providers and Search
 
-Add providers such as:
+Add a provider/search layer without coupling provider-native formats to the editor, timeline, or renderer. Playback source and lyrics provider are independent: YouTube Music may be the playback source while lyrics are searched/imported from LRCLib, another provider adapter, or a configured custom HTTP source.
 
-* LRCLib
-* community lyrics sources
+Provider-specific LRC/QRC/YRC/TTML/JSON/etc. formats normalize into a canonical Lyrics Displayer lyrics model before entering application presentation/editing code. The canonical capability model should distinguish at least:
 
-Remote providers remain importers into the local-first library.
+```text
+Untimed
+LineTimed
+WordTimed   // future-capable where source supports it
+```
 
-Provider searches should use effective track metadata:
+Introduce a provider boundary conceptually similar to:
+
+```text
+ILyricsProvider
+├─ provider identity
+├─ capabilities
+├─ SearchAsync(...)
+├─ FetchLyricsAsync(...)
+└─ Normalize(...)
+```
+
+Provider registry/configuration should support enable/disable, ordering/priority, provider-specific settings, and bounded timeouts. Search fans out to enabled providers in parallel, isolates provider failures, supports cancellation, and may progressively append results as providers respond.
+
+Search and lyric payload fetch are separate operations. Search should return lightweight metadata results; selecting a result lazily fetches only that result for preview. Preview does not mutate local authority. The final **Use This Lyrics** action explicitly imports/normalizes the chosen document into the local-first library. Replacing an existing authoritative local LRC requires clear confirmation.
+
+Provider searches should use effective track metadata by default:
 
 ```text
 EffectiveTitle  = UserTitle  ?? SourceTitle
 EffectiveArtist = UserArtist ?? SourceArtist
 ```
 
-Add a manual lyrics-search workflow allowing the user to:
+The manual search workflow should allow the user to:
 
-* review the current title and artist search values
-* edit the title used for searching
-* edit the artist used for searching
-* retry a search
-* choose among provider results
-* optionally save the entered values as persistent metadata overrides
-* associate the selected lyrics with the current stable track identity
-* save the selected/imported lyrics locally
+* review and edit one-off title/artist search values
+* run searches across enabled providers
+* see provider identity and timing capability in results where available
+* select a result and lazily fetch/preview its lyrics
+* retry/cancel searches without stale results overwriting the current query
+* optionally persist entered title/artist values as metadata overrides
+* explicitly import/replace the selected lyrics
+* associate the local result with the current stable track identity
 
-A manual search may also be performed without permanently changing the saved metadata overrides.
+Once imported and associated, the local copy is authoritative. Later provider fetches must never silently overwrite user edits.
 
-Once lyrics have been selected/imported and associated with a track, future playback of that associated track should prefer the local copy and should not require another provider search.
+Custom sources should initially be declarative HTTP configurations for supported forms such as raw LRC or mapped JSON result/lyrics fields. Do not execute arbitrary user scripts as a generic provider mechanism. Complex authenticated, encrypted, or provider-native formats belong in built-in adapters.
+
+A future original-source snapshot may preserve the immutable first-import baseline separately from the editable authoritative LRC so an explicit **Reset Lyrics to Original** operation can be implemented safely; normal editing/provider refreshes must not silently redefine that snapshot.
 
 ---
 

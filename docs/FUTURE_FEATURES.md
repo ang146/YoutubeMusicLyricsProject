@@ -6,20 +6,13 @@ This document collects agreed future directions that should not be silently fold
 
 Milestones 1–10 are complete through transport, YouTube Music integration, local-first storage, timeline/overlay, timing adjustment, overlay interaction, and external/untimed local editing.
 
-The next implementation milestone is:
-
-```text
-Milestone 11 — Built-in Lyrics Editor Foundation
-```
-
-See [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+Milestone 11 — Built-in Lyrics Editor Foundation is currently implemented and under manual acceptance/refinement. The editor architecture and current acceptance contract are documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
 ## Editor expansion after M11 foundation
 
 Potential editor commands/features include:
 
-- add the current playback time as an additional timestamp occurrence
-- add/remove/reorder timestamp occurrences on a multi-timestamp lyric row
+- richer add/remove/reorder management for existing timestamp occurrences beyond the M11 row-level playback-time command
 - explicit `♪` break insertion, removal, and retiming
 - bulk timing shift/transform tools
 - multi-row selection and bulk operations
@@ -70,7 +63,7 @@ Editor
 Examples:
 
 - global/application: show/hide overlay, toggle click-through
-- editor: next/previous row, insert row, Set Current Time, save, undo/redo
+- editor: next/previous row, insert row, Set Current Playback Time, save, undo/redo
 
 Context menus and other command surfaces should display the current binding where useful. The hotkey editor/settings UI is deferred until after M11 foundation.
 
@@ -133,9 +126,76 @@ Playback display should reuse the existing Lyrics Displayer playback model. Tran
 
 ## Additional lyrics providers and manual search
 
-Milestone 12 remains the provider/search expansion milestone. Potential sources include LRCLib and community lyrics services.
+Milestone 12 remains the provider/search expansion milestone. Potential sources include LRCLib, community lyrics services, and provider-specific adapters for services whose native formats are not ordinary LRC.
 
-Remote services remain importers into the local-first library. Manual search should use effective metadata and may optionally save user title/artist overrides. Once imported and associated, the local copy remains authoritative.
+Playback source and lyrics provider are separate concepts:
+
+```text
+Where music is playing
+!=
+Where lyrics came from
+```
+
+For example, YouTube Music may remain the playback source while the chosen lyrics are imported from LRCLib, another community/provider adapter, or a configured custom HTTP source. Provider-specific formats must normalize into a Lyrics Displayer canonical lyrics model before reaching editor/timeline/renderer code. The canonical model should be able to distinguish at least untimed, line-timed, and future word-timed capability without forcing provider-specific QRC/YRC/TTML/LRC syntax into presentation code.
+
+A provider abstraction should expose stable identity, capabilities, search, fetch, and normalization responsibilities. Conceptually:
+
+```text
+ILyricsProvider
+├─ Provider identity
+├─ Capabilities
+├─ SearchAsync(...)
+├─ FetchLyricsAsync(...)
+└─ Normalize(...)
+```
+
+Provider configuration should eventually support enable/disable, priority/order, provider-specific settings, and bounded timeouts. One provider failing or timing out must not prevent results from other enabled providers.
+
+Search should fan out to enabled providers in parallel and support cancellation when the user changes the query. Results may appear progressively as providers return. Search results should initially be lightweight metadata rather than eagerly downloading every lyric payload. Selecting a result lazily fetches that result for preview, and fetched previews may be cached by provider/result identity.
+
+Conceptually:
+
+```text
+Search enabled providers
+        ↓
+metadata results
+        ↓ select one result
+lazy FetchLyrics
+        ↓
+Preview
+        ↓ explicit user action
+Use This Lyrics
+        ↓
+normalize + import local authoritative copy
+```
+
+Preview must not mutate the local library. Importing/replacing local lyrics is an explicit user action, and replacing an existing authoritative local LRC requires clear confirmation. After import, the local copy remains authoritative and must never be silently overwritten by later provider fetches.
+
+Manual search should default to effective metadata but allow one-off search text without forcing persistent metadata changes. User title/artist overrides may optionally be saved when explicitly requested.
+
+Custom sources should begin as declarative HTTP integrations for supported response shapes such as raw LRC or mapped JSON fields. Do not execute arbitrary user-provided scripts merely to support custom providers. More complex authenticated/encrypted/provider-native formats belong in built-in provider adapters.
+
+## Original imported lyrics snapshot and reset
+
+A future safety/authoring feature should preserve an immutable snapshot of the lyrics as originally imported/materialised from a provider or other source, separate from the editable authoritative local LRC.
+
+Conceptually:
+
+```text
+Imported Source Snapshot   // immutable baseline
+        +
+Editable Authoritative Local LRC
+```
+
+Normal editing operations must not mutate the original snapshot. This includes built-in editor saves, external editor saves, Current Line Adjustment, Bake, future script conversion, bulk timing tools, and other local modifications.
+
+A future explicit command may provide:
+
+```text
+Reset Lyrics to Original...
+```
+
+Reset is destructive to the editable authoritative LRC and therefore requires clear confirmation. Provider re-fetches must not silently redefine what "Original" means. Replacing/re-importing the source snapshot should itself be an explicit user action. The exact portable storage representation for this snapshot is intentionally deferred until the feature is implemented.
 
 ## Additional browser platforms
 
@@ -178,6 +238,9 @@ Future work should preserve these boundaries:
 ```text
 Lyrics source data
 ≠ local authoritative user data
+
+Playback source
+≠ lyrics provider
 
 Playback current line
 ≠ editor selection

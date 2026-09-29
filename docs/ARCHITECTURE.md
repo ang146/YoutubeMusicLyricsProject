@@ -1313,6 +1313,8 @@ Introduce:
 
 SQLite is required as the local searchable/indexing layer in this milestone, but the `.lrc` and sidecar files remain authoritative and portable.
 
+Available YouTube Music lyrics may be materialised through this same local-first workflow whether timed or untimed. Untimed provider text is stored as ordinary UTF-8 lines in `track.lrc` without fabricated timing; a valid untimed local file remains authoritative and externally editable. The existing parser determines when valid timestamps make a subsequently edited document timed. See [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md) and [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
+
 Deleting the local SQLite database must not delete or invalidate the lyrics library; the index must be reconstructable from the configured library files.
 
 ---
@@ -1399,6 +1401,7 @@ Implemented:
 * watch only the active LRC's containing directory (and its track-directory parent for recreation), debounce events for 300 ms, and accept content only after two matching SHA-256 reads within six bounded attempts
 * handle Changed/Created/Deleted/Renamed events and atomic replacement saves, with bounded retry and watcher recovery; activation and overlay-show fingerprint checks provide a low-frequency fallback for SMB/NAS watcher gaps
 * validate/reload changed local lyrics read-only, reject fatal timestamp-syntax diagnostics as a whole (never partially accepting a malformed document), preserve `GlobalOffsetMs` and `PlaybackClock`, rebuild timeline/source occurrences and overlay immediately, and retain last-known-good runtime lyrics for invalid edits without changing user files; valid untimed content remains distinct from malformed syntax
+* allow a usable untimed local LRC to be opened externally and watched by the same active-file watcher; clean text edits remain untimed, while adding valid timestamps transitions the same local record to timed playback immediately without synthesising timestamps
 * mark persistently missing local LRC unavailable without creating it or falling back to provider lyrics; continue watching for automatic recovery
 * bind asynchronous observations to the active local track/path generation; keep watching while UI surfaces are hidden and dispose watchers at application shutdown
 * deduplicate identical content, including app-owned Current Line/Bake writes, without broad time-based suppression

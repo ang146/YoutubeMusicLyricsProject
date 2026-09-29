@@ -381,8 +381,6 @@ public sealed class LyricsLibrary : IDisposable
     {
         if (!string.Equals(track.SourceTrackId, lyrics.SourceTrackId, StringComparison.Ordinal))
             return new(LyricsImportStatus.Failed, Error: "Lyrics sourceTrackId does not match the authoritative track.");
-        if (!lyrics.Available || !lyrics.Timed || lyrics.Lines.Count == 0)
-            return new(LyricsImportStatus.NotTimed);
         if (!LibraryAvailable) return new(LyricsImportStatus.LibraryUnavailable);
         if (_index is null) return new(LyricsImportStatus.IndexUnavailable);
 
@@ -396,6 +394,22 @@ public sealed class LyricsLibrary : IDisposable
             return new(lookup.Status == LocalLyricsLookupStatus.LibraryUnavailable
                 ? LyricsImportStatus.LibraryUnavailable : LyricsImportStatus.IndexUnavailable, Error: lookup.Error);
 
+        if (!lyrics.Available) return new(LyricsImportStatus.NotTimed);
+        string lrcContent;
+        if (lyrics.Timed)
+        {
+            if (lyrics.Lines.Count == 0 || lyrics.UntimedLines is { Count: > 0 })
+                return new(LyricsImportStatus.NotTimed);
+            lrcContent = LrcCodec.Serialize(lyrics.Lines);
+        }
+        else
+        {
+            var untimedLines = lyrics.UntimedLines ?? [];
+            if (lyrics.Lines.Count != 0 || !untimedLines.Any(line => !string.IsNullOrWhiteSpace(line)))
+                return new(LyricsImportStatus.NotTimed);
+            lrcContent = LrcCodec.SerializeUntimed(untimedLines);
+        }
+
         var localTrackId = Guid.NewGuid().ToString("D");
         var association = new SourceTrackAssociation(ProtocolConstants.YouTubeMusicSource, track.SourceTrackId,
             new(track.Title, track.Artist, track.Album, track.DurationMs));
@@ -408,7 +422,7 @@ public sealed class LyricsLibrary : IDisposable
         try
         {
             Directory.CreateDirectory(temporaryDirectory);
-            AtomicFile.WriteNew(Path.Combine(temporaryDirectory, "track.lrc"), LrcCodec.Serialize(lyrics.Lines));
+            AtomicFile.WriteNew(Path.Combine(temporaryDirectory, "track.lrc"), lrcContent);
             AtomicFile.WriteNew(Path.Combine(temporaryDirectory, "track.lyrics.json"), SidecarSerializer.Serialize(sidecar));
             Directory.Move(temporaryDirectory, finalDirectory);
         }
@@ -433,7 +447,7 @@ public sealed class LyricsLibrary : IDisposable
         }
 
         var document = LoadFromRecord(record, sidecar, association.Metadata);
-        Log("Information", "Library", $"Remote timed lyrics imported as local track {localTrackId}.");
+        Log("Information", "Library", $"Remote lyrics imported as local track {localTrackId}.");
         return new(LyricsImportStatus.Imported, document, localTrackId);
     }
 
@@ -469,14 +483,15 @@ public sealed class LyricsLibrary : IDisposable
             if (!File.Exists(lyricsPath)) return null;
             var snapshot = LrcFileSnapshot.Read(lyricsPath);
             var parsed = LrcCodec.Parse(snapshot.Content, currentMetadata.DurationMs);
-            if (!parsed.Success || !parsed.HasTimedLyrics) return null;
+            if (!parsed.Success) return null;
             var stored = sidecar.SourceAssociations.First().Metadata;
             return new(record, sidecar, parsed.Lines,
                 EffectiveTrackMetadata.From(stored, sidecar.UserMetadata, currentMetadata))
             {
                 LrcContentHash = snapshot.Hash,
                 TimestampOccurrences = parsed.TimestampOccurrences,
-                IsLrcWritable = LrcFileSnapshot.IsWritable(lyricsPath)
+                IsLrcWritable = LrcFileSnapshot.IsWritable(lyricsPath),
+                UntimedLines = parsed.UntimedLines
             };
         }
         catch (Exception exception) when (IsStorageException(exception))
@@ -500,8 +515,6 @@ public sealed class LyricsLibrary : IDisposable
         var parsed = LrcCodec.Parse(File.ReadAllText(lyricsPath), duration);
         if (!parsed.Success)
         { error = parsed.Error!; return false; }
-        if (!parsed.HasTimedLyrics)
-        { error = "The local LRC contains no timed lyric lines."; return false; }
         return true;
     }
 

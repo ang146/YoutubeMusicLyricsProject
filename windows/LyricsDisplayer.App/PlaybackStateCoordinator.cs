@@ -42,7 +42,7 @@ public sealed class PlaybackStateCoordinator
 
     public long GlobalOffsetMs => CurrentLocalLyrics?.GlobalOffsetMs ?? 0;
 
-    public bool CanAdjustTiming => IsCurrentLocalLrcUsable && _library is not null;
+    public bool CanAdjustTiming => IsCurrentLocalLrcUsable && CurrentLocalLyrics!.IsTimed && _library is not null;
 
     public bool CanAdjustCurrentLineTiming => _library is not null &&
         IsCurrentLocalLrcUsable && CurrentLocalLyrics is { IsLrcWritable: true, LrcContentHash: not null } &&
@@ -69,7 +69,7 @@ public sealed class PlaybackStateCoordinator
     {
         ArgumentNullException.ThrowIfNull(target);
         var current = CurrentLocalLyrics;
-        if (_library is null || current is null ||
+        if (_library is null || current is null || !current.IsTimed ||
             current.Record.LocalTrackId != target.Document.Record.LocalTrackId ||
             current.Record.LyricsRelativePath != target.Document.Record.LyricsRelativePath ||
             current.LrcContentHash != target.Document.LrcContentHash)
@@ -111,7 +111,7 @@ public sealed class PlaybackStateCoordinator
     public TimingAdjustmentResult AdjustTiming(long deltaMs)
     {
         var target = CurrentLocalLyrics;
-        if (target is null || _library is null || !_externalLrcUsable)
+        if (target is null || !target.IsTimed || _library is null || !_externalLrcUsable)
             return new(TimingAdjustmentStatus.NoLocalLyrics);
         if (!LyricsTimingAdjustment.TryAdjustOffset(target.GlobalOffsetMs, deltaMs, out var adjusted))
             return new(TimingAdjustmentStatus.OffsetOverflow);
@@ -127,7 +127,7 @@ public sealed class PlaybackStateCoordinator
     public TimingAdjustmentResult ResetTiming()
     {
         var target = CurrentLocalLyrics;
-        if (target is null || _library is null || !_externalLrcUsable)
+        if (target is null || !target.IsTimed || _library is null || !_externalLrcUsable)
             return new(TimingAdjustmentStatus.NoLocalLyrics);
         if (target.GlobalOffsetMs == 0)
             return new(TimingAdjustmentStatus.Succeeded, target);
@@ -139,7 +139,7 @@ public sealed class PlaybackStateCoordinator
     }
 
     public TimingAdjustmentTarget? CaptureTimingAdjustmentTarget() =>
-        CurrentLocalLyrics is null
+        CurrentLocalLyrics is not { IsTimed: true } || !IsCurrentLocalLrcUsable
             ? null
             : new(CurrentLocalLyrics.Record.LocalTrackId, CurrentLocalLyrics.GlobalOffsetMs);
 
@@ -147,7 +147,7 @@ public sealed class PlaybackStateCoordinator
     {
         ArgumentNullException.ThrowIfNull(target);
         var current = CurrentLocalLyrics;
-        if (current is null || _library is null || !_externalLrcUsable)
+        if (current is null || !current.IsTimed || _library is null || !_externalLrcUsable)
             return new(TimingAdjustmentStatus.NoLocalLyrics);
         if (current.Record.LocalTrackId != target.LocalTrackId || current.GlobalOffsetMs != target.GlobalOffsetMs)
             return new(TimingAdjustmentStatus.TrackChanged,
@@ -225,7 +225,10 @@ public sealed class PlaybackStateCoordinator
         CurrentLyrics = snapshot;
         SetTimeline(snapshot.Payload);
         LyricsLoadedFrom = "YouTube Music (runtime)";
-        if (_library is null || !snapshot.Payload.Available || !snapshot.Payload.Timed || snapshot.Payload.Lines.Count == 0)
+        if (_library is null || !snapshot.Payload.Available ||
+            (snapshot.Payload.Timed
+                ? snapshot.Payload.Lines.Count == 0
+                : snapshot.Payload.UntimedLines is not { Count: > 0 }))
             return LyricsApplyDecision.AcceptedRemote;
 
         var imported = _library.Import(current.Payload.Track, snapshot.Payload);
@@ -269,8 +272,9 @@ public sealed class PlaybackStateCoordinator
         LyricsLoadedFrom = "Local Library";
         CurrentLyrics = new LyricsSnapshotMessage(
             envelope with { MessageType = ProtocolConstants.LyricsSnapshot },
-            new LyricsSnapshotPayload(Current!.Payload.Track.SourceTrackId, true, true,
-                document.Sidecar.Lyrics.Source, document.Lines, document.Sidecar.Lyrics.Attribution),
+            new LyricsSnapshotPayload(Current!.Payload.Track.SourceTrackId, true, document.IsTimed,
+                document.Sidecar.Lyrics.Source, document.Lines, document.Sidecar.Lyrics.Attribution,
+                document.IsTimed ? null : document.UntimedLines),
             "");
         _lyricsTimeline = new LyricsTimeline(document.Lines);
     }

@@ -71,6 +71,127 @@ public sealed class LocalLyricsCoordinatorTests
         });
     }
 
+    [Test]
+    public async Task UntimedRemoteLyricsRemainEditableAndWatcherTransitionsSameLocalTrackToTimed()
+    {
+        using var library = InitialiseLibrary();
+        var coordinator = Coordinator(library);
+        coordinator.Apply(Playback("track-a", 1));
+        var providerText = new[] { "第一行 ♪", "第二行" };
+        var decision = coordinator.ApplyLyricsDetailed(UntimedLyrics("track-a", 2, providerText));
+        var localTrackId = coordinator.CurrentLocalLyrics!.Record.LocalTrackId;
+        var lrc = Path.Combine(_paths.LibraryPath, "tracks", localTrackId, "track.lrc");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision, Is.EqualTo(LyricsApplyDecision.ImportedAsLocal));
+            Assert.That(coordinator.CurrentLocalLyrics.IsTimed, Is.False);
+            Assert.That(coordinator.CurrentLyrics!.Payload.Timed, Is.False);
+            Assert.That(coordinator.CurrentLyrics.Payload.Lines, Is.Empty);
+            Assert.That(coordinator.CurrentLyrics.Payload.UntimedLines, Is.EqualTo(providerText));
+            Assert.That(coordinator.GetTimelinePosition().HasLyrics, Is.False);
+            Assert.That(LyricsOverlayPresentationState.FromLyrics(coordinator.CurrentLyrics.Payload,
+                coordinator.GetTimelinePosition()).PrimaryText, Is.EqualTo(LyricsOverlayPresentationState.UntimedLyricsText));
+            Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
+            Assert.That(coordinator.CanAdjustTiming, Is.False);
+            Assert.That(coordinator.CaptureTimingAdjustmentTarget(), Is.Null);
+            Assert.That(File.ReadAllText(lrc), Is.EqualTo("第一行 ♪\n第二行\n"));
+            Assert.That(File.ReadAllText(lrc), Does.Not.Contain("[00:00.000]"));
+        });
+
+        var observations = new ConcurrentQueue<(ActiveLrcFileObservationKind Kind, ExternalLocalLyricsUpdate? Update)>();
+        using var observationSignal = new SemaphoreSlim(0);
+        using var watcher = new ActiveLrcFileWatcher(lrc, coordinator.CurrentLocalLyrics.LrcContentHash,
+            observation =>
+            {
+                ExternalLocalLyricsUpdate? update = null;
+                if (observation.Kind == ActiveLrcFileObservationKind.Content)
+                    update = coordinator.ReloadExternalLocalLyrics(localTrackId, observation.Fingerprint!);
+                else if (observation.Kind == ActiveLrcFileObservationKind.Missing)
+                    coordinator.MarkExternalLocalLyricsMissing(localTrackId);
+                observations.Enqueue((observation.Kind, update));
+                observationSignal.Release();
+            }, debounce: TimeSpan.FromMilliseconds(10), retryDelay: TimeSpan.FromMilliseconds(5));
+
+        async Task<(ActiveLrcFileObservationKind Kind, ExternalLocalLyricsUpdate? Update)> NextObservation()
+        {
+            await observationSignal.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(observations.TryDequeue(out var observation), Is.True);
+            return observation;
+        }
+
+        const string editedUntimed = "修正した第一行\n第二行\n";
+        File.WriteAllText(lrc, editedUntimed, new System.Text.UTF8Encoding(false));
+        watcher.CheckNow();
+        var textEdit = await NextObservation();
+        Assert.Multiple(() =>
+        {
+            Assert.That(textEdit.Kind, Is.EqualTo(ActiveLrcFileObservationKind.Content));
+            Assert.That(textEdit.Update, Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
+            Assert.That(coordinator.CurrentLocalLyrics!.IsTimed, Is.False);
+            Assert.That(coordinator.CurrentLyrics!.Payload.UntimedLines, Is.EqualTo(new[] { "修正した第一行", "第二行" }));
+            Assert.That(coordinator.GetTimelinePosition().HasLyrics, Is.False);
+            Assert.That(coordinator.ActiveLocalLyricsRecord!.LocalTrackId, Is.EqualTo(localTrackId));
+        });
+
+        File.Delete(lrc);
+        watcher.CheckNow();
+        var missing = await NextObservation();
+        Assert.Multiple(() =>
+        {
+            Assert.That(missing.Kind, Is.EqualTo(ActiveLrcFileObservationKind.Missing));
+            Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.True);
+            Assert.That(coordinator.CurrentLyrics, Is.Null);
+            Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.False);
+        });
+
+        File.WriteAllText(lrc, editedUntimed, new System.Text.UTF8Encoding(false));
+        watcher.CheckNow();
+        var restored = await NextObservation();
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored.Kind, Is.EqualTo(ActiveLrcFileObservationKind.Content));
+            Assert.That(restored.Update, Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
+            Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.False);
+            Assert.That(coordinator.CurrentLocalLyrics!.IsTimed, Is.False);
+        });
+
+        const string malformed = "[0055.000]修正した第一行\n第二行\n";
+        File.WriteAllText(lrc, malformed, new System.Text.UTF8Encoding(false));
+        watcher.CheckNow();
+        var invalid = await NextObservation();
+        Assert.Multiple(() =>
+        {
+            Assert.That(invalid.Kind, Is.EqualTo(ActiveLrcFileObservationKind.Content));
+            Assert.That(invalid.Update, Is.EqualTo(ExternalLocalLyricsUpdate.Invalid));
+            Assert.That(File.ReadAllText(lrc), Is.EqualTo(malformed));
+            Assert.That(coordinator.CurrentLocalLyrics!.IsTimed, Is.False);
+            Assert.That(coordinator.CurrentLyrics!.Payload.UntimedLines, Is.EqualTo(new[] { "修正した第一行", "第二行" }));
+            Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.False);
+        });
+
+        const string timedEdit = "[00:00.500]修正した第一行\n[00:01.500]第二行\n";
+        File.WriteAllText(lrc, timedEdit, new System.Text.UTF8Encoding(false));
+        watcher.CheckNow();
+        var timed = await NextObservation();
+        var position = coordinator.GetTimelinePosition();
+        Assert.Multiple(() =>
+        {
+            Assert.That(timed.Kind, Is.EqualTo(ActiveLrcFileObservationKind.Content));
+            Assert.That(timed.Update, Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
+            Assert.That(coordinator.CurrentLocalLyrics!.IsTimed, Is.True);
+            Assert.That(coordinator.CurrentLyrics!.Payload.Timed, Is.True);
+            Assert.That(coordinator.CurrentLyrics.Payload.UntimedLines, Is.Null);
+            Assert.That(position.CurrentLine!.Text, Is.EqualTo("修正した第一行"));
+            Assert.That(position.NextLine!.Text, Is.EqualTo("第二行"));
+            Assert.That(coordinator.ActiveLocalLyricsRecord!.LocalTrackId, Is.EqualTo(localTrackId));
+            Assert.That(coordinator.CurrentLocalLyrics.Record.LocalTrackId, Is.EqualTo(localTrackId));
+            Assert.That(coordinator.LocalAssociationStatus, Is.EqualTo("Found"));
+            Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
+            Assert.That(library.Lookup("youtubeMusic", "track-a").Record!.LocalTrackId, Is.EqualTo(localTrackId));
+        });
+    }
+
     [TestCase(true, false)]
     [TestCase(false, false)]
     public void UntimedOrUnavailableRemoteResultStaysRuntimeOnly(bool available, bool timed)
@@ -142,7 +263,7 @@ public sealed class LocalLyricsCoordinatorTests
         using var library = InitialiseLibrary();
         var imported = library.Import(TrackInfo("track-a"), Lyrics("track-a", 2).Payload);
         var lrc = Path.Combine(_paths.LibraryPath, "tracks", imported.LocalTrackId!, "track.lrc");
-        File.WriteAllText(lrc, "not usable LRC");
+        File.WriteAllText(lrc, "[0055.000]not usable LRC");
         library.ScanAndSynchronise();
         var coordinator = Coordinator(library);
 
@@ -153,7 +274,7 @@ public sealed class LocalLyricsCoordinatorTests
         Assert.Multiple(() =>
         {
             Assert.That(coordinator.Current!.Payload.Track.SourceTrackId, Is.EqualTo("track-a"));
-            Assert.That(File.ReadAllText(lrc), Is.EqualTo("not usable LRC"));
+            Assert.That(File.ReadAllText(lrc), Is.EqualTo("[0055.000]not usable LRC"));
             Assert.That(Directory.GetDirectories(Path.Combine(_paths.LibraryPath, "tracks")), Has.Length.EqualTo(1));
         });
     }
@@ -202,7 +323,7 @@ public sealed class LocalLyricsCoordinatorTests
         coordinator.ApplyLyricsDetailed(Lyrics("track-a", 2));
         var oldLine = coordinator.CurrentLyrics!.Payload.Lines.Single().Text;
 
-        File.WriteAllText(lrc, "invalid LRC");
+        File.WriteAllText(lrc, "[0055.000]invalid LRC");
         var invalidFingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(lrc)));
         Assert.That(coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, invalidFingerprint),
             Is.EqualTo(ExternalLocalLyricsUpdate.Invalid));
@@ -490,6 +611,10 @@ public sealed class LocalLyricsCoordinatorTests
         new(Metadata(sequence, session, ProtocolConstants.LyricsSnapshot),
             new(id, available, timed, available ? "youtubeMusic" : null,
                 timed ? [new LyricsLine(100, 500, text)] : [], "Provider"), "{}");
+
+    private static LyricsSnapshotMessage UntimedLyrics(string id, long sequence, IReadOnlyList<string> lines) =>
+        new(Metadata(sequence, "session-a", ProtocolConstants.LyricsSnapshot),
+            new(id, true, false, "youtubeMusic", [], "Provider", lines), "{}");
 
     private static EnvelopeMetadata Metadata(long sequence, string session, string type) =>
         new(1, type, ProtocolConstants.YouTubeMusicSource, session, sequence,

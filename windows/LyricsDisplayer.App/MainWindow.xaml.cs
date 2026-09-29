@@ -470,7 +470,7 @@ public partial class MainWindow : Window
         if (record is null)
         {
             if (_watchedLocalTrackId is not null) StopWatchingActiveLrc();
-            _externalLrcStatus = "No current local timed LRC";
+            _externalLrcStatus = "No current local LRC";
             return;
         }
 
@@ -593,7 +593,7 @@ public partial class MainWindow : Window
         OpenLrcExternallyButton.IsEnabled = canOpen;
         _overlay.SetExternalLyricsAvailability(canOpen);
         ExternalLrcStatusText.Text = _externalLrcStatus ??
-            (_playbackState.ActiveLocalLyricsRecord is null ? "No current local timed LRC" : "Watching current LRC");
+            (_playbackState.ActiveLocalLyricsRecord is null ? "No current local LRC" : "Watching current LRC");
     }
 
     private void OpenCurrentLrcExternally()

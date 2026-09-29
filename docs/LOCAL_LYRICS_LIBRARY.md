@@ -88,7 +88,7 @@ Editing the sidecar while the App is stopped takes effect during the next startu
 
 ## LRC format
 
-Imported timed lyrics are UTF-8 without a byte-order mark and use one standard millisecond timestamp per line:
+Timed lyrics are UTF-8 without a byte-order mark and use one standard millisecond timestamp per line:
 
 ```text
 [00:12.340]A lyric line
@@ -97,6 +97,10 @@ Imported timed lyrics are UTF-8 without a byte-order mark and use one standard m
 The reader accepts both `[mm:ss.ff]` and `[mm:ss.fff]`, ignores common `ar`, `ti`, `al`, `by`, `offset`, `re`, `ve`, and `length` metadata tags, expands multiple timestamps on one physical line, and isolates malformed lines when other usable lines remain. It does not perform Chinese-script conversion.
 
 LRC stores start times only. At runtime, each line ends at the next line's start. The final line ends at a reliable track duration when that duration is later than the final start; otherwise its end equals its start. Milestone 6 timeline selection uses these start timestamps as documented in [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), and Milestone 7 displays the resolved whole current/next lines as documented in [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md). Karaoke highlighting remains a later milestone.
+
+Available provider lyrics are also persisted when they contain ordered lyric text but no timestamps. The same `track.lrc`, `track.lyrics.json`, `LocalTrackId`, source association, and index workflow is used; the LRC contains the provider's ordinary UTF-8 text lines, with no generated timestamps. The file is authoritative immediately, so subsequent provider results never overwrite it. A clean untimed local LRC is valid and remains `Timed=false`; it has no timeline and the renderer continues to show the unsynchronised-lyrics status. It can still be opened externally and watched for edits. Once a saved document has valid timestamps, the normal reload path classifies it as timed and activates its timeline without a restart.
+
+Timing classification reuses the LRC parser: a document with no valid timestamped lyric entries is untimed, while a document with one or more valid timestamped entries is timed. In a mixed document, timestamped entries populate the timeline and ordinary untimed lines remain available in the parsed document/on-disk file but are not presented as synchronised lines. No missing timestamps are inferred. Malformed timestamp-like syntax is rejected as a whole during external reload and retains last-known-good runtime state; it is not treated as clean untimed text. A missing file is a separate unavailable state and is never recreated automatically.
 
 ## SQLite index
 
@@ -137,7 +141,7 @@ Deleting `library-index.db` is safe. The next startup creates schema version 1 a
 
 When the authoritative track changes, the App queries SQLite by source association and then reads the authoritative sidecar and LRC. A valid local result is displayed immediately. A later Firefox `lyricsSnapshot` may still arrive, but it cannot replace the local text, timing, metadata, provider, or attribution.
 
-If no association exists, the first remote result with `available=true`, `timed=true`, and at least one line is imported:
+If no association exists, the first usable remote result is imported: timed lyrics require at least one timestamped line; untimed lyrics require at least one non-blank lyric text line. Both use the same workflow:
 
 1. Generate a UUID `LocalTrackId`.
 2. Create a uniquely named temporary track directory.
@@ -146,7 +150,7 @@ If no association exists, the first remote result with `available=true`, `timed=
 5. Insert the track and associations into SQLite in one transaction.
 6. Reload and use the new local document.
 
-Files are committed before the index because they are the authority. If indexing fails afterward, the files survive and a later scan can recover them. Untimed or unavailable remote results create no directory, empty LRC, fake timestamps, or permanent negative-cache record.
+Files are committed before the index because they are the authority. If indexing fails afterward, the files survive and a later scan can recover them. Unavailable results, or untimed results with no usable text, create no directory, empty LRC, fake timestamps, or permanent negative-cache record.
 
 ## Conflicts and damaged records
 

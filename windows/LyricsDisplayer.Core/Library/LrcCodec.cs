@@ -13,6 +13,7 @@ public sealed record LrcParseResult(
 {
     public IReadOnlyList<LrcTimestampOccurrence> TimestampOccurrences { get; init; } = [];
     public IReadOnlyList<LrcParseDiagnostic> Diagnostics { get; init; } = [];
+    public IReadOnlyList<string> UntimedLines { get; init; } = [];
     public bool HasTimedLyrics => Lines.Count > 0;
 }
 
@@ -45,10 +46,19 @@ public static partial class LrcCodec
         return builder.ToString();
     }
 
+    public static string SerializeUntimed(IEnumerable<string> lines)
+    {
+        var builder = new StringBuilder();
+        foreach (var line in lines)
+            builder.Append(line).Append('\n');
+        return builder.ToString();
+    }
+
     public static LrcParseResult Parse(string text, long? durationMs = null)
     {
         var parsed = new List<(long StartMs, string Text, int Order, LrcTimestampOccurrence Occurrence)>();
         var diagnostics = new List<LrcParseDiagnostic>();
+        var untimedLines = new List<string>();
         var skipped = 0;
         var order = 0;
         var lineNumber = 1;
@@ -78,6 +88,7 @@ public static partial class LrcCodec
             if (matches.Count == 0)
             {
                 skipped++;
+                untimedLines.Add(physicalLine);
                 scannedThrough = physicalMatch.Index + physicalMatch.Length;
                 continue;
             }
@@ -121,7 +132,7 @@ public static partial class LrcCodec
         }
 
         if (parsed.Count == 0)
-            return new LrcParseResult(true, [], skipped);
+            return new LrcParseResult(true, [], skipped) { UntimedLines = untimedLines };
 
         var ordered = parsed.OrderBy(item => item.StartMs).ThenBy(item => item.Order).ToArray();
         var result = new List<LyricsLine>(ordered.Length);
@@ -135,7 +146,8 @@ public static partial class LrcCodec
         }
         return new LrcParseResult(true, result, skipped)
         {
-            TimestampOccurrences = ordered.Select(item => item.Occurrence).ToArray()
+            TimestampOccurrences = ordered.Select(item => item.Occurrence).ToArray(),
+            UntimedLines = untimedLines
         };
     }
 

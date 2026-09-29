@@ -172,8 +172,11 @@ public partial class BuiltInLyricsEditorWindow : Window
 
     private void SyncSelection()
     {
-        if (LyricsGrid.CurrentCell.Item is EditorRowViewModel row && LyricsGrid.CurrentCell.Column is { } column)
+        if (LyricsGrid.SelectedCells.Count == 1 && LyricsGrid.SelectedCells[0].Item is EditorRowViewModel row &&
+            LyricsGrid.SelectedCells[0].Column is { } column)
             UpdateSelection(row, column);
+        else if (_viewModel.Selection.SelectedRowId is not null)
+            _viewModel.SelectCell(null, EditorColumn.Lyrics);
     }
 
     private void UpdateSelection(EditorRowViewModel row, DataGridColumn column)

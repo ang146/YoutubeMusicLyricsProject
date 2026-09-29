@@ -112,8 +112,8 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             RefreshFromBuffer();
         }, _ => CanUndo || IsDirty);
         RedoCommand = new("editor.redo", _ => { _buffer.Redo(); RefreshFromBuffer(); }, _ => CanRedo);
-        InsertRowAboveCommand = new("editor.row.insert-above", _ => InsertRelative(true), _ => FindSelectedRow() is not null);
-        InsertRowBelowCommand = new("editor.row.insert-below", _ => InsertRelative(false), _ => FindSelectedRow() is not null);
+        InsertRowAboveCommand = new("editor.row.insert-above", _ => InsertRelative(true), _ => SelectedRowIdInDocument is not null);
+        InsertRowBelowCommand = new("editor.row.insert-below", _ => InsertRelative(false), _ => SelectedRowIdInDocument is not null);
         AppendRowCommand = new("editor.row.append", _ =>
         {
             CommitStagedEdits();
@@ -122,7 +122,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             RefreshFromBuffer(keepSelection: true);
             SelectRow(inserted);
         }, _ => true);
-        DeleteRowCommand = new("editor.row.delete", _ => DeleteSelected(), _ => FindSelectedRow() is not null);
+        DeleteRowCommand = new("editor.row.delete", _ => DeleteSelected(), _ => SelectedRowIdInDocument is not null);
         SetTimestampFromPlaybackCommand = new("editor.timestamp.from-playback", _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
         CommitMetadataCommand = new("editor.metadata.commit", _ => CommitMetadata());
         ClearTitleOverrideCommand = new("editor.metadata.clear-title", _ =>
@@ -144,7 +144,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     public void SelectCell(Guid? rowId, EditorColumn column, int? timestampIndex = null)
     {
-        _selection = new(rowId, column, timestampIndex);
+        _selection = new(rowId is { } id && FindDocumentRow(id) is not null ? id : null, column, timestampIndex);
         InvalidateCommands();
         OnPropertyChanged(nameof(Selection));
     }
@@ -270,9 +270,11 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     private void InsertRelative(bool above)
     {
+        if (SelectedRowIdInDocument is not { } rowId) return;
         CommitStagedEdits();
         CommitMetadata();
-        var rowId = FindSelectedRow()!.EditorLineId;
+        if (SelectedRowIdInDocument is not { } currentRowId) return;
+        rowId = currentRowId;
         var inserted = above ? _buffer.InsertAbove(rowId) : _buffer.InsertBelow(rowId);
         if (inserted is { } id)
         {
@@ -284,16 +286,13 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     private void DeleteSelected()
     {
+        if (SelectedRowIdInDocument is not { } rowId) return;
         CommitStagedEdits();
         CommitMetadata();
-        var row = FindSelectedRow();
-        if (row is null) return;
-        var index = Rows.IndexOf(row);
-        var target = index + 1 < Rows.Count ? Rows[index + 1].EditorLineId
-            : index > 0 ? Rows[index - 1].EditorLineId : (Guid?)null;
-        _buffer.Delete(row.EditorLineId);
+        if (SelectedRowIdInDocument is not { } currentRowId) return;
+        rowId = currentRowId;
+        if (!_buffer.Delete(rowId)) return;
         RefreshFromBuffer(keepSelection: false);
-        SelectCell(target, EditorColumn.Lyrics);
     }
 
     private void SetTimestampFromPlayback()
@@ -327,8 +326,10 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         RefreshFromBuffer(keepSelection: true);
     }
 
-    private EditorRowViewModel? FindSelectedRow() => _selection.SelectedRowId is { } id
-        ? Rows.FirstOrDefault(row => row.EditorLineId == id) : null;
+    private Guid? SelectedRowIdInDocument => _selection.SelectedRowId is { } id && FindDocumentRow(id) is not null
+        ? id : null;
+
+    private EditorLyricRow? FindDocumentRow(Guid rowId) => _buffer.Document.Rows.FirstOrDefault(row => row.Id == rowId);
 
     private void SelectRow(Guid id) => SelectCell(id, _selection.SelectedColumn, _selection.SelectedTimestampIndex);
 

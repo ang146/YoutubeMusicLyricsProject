@@ -7,10 +7,7 @@ namespace LyricsDisplayer.Core.Library;
 public enum EditorEntryKind
 {
     Lyric,
-    Metadata,
-    UnknownTag,
-    Blank,
-    Unsupported
+    Metadata
 }
 
 public enum EditorColumn
@@ -140,28 +137,11 @@ public static partial class EditorDocumentCodec
         var defaultEnding = split.Select(item => item.Ending).FirstOrDefault(item => item.Length > 0) ?? "\n";
         foreach (var (text, ending, lineNumber) in split)
         {
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                lines.Add(new(Guid.NewGuid(), EditorEntryKind.Blank, text, ending));
-                continue;
-            }
-
             var tag = TagPrefixRegex().Match(text);
             if (tag.Success && KnownMetadata.Contains(tag.Groups["name"].Value))
             {
                 lines.Add(new(Guid.NewGuid(), EditorEntryKind.Metadata, text, ending));
                 continue;
-            }
-
-            if (tag.Success && !KnownMetadata.Contains(tag.Groups["name"].Value) &&
-                !tag.Groups["name"].Value.All(char.IsDigit))
-            {
-                var firstBracket = BracketTokenRegex().Match(text);
-                if (firstBracket.Success && !TryParseTimestamp(firstBracket.Groups["value"].Value, out _))
-                {
-                    lines.Add(new(Guid.NewGuid(), EditorEntryKind.UnknownTag, text, ending));
-                    continue;
-                }
             }
 
             var prefix = TimestampPrefixRegex().Match(text);
@@ -184,20 +164,34 @@ public static partial class EditorDocumentCodec
                     continue;
                 }
 
-                lines.Add(new(Guid.NewGuid(), EditorEntryKind.Unsupported, text, ending,
-                    Diagnostic: $"Physical line {lineNumber} contains malformed timestamp syntax and was preserved unchanged."));
-                continue;
+                var firstToken = tokens.Count > 0 ? tokens[0].Groups["value"].Value : string.Empty;
+                if (firstToken.Length > 0 && char.IsDigit(firstToken[0]))
+                {
+                    var malformedRow = new EditorLyricRow(Guid.NewGuid(), text, []);
+                    lines.Add(new(Guid.NewGuid(), EditorEntryKind.Lyric, text, ending, malformedRow,
+                        Diagnostic: $"Physical line {lineNumber} contains malformed timestamp syntax and remains visible as untimed text."));
+                    continue;
+                }
             }
 
-            if (text.Contains('[') && text.Contains(':'))
+            var hasUnknownTag = tag.Success &&
+                !KnownMetadata.Contains(tag.Groups["name"].Value) &&
+                !tag.Groups["name"].Value.All(char.IsDigit);
+            var diagnostic = hasUnknownTag
+                ? $"Physical line {lineNumber} contains an unrecognised tag and remains visible as lyric text."
+                : text.Contains('[') && text.Contains(':')
+                    ? $"Physical line {lineNumber} contains unsupported bracketed content and remains visible as lyric text."
+                    : null;
+            if (diagnostic is not null)
             {
-                lines.Add(new(Guid.NewGuid(), EditorEntryKind.Unsupported, text, ending,
-                    Diagnostic: $"Physical line {lineNumber} contains unsupported bracketed content and was preserved unchanged."));
-                continue;
+                var rawRow = new EditorLyricRow(Guid.NewGuid(), text, []);
+                lines.Add(new(Guid.NewGuid(), EditorEntryKind.Lyric, text, ending, rawRow, Diagnostic: diagnostic));
             }
-
-            var untimedRow = new EditorLyricRow(Guid.NewGuid(), text, []);
-            lines.Add(new(Guid.NewGuid(), EditorEntryKind.Lyric, text, ending, untimedRow));
+            else
+            {
+                var untimedRow = new EditorLyricRow(Guid.NewGuid(), text, []);
+                lines.Add(new(Guid.NewGuid(), EditorEntryKind.Lyric, text, ending, untimedRow));
+            }
         }
         return new(lines, content, sourceHash, defaultEnding);
     }
@@ -489,7 +483,7 @@ public sealed class EditorDocumentBuffer
     private static int LeadingMetadataCount(IReadOnlyList<EditorPhysicalLine> lines)
     {
         var count = 0;
-        while (count < lines.Count && lines[count].Kind is EditorEntryKind.Metadata or EditorEntryKind.Blank) count++;
+        while (count < lines.Count && lines[count].Kind == EditorEntryKind.Metadata) count++;
         return count;
     }
 

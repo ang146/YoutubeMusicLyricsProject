@@ -173,6 +173,38 @@ public sealed class LyricsLibraryTests
     }
 
     [Test]
+    public void EditorInsertedEmptyRowSurvivesSafeSaveAndFreshEditorLoad()
+    {
+        using var library = new LyricsLibrary(_paths);
+        library.Initialise();
+        var imported = library.Import(Track(), Timed());
+        var record = imported.Document!.Record;
+        var original = library.LoadForEditing(record).Asset!;
+        const string initialContent = "A\r\nB";
+        File.WriteAllText(original.LyricsPath, initialContent, System.Text.Encoding.UTF8);
+        original = library.LoadForEditing(record).Asset!;
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(original.LrcContent, original.LrcHash),
+            original.Sidecar.UserMetadata);
+
+        Assert.That(buffer.IsDirty, Is.False);
+        var rowA = buffer.Document.Rows[0].Id;
+        buffer.InsertBelow(rowA);
+        Assert.That(buffer.Document.Rows.Select(row => row.LyricsText), Is.EqualTo(new[] { "A", "", "B" }));
+        var savedContent = EditorDocumentCodec.Serialize(buffer.Document);
+        var saved = library.SaveEditorAssets(original, savedContent, buffer.Metadata);
+        Assert.That(saved.Status, Is.EqualTo(EditorAssetStatus.Saved));
+
+        var reopenedAsset = library.LoadForEditing(record).Asset!;
+        var reopened = EditorDocumentCodec.Load(reopenedAsset.LrcContent, reopenedAsset.LrcHash);
+        Assert.Multiple(() =>
+        {
+            Assert.That(File.ReadAllText(original.LyricsPath), Is.EqualTo("A\r\n\r\nB"));
+            Assert.That(reopened.Rows.Select(row => row.LyricsText), Is.EqualTo(new[] { "A", "", "B" }));
+            Assert.That(reopened.Rows[1].Timestamps, Is.Empty);
+        });
+    }
+
+    [Test]
     public void EditorSaveDetectsExternalConflictAndRequiresExplicitOverwrite()
     {
         using var library = new LyricsLibrary(_paths);

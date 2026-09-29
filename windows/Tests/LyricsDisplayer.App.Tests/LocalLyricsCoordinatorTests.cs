@@ -288,6 +288,8 @@ public sealed class LocalLyricsCoordinatorTests
                 Assert.That(coordinator.Current.Payload.Playback.Playing, Is.False);
                 Assert.That(coordinator.AdjustTiming(100).Succeeded, Is.False);
                 Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.False);
+                Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.False,
+                    "An existing malformed file is not a missing-file state.");
             });
         }
 
@@ -316,9 +318,12 @@ public sealed class LocalLyricsCoordinatorTests
         var coordinator = Coordinator(library);
         coordinator.Apply(Playback("track-a", 1));
         coordinator.ApplyLyricsDetailed(Lyrics("track-a", 2));
+        Assert.That(coordinator.AdjustTiming(500).Succeeded, Is.True);
         File.Delete(lrc);
 
         Assert.That(coordinator.MarkExternalLocalLyricsMissing(imported.LocalTrackId!), Is.True);
+        Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.True);
+        Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
         Assert.That(coordinator.ApplyLyricsDetailed(Lyrics("track-a", 3, text: "Must not replace local")),
             Is.EqualTo(LyricsApplyDecision.IgnoredBecauseLocal));
         Assert.That(File.Exists(lrc), Is.False);
@@ -329,6 +334,38 @@ public sealed class LocalLyricsCoordinatorTests
         Assert.That(coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, fingerprint),
             Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
         Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Single().Text, Is.EqualTo("Recovered line"));
+        Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.False);
+        Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
+    }
+
+    [Test]
+    public void MalformedFileRestoredAfterMissingShowsLastKnownGoodInsteadOfMissingStatus()
+    {
+        using var library = InitialiseLibrary();
+        var imported = library.Import(TrackInfo("track-a"), Lyrics("track-a", 2).Payload);
+        var lrc = Path.Combine(_paths.LibraryPath, "tracks", imported.LocalTrackId!, "track.lrc");
+        var coordinator = Coordinator(library);
+        coordinator.Apply(Playback("track-a", 1));
+        var lastKnownGood = coordinator.CurrentLyrics!.Payload.Lines.Select(line => line.Text).ToArray();
+
+        File.Delete(lrc);
+        Assert.That(coordinator.MarkExternalLocalLyricsMissing(imported.LocalTrackId!), Is.True);
+        Assert.That(coordinator.CurrentLyrics, Is.Null);
+        Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.True);
+
+        const string malformed = "[00:00.100Recovered";
+        File.WriteAllText(lrc, malformed);
+        var fingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(lrc)));
+        Assert.That(coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, fingerprint),
+            Is.EqualTo(ExternalLocalLyricsUpdate.Invalid));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(File.ReadAllText(lrc), Is.EqualTo(malformed));
+            Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Select(line => line.Text), Is.EqualTo(lastKnownGood));
+            Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.False);
+            Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.False);
+        });
     }
 
     [Test]

@@ -226,7 +226,8 @@ public partial class MainWindow : Window
         UpdateOverlayTimingAvailability();
         if (!_playbackState.HasClockState)
         {
-            _overlay.Update(null, LyricsDisplayer.Core.Timeline.LyricsTimeline.Empty.Evaluate(0));
+            _overlay.Update(null, LyricsDisplayer.Core.Timeline.LyricsTimeline.Empty.Evaluate(0),
+                _playbackState.IsCurrentLocalLrcMissing);
             UpdateCurrentLineTimingControls();
             return;
         }
@@ -234,7 +235,8 @@ public partial class MainWindow : Window
         var positionMs = _playbackState.GetLocalPositionMs();
         LocalPositionText.Text = $"{positionMs} ms ({FormatMilliseconds(positionMs)})";
         var timeline = _playbackState.GetTimelinePosition();
-        _overlay.Update(_playbackState.CurrentLyrics?.Payload, timeline);
+        _overlay.Update(_playbackState.CurrentLyrics?.Payload, timeline,
+            _playbackState.IsCurrentLocalLrcMissing);
         CurrentLyricIndexText.Text = timeline.CurrentIndex?.ToString() ?? "None";
         CurrentLyricStartText.Text = timeline.CurrentLine is null ? "-" : $"{timeline.CurrentLine.StartMs} ms";
         CurrentLyricText.Text = timeline.CurrentLine?.Text ?? "-";

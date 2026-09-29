@@ -23,6 +23,7 @@ public sealed class PlaybackStateCoordinator
     public LocalLyricsDocument? CurrentLocalLyrics { get; private set; }
     public LocalTrackRecord? ActiveLocalLyricsRecord => _activeLocalLyricsRecord;
     public bool IsCurrentLocalLrcUsable => CurrentLocalLyrics is not null && _externalLrcUsable;
+    public bool IsCurrentLocalLrcMissing { get; private set; }
     public string LyricsLoadedFrom { get; private set; } = "Pending / unknown";
     public string LocalAssociationStatus { get; private set; } = "Not checked";
 
@@ -173,6 +174,7 @@ public sealed class PlaybackStateCoordinator
                 _activeLocalLyricsRecord = null;
                 _hasActiveLocalAssociation = false;
                 _externalLrcUsable = false;
+                IsCurrentLocalLrcMissing = false;
                 CurrentLocalLyrics = null;
                 _lyricsTimeline = LyricsTimeline.Empty;
                 LyricsLoadedFrom = "Pending / unknown";
@@ -263,6 +265,7 @@ public sealed class PlaybackStateCoordinator
         _activeLocalLyricsRecord = document.Record;
         _hasActiveLocalAssociation = true;
         _externalLrcUsable = true;
+        IsCurrentLocalLrcMissing = false;
         LyricsLoadedFrom = "Local Library";
         CurrentLyrics = new LyricsSnapshotMessage(
             envelope with { MessageType = ProtocolConstants.LyricsSnapshot },
@@ -325,7 +328,10 @@ public sealed class PlaybackStateCoordinator
     public bool MarkExternalLocalLyricsInvalid(string localTrackId, string? error = null)
     {
         if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId) return false;
+        if (IsCurrentLocalLrcMissing && CurrentLyrics is null && CurrentLocalLyrics is { } lastKnownGood && Current is { } current)
+            SetLocalLyrics(lastKnownGood, current.Envelope);
         _externalLrcUsable = false;
+        IsCurrentLocalLrcMissing = false;
         LocalAssociationStatus = "External LRC rejected";
         LyricsLoadedFrom = CurrentLocalLyrics is null
             ? "Local Library (external LRC rejected)"
@@ -339,6 +345,7 @@ public sealed class PlaybackStateCoordinator
     {
         if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId) return false;
         _externalLrcUsable = false;
+        IsCurrentLocalLrcMissing = true;
         CurrentLyrics = null;
         _lyricsTimeline = LyricsTimeline.Empty;
         LocalAssociationStatus = "Local LRC unavailable";
@@ -351,6 +358,7 @@ public sealed class PlaybackStateCoordinator
     {
         if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId) return false;
         _externalLrcUsable = false;
+        IsCurrentLocalLrcMissing = false;
         LocalAssociationStatus = "External LRC temporarily unavailable";
         LyricsLoadedFrom = CurrentLocalLyrics is null
             ? "Local Library (file temporarily unavailable)"

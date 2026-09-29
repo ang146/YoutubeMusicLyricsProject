@@ -47,6 +47,22 @@ public sealed class LyricsOverlayPresentationTests
         Assert.That(state, Is.EqualTo(LyricsOverlayPresentationState.Empty));
     }
 
+    [TestCase(LyricsContentMode.OneLine)]
+    [TestCase(LyricsContentMode.TwoLines)]
+    [TestCase(LyricsContentMode.AllLyrics)]
+    public void LocalFileMissingHasDistinctStatusInEveryContentMode(LyricsContentMode mode)
+    {
+        var state = LyricsOverlayPresentationState.FromLyrics(null, EmptyTimeline(), mode, localFileMissing: true);
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.PrimaryText, Is.EqualTo(LyricsOverlayPresentationState.LocalFileMissingText));
+            Assert.That(state.SecondaryText, Is.Empty);
+            Assert.That(state.ContentMode, Is.EqualTo(mode));
+            Assert.That(state.IsLocalFileMissing, Is.True);
+            Assert.That(state.AllLines, Is.Empty, "All Lyrics must not retain stale contextual rows.");
+        });
+    }
+
     [Test]
     public void ConfirmedUnavailableDisplaysRestrainedStatus()
     {

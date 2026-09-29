@@ -88,7 +88,7 @@ Editing the sidecar while the App is stopped takes effect during the next startu
 
 ## LRC format
 
-Timed lyrics are UTF-8 without a byte-order mark and use one standard millisecond timestamp per line:
+Timed lyrics are UTF-8 without a byte-order mark and may use one or more standard millisecond timestamps on a physical lyric line:
 
 ```text
 [00:12.340]A lyric line

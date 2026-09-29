@@ -4,6 +4,14 @@ Milestone 11 introduces a built-in, single-track lyrics editing workspace. The e
 
 The editor is not a playback surface and playback is not allowed to mutate editor state. It may read current playback position only when the user invokes an explicit editor command such as **Set Current Time as Timestamp**.
 
+## Current implementation notes (manual acceptance pending)
+
+The M11 implementation adds a WPF modal dialog, a shared application-scoped `EditorCommand` for Control Panel and overlay entry points, and a WPF-independent editor document/buffer in `LyricsDisplayer.Core`. The document stores ordered physical lines with their original line endings; unchanged entries serialize from their original text, while edited/new lyric rows serialize from structured text and timestamp occurrences. Malformed or unsupported physical lines remain opaque and diagnostic rather than being dropped.
+
+The editor loads the current authoritative disk LRC (not the runtime last-known-good snapshot), and uses `LyricsLibrary` content hashes plus guarded atomic replacement for saves. A clean editor reloads external changes; dirty conflicts retain the buffer and offer reload, overwrite, or cancel. LRC and portable sidecar files are watched while the dialog is open, and save still performs a content-identity check if notifications are missed. The application close path asks the dialog to resolve its dirty state before shutdown. The dialog is owned by the Control Panel even when that window is hidden, so opening from the overlay does not show the Control Panel.
+
+Validation is advisory: malformed timestamp text remains editable, is marked on its grid cell and listed in diagnostics, and does not disable Save. The initial grid exposes every existing timestamp occurrence plus one empty occurrence column; it does not yet provide dedicated add/remove/reorder occurrence commands. Unsupported physical lines are preserved but not directly editable. Runtime reload remains the existing M10 watcher’s responsibility. Automated tests and builds are not a substitute for the manual acceptance checklist below; this milestone is ready for manual review, not marked fully accepted.
+
 ## Entry points and shared command
 
 Opening the editor is an application command, not Control Panel-specific UI logic. Any user surface may invoke the same command when the current local track is editable.

@@ -24,6 +24,7 @@ public interface ILyricsOverlayView
     void SetLyrics(LyricsOverlayPresentationState state);
     void ApplyInteractionState(OverlayInteractionState state);
     void ApplyExternalLyricsAvailability(bool canOpen);
+    void ApplyBuiltInEditorAvailability(bool canOpen) { }
     void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs);
     void NormalizeWindowState();
     void CompleteGeometryRecovery();
@@ -51,6 +52,7 @@ public sealed class LyricsOverlayController
     private bool _reportedVisible;
     private bool _shuttingDown;
     private bool _canOpenExternalLyrics;
+    private bool _canOpenBuiltInEditor;
     private bool _localFileMissing;
 
     public LyricsOverlayController(
@@ -71,6 +73,7 @@ public sealed class LyricsOverlayController
     public event Action? OpenControlPanelRequested;
     public event Action<OverlayCommand>? TimingCommandRequested;
     public event Action? OpenExternalLyricsRequested;
+    public event Action? OpenBuiltInEditorRequested;
 
     public bool IsVisible => _reportedVisible;
     public bool HasCreatedWindow => _view is not null;
@@ -127,6 +130,12 @@ public sealed class LyricsOverlayController
     {
         _canOpenExternalLyrics = canOpen;
         _view?.ApplyExternalLyricsAvailability(canOpen);
+    }
+
+    public void SetBuiltInEditorAvailability(bool canOpen)
+    {
+        _canOpenBuiltInEditor = canOpen;
+        _view?.ApplyBuiltInEditorAvailability(canOpen);
     }
 
     public void SetWidth(double value)
@@ -189,6 +198,7 @@ public sealed class LyricsOverlayController
         _view.GeometryChangeCompleted += OnGeometryChangeCompleted;
         _view.ApplyInteractionState(_interaction);
         _view.ApplyExternalLyricsAvailability(_canOpenExternalLyrics);
+        _view.ApplyBuiltInEditorAvailability(_canOpenBuiltInEditor);
         _view.ApplyTimingState(_currentLineTimingEnabled, _globalTimingEnabled, _globalOffsetMs);
         _presentation = CreatePresentation(_lyrics, _timeline);
         _view.SetLyrics(_presentation);
@@ -346,6 +356,9 @@ public sealed class LyricsOverlayController
                 break;
             case OverlayCommand.OpenLrcExternally:
                 if (_canOpenExternalLyrics) OpenExternalLyricsRequested?.Invoke();
+                break;
+            case OverlayCommand.OpenBuiltInEditor:
+                if (_canOpenBuiltInEditor) OpenBuiltInEditorRequested?.Invoke();
                 break;
             case OverlayCommand.ToggleLocked:
                 SetLocked(!_interaction.Locked);

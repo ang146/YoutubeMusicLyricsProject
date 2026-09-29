@@ -5,6 +5,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
@@ -26,6 +27,8 @@ public partial class MainWindow : Window
     private GlobalHotkeyService? _globalHotkeys;
     private TrayLifecycleService? _tray;
     private ActiveLrcFileWatcher? _activeLrcWatcher;
+    private BuiltInLyricsEditorWindow? _editorWindow;
+    private EditorCommand _openBuiltInEditorCommand = null!;
     private readonly ExternalLrcOpener _externalLrcOpener;
     private string? _watchedLocalTrackId;
     private string? _watchedLrcPath;
@@ -52,6 +55,7 @@ public partial class MainWindow : Window
         _overlay.InteractionStateChanged += OnOverlayInteractionStateChanged;
         _overlay.OpenControlPanelRequested += OpenControlPanel;
         _overlay.OpenExternalLyricsRequested += OpenCurrentLrcExternally;
+        _overlay.OpenBuiltInEditorRequested += ExecuteOpenBuiltInEditor;
         _overlay.TimingCommandRequested += OnOverlayTimingCommand;
         ShowOverlayCheckBox.Checked += OnShowOverlayChecked;
         ShowOverlayCheckBox.Unchecked += OnShowOverlayUnchecked;
@@ -72,6 +76,14 @@ public partial class MainWindow : Window
         TimingPlus500Button.Click += (_, _) => AdjustTiming(500);
         TimingBakeButton.Click += (_, _) => BakeTiming();
         OpenLrcExternallyButton.Click += (_, _) => OpenCurrentLrcExternally();
+        _openBuiltInEditorCommand = new("application.open-built-in-editor", _ => OpenBuiltInEditor(),
+            _ => CanOpenBuiltInEditor(), EditorHotkeyScope.Application);
+        _openBuiltInEditorCommand.CanExecuteChanged += (_, _) =>
+        {
+            OpenBuiltInEditorButton.IsEnabled = _openBuiltInEditorCommand.CanExecute(null);
+            _overlay.SetBuiltInEditorAvailability(OpenBuiltInEditorButton.IsEnabled);
+        };
+        OpenBuiltInEditorButton.Command = _openBuiltInEditorCommand;
         CurrentLineMinus500Button.Click += (_, _) => AdjustCurrentLineTiming(-500);
         CurrentLineMinus100Button.Click += (_, _) => AdjustCurrentLineTiming(-100);
         CurrentLinePlus100Button.Click += (_, _) => AdjustCurrentLineTiming(100);
@@ -116,6 +128,12 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        if (_editorWindow is { } editor && !editor.RequestCloseFromApplication())
+        {
+            e.Cancel = true;
+            _allowApplicationExit = false;
+            return;
+        }
         if (ControlPanelClosePolicy.ShouldHideToTray(
                 CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit))
         {
@@ -172,6 +190,7 @@ public partial class MainWindow : Window
     {
         SynchronizeActiveLrcWatcher();
         UpdateExternalLrcAvailability();
+        _openBuiltInEditorCommand.Invalidate();
         var lyrics = _playbackState.CurrentLyrics?.Payload;
         LyricsAvailableText.Text = lyrics?.Available.ToString() ?? "Pending / unknown";
         LyricsTimedText.Text = lyrics?.Timed.ToString() ?? "Pending / unknown";
@@ -624,6 +643,52 @@ public partial class MainWindow : Window
 
         _externalLrcStatus = "Opened the current LRC externally";
         UpdateExternalLrcAvailability();
+    }
+
+    private bool CanOpenBuiltInEditor()
+    {
+        if (_editorWindow is not null || _playbackState.ActiveLocalLyricsRecord is not { } record) return false;
+        return ((App)Application.Current).LyricsLibrary.LoadForEditing(record).Status ==
+               LyricsDisplayer.Core.Library.EditorAssetStatus.Ready;
+    }
+
+    private void ExecuteOpenBuiltInEditor()
+    {
+        if (_openBuiltInEditorCommand.CanExecute(null)) _openBuiltInEditorCommand.Execute(null);
+    }
+
+    private void OpenBuiltInEditor()
+    {
+        if (_editorWindow is { IsVisible: true } existing)
+        {
+            existing.Activate();
+            return;
+        }
+        if (_playbackState.ActiveLocalLyricsRecord is not { } record) return;
+        var app = (App)Application.Current;
+        var loaded = app.LyricsLibrary.LoadForEditing(record);
+        if (loaded.Status != LyricsDisplayer.Core.Library.EditorAssetStatus.Ready || loaded.Asset is null)
+        {
+            MessageBox.Show(this, loaded.Error ?? "The current local LRC is not available for editing.",
+                "Built-in Lyrics Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _openBuiltInEditorCommand.Invalidate();
+            return;
+        }
+
+        var viewModel = new BuiltInLyricsEditorViewModel(loaded.Asset, app.LyricsLibrary, _playbackState);
+        var window = new BuiltInLyricsEditorWindow(viewModel);
+        // Keep the main window hidden when opened from the overlay, but retain a stable owner
+        // relationship so ShowDialog does not disable the independent desktop overlay window.
+        window.Owner = this;
+        _editorWindow = window;
+        _openBuiltInEditorCommand.Invalidate();
+        try { window.ShowDialog(); }
+        finally
+        {
+            _editorWindow = null;
+            _openBuiltInEditorCommand.Invalidate();
+            UpdateExternalLrcAvailability();
+        }
     }
 
     private void UpdateOverlayTimingAvailability() => _overlay.SetTimingAvailability(

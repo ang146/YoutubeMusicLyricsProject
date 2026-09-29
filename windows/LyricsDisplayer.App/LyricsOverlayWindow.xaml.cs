@@ -101,6 +101,9 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
     public void ApplyExternalLyricsAvailability(bool canOpen) =>
         OpenLrcExternallyMenuItem.IsEnabled = canOpen;
 
+    public void ApplyBuiltInEditorAvailability(bool canOpen) =>
+        OpenBuiltInEditorMenuItem.IsEnabled = canOpen;
+
     public void SetPosition(OverlayPosition position)
     {
         Left = position.Left;

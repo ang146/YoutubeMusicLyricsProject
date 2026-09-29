@@ -25,6 +25,7 @@ public enum OverlayCommand
 {
     OpenControlPanel,
     OpenLrcExternally,
+    OpenBuiltInEditor,
     ToggleLocked,
     ToggleClickThrough,
     ToggleTopmost,

@@ -1480,6 +1480,8 @@ Required foundation:
 
 Playback may change tracks while the editor remains open; it must not close, switch, prompt, or mutate the editor session. The modal dialog blocks duplicate Control Panel editing sessions while playback, NativeHost communication, and the desktop overlay continue normally.
 
+The current implementation lives in `BuiltInLyricsEditorWindow`/`BuiltInLyricsEditorViewModel` and the WPF-independent `EditorDocument`/`EditorDocumentBuffer`. The Control Panel and overlay route through the same application-scoped open command. Safe editor saves use `LyricsLibrary` and content-hash guarded writes; they update editor baselines and leave runtime reload to the existing M10 watcher. Opaque unsupported physical lines are preserved with diagnostics. Manual acceptance remains pending; automated build/test success alone does not mark this milestone accepted. See [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md) for current implementation notes and known initial-UI limits.
+
 The primary end-to-end acceptance workflow is an untimed local LRC: open it in the built-in editor, select rows, assign timestamps from the current playback position, save, and allow the existing M10 reload path to transition the same local record into timed overlay presentation without restart.
 
 Advanced editor commands are deliberately deferred so they can be added on top of the command/document foundation.

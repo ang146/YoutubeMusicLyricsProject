@@ -1,0 +1,110 @@
+<Window x:Class="LyricsDisplayer.BuiltInLyricsEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Built-in Lyrics Editor" Width="1080" Height="720" MinWidth="760" MinHeight="480"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="True">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="130" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="130" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="Source title" VerticalAlignment="Center" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SourceTitle}" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" Margin="0,0,12,0" />
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="Source artist" VerticalAlignment="Center" />
+            <TextBlock Grid.Row="0" Grid.Column="3" Text="{Binding SourceArtist}" TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center" />
+            <TextBlock Grid.Row="1" Text="Title override" VerticalAlignment="Center" Margin="0,6,0,0" />
+            <DockPanel Grid.Row="1" Grid.Column="1" Margin="0,6,12,0">
+                <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearTitleOverrideCommand}" Margin="6,0,0,0" />
+                <TextBox Text="{Binding TitleOverride, UpdateSourceTrigger=PropertyChanged}" />
+            </DockPanel>
+            <TextBlock Grid.Row="1" Grid.Column="2" Text="Artist override" VerticalAlignment="Center" Margin="0,6,0,0" />
+            <DockPanel Grid.Row="1" Grid.Column="3" Margin="0,6,0,0">
+                <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearArtistOverrideCommand}" Margin="6,0,0,0" />
+                <TextBox Text="{Binding ArtistOverride, UpdateSourceTrigger=PropertyChanged}" />
+            </DockPanel>
+        </Grid>
+
+        <DockPanel Grid.Row="1" Margin="0,0,0,8">
+            <Button DockPanel.Dock="Right" Content="Set Current Time as Timestamp"
+                    Command="{Binding SetTimestampFromPlaybackCommand}" Padding="10,5" />
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding PlaybackPositionText}" FontFamily="Consolas" FontSize="15" />
+                <TextBlock Text="{Binding PlaybackIdentityMessage}" Margin="18,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+        </DockPanel>
+
+        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
+            <Button Content="Undo" Command="{Binding UndoCommand}" Padding="9,4" Margin="0,0,6,0" />
+            <Button Content="Redo" Command="{Binding RedoCommand}" Padding="9,4" Margin="0,0,14,0" />
+            <Button Content="Insert Above" Command="{Binding InsertRowAboveCommand}" Padding="9,4" Margin="0,0,6,0" />
+            <Button Content="Insert Below" Command="{Binding InsertRowBelowCommand}" Padding="9,4" Margin="0,0,6,0" />
+            <Button Content="Append Row" Command="{Binding AppendRowCommand}" Padding="9,4" Margin="0,0,6,0" />
+            <Button Content="Delete Row" Command="{Binding DeleteRowCommand}" Padding="9,4" />
+        </WrapPanel>
+
+        <TextBlock Grid.Row="3" Text="{Binding ExternalConflict}" Foreground="#FF9C1C1C"
+                   TextWrapping="Wrap" Margin="0,0,0,6" />
+
+        <DataGrid x:Name="LyricsGrid" Grid.Row="4" ItemsSource="{Binding Rows}"
+                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                  CanUserSortColumns="False" SelectionMode="Single" SelectionUnit="Cell"
+                  HeadersVisibility="Column" GridLinesVisibility="All"
+                  CellEditEnding="OnCellEditEnding" SelectedCellsChanged="OnSelectedCellsChanged"
+                  CurrentCellChanged="OnCurrentCellChanged" PreviewKeyDown="OnGridPreviewKeyDown"
+                  BeginningEdit="OnBeginningEdit">
+            <DataGrid.ContextMenu>
+                <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                    <MenuItem Header="Set Current Time as Timestamp" Command="{Binding SetTimestampFromPlaybackCommand}" />
+                    <Separator />
+                    <MenuItem Header="Insert Row Above" Command="{Binding InsertRowAboveCommand}" />
+                    <MenuItem Header="Insert Row Below" Command="{Binding InsertRowBelowCommand}" />
+                    <MenuItem Header="Append Row" Command="{Binding AppendRowCommand}" />
+                    <MenuItem Header="Delete Row" Command="{Binding DeleteRowCommand}" />
+                    <Separator />
+                    <MenuItem Header="Undo" Command="{Binding UndoCommand}" />
+                    <MenuItem Header="Redo" Command="{Binding RedoCommand}" />
+                </ContextMenu>
+            </DataGrid.ContextMenu>
+        </DataGrid>
+
+        <DockPanel Grid.Row="5" Margin="0,8,0,6">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <TextBlock Text="Preserved entries: " VerticalAlignment="Center" />
+                <TextBlock Text="{Binding PreservedEntries.Count}" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Text="{Binding Status}" Foreground="#FF9C1C1C" TextWrapping="Wrap" />
+        </DockPanel>
+        <DockPanel Grid.Row="6">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
+                <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}" Padding="18,6" Margin="0,0,8,0" />
+                <Button Content="Close" Click="OnCloseClick" Padding="18,6" IsCancel="True" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Diagnostics}" MaxHeight="64" Margin="0,0,10,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Message}" Foreground="#FF9C1C1C" TextWrapping="Wrap" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DockPanel>
+    </Grid>
+</Window>

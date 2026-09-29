@@ -120,6 +120,8 @@
                     <WrapPanel Margin="0,0,0,8">
                         <Button x:Name="OpenLrcExternallyButton" Content="Open LRC Externally"
                                 Padding="10,4" Margin="0,0,10,0" IsEnabled="False" />
+                        <Button x:Name="OpenBuiltInEditorButton" Content="Open Built-in Editor"
+                                Padding="10,4" Margin="0,0,10,0" IsEnabled="False" />
                         <TextBlock x:Name="ExternalLrcStatusText" VerticalAlignment="Center"
                                    Text="No current local timed LRC" TextWrapping="Wrap" />
                     </WrapPanel>

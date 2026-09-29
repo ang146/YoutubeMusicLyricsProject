@@ -17,6 +17,8 @@
                 <MenuItem Header="Open Control Panel" Tag="OpenControlPanel" Click="OnMenuItemClick" />
                 <MenuItem x:Name="OpenLrcExternallyMenuItem" Header="Open LRC Externally"
                           Tag="OpenLrcExternally" Click="OnMenuItemClick" IsEnabled="False" />
+                <MenuItem x:Name="OpenBuiltInEditorMenuItem" Header="Open Built-in Editor"
+                          Tag="OpenBuiltInEditor" Click="OnMenuItemClick" IsEnabled="False" />
                 <Separator />
                 <MenuItem x:Name="LyricsDisplayMenuItem" Header="Lyrics Display">
                     <MenuItem x:Name="OneLineMenuItem" Header="One Line" IsCheckable="True"

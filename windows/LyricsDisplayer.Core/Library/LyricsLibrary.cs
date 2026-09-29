@@ -200,6 +200,140 @@ public sealed class LyricsLibrary : IDisposable
         return ResolveRelative(record.LyricsRelativePath);
     }
 
+    /// <summary>Loads the authoritative disk assets for editing, without requiring the LRC to parse as playable.</summary>
+    public EditorAssetResult LoadForEditing(LocalTrackRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (!LibraryAvailable) return new(EditorAssetStatus.Failed, Error: "The local lyrics library is unavailable.");
+        try
+        {
+            var sidecarPath = ResolveRelative(record.SidecarRelativePath);
+            if (!SidecarSerializer.TryRead(sidecarPath, out var sidecar, out var error))
+                return new(EditorAssetStatus.Failed, Error: error);
+            if (!string.Equals(sidecar!.LocalTrackId, record.LocalTrackId, StringComparison.OrdinalIgnoreCase))
+                return new(EditorAssetStatus.Failed, Error: "The portable sidecar belongs to a different local track.");
+
+            var directoryName = Path.GetFileName(Path.GetDirectoryName(sidecarPath));
+            if (!string.Equals(directoryName, sidecar.LocalTrackId, StringComparison.OrdinalIgnoreCase))
+                return new(EditorAssetStatus.Failed, Error: "The portable sidecar identity does not match its directory.");
+
+            var authoritativeRecord = ToRecord(sidecar, directoryName!);
+            var lyricsPath = ResolveRelative(authoritativeRecord.LyricsRelativePath);
+            if (!File.Exists(lyricsPath)) return new(EditorAssetStatus.Missing, Error: "The authoritative local LRC is missing.");
+            var snapshot = LrcFileSnapshot.Read(lyricsPath);
+            var sidecarBytes = File.ReadAllBytes(sidecarPath);
+            return new(EditorAssetStatus.Ready,
+                new(authoritativeRecord, sidecar, lyricsPath, sidecarPath, snapshot.Content, snapshot.Hash,
+                    LrcFileSnapshot.HashBytes(sidecarBytes), snapshot.Bytes.AsSpan().StartsWith(System.Text.Encoding.UTF8.Preamble)));
+        }
+        catch (Exception exception) when (IsStorageException(exception))
+        {
+            return new(EditorAssetStatus.Failed, Error: exception.Message);
+        }
+    }
+
+    /// <summary>Conditionally writes editor-owned LRC and/or portable user metadata without validating away user text.</summary>
+    public EditorAssetResult SaveEditorAssets(EditorAssetSnapshot expected, string lrcContent,
+        UserTrackMetadata userMetadata, bool overwriteExternalChanges = false)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(lrcContent);
+        ArgumentNullException.ThrowIfNull(userMetadata);
+        var normalisedMetadata = UserTrackMetadata.Normalise(userMetadata.Title, userMetadata.Artist);
+        var writesLrc = !string.Equals(lrcContent, expected.LrcContent, StringComparison.Ordinal);
+        var writesMetadata = normalisedMetadata != expected.Sidecar.UserMetadata;
+        var currentResult = LoadForEditing(expected.Record);
+        if (currentResult.Status == EditorAssetStatus.Missing && overwriteExternalChanges)
+        {
+            // Explicit overwrite means restore the editor's complete buffered document, even when only
+            // sidecar metadata was dirty at the moment the external file disappeared.
+            var sidecarRead = TryReadEditorSidecar(expected.Record);
+            if (sidecarRead.Asset is null) return sidecarRead;
+            currentResult = sidecarRead;
+            writesLrc = true;
+        }
+        if (currentResult.Status != EditorAssetStatus.Ready || currentResult.Asset is null)
+            return currentResult.Status == EditorAssetStatus.Missing
+                ? new(EditorAssetStatus.Conflict, Error: "The authoritative LRC was deleted externally.")
+                : currentResult;
+
+        var current = currentResult.Asset;
+        if (!overwriteExternalChanges &&
+            (!string.Equals(current.LrcHash, expected.LrcHash, StringComparison.Ordinal) ||
+             !string.Equals(current.SidecarHash, expected.SidecarHash, StringComparison.Ordinal)))
+            return new(EditorAssetStatus.Conflict, current, "The LRC or portable sidecar changed externally.");
+
+        var lrcWritten = false;
+        try
+        {
+            if (writesLrc)
+            {
+                if (!File.Exists(current.LyricsPath))
+                {
+                    if (!overwriteExternalChanges)
+                        return new(EditorAssetStatus.Conflict, current, "The authoritative LRC was deleted externally.");
+                    AtomicFile.WriteNew(current.LyricsPath,
+                        expected.HasUtf8Bom ? "\uFEFF" + lrcContent : lrcContent);
+                }
+                else
+                {
+                    var diskSnapshot = LrcFileSnapshot.Read(current.LyricsPath);
+                    var encoded = diskSnapshot.Encode(lrcContent);
+                    if (!AtomicFile.TryReplaceUnchanged(current.LyricsPath, encoded, current.LrcHash))
+                        return new(EditorAssetStatus.Conflict,
+                            LoadForEditing(current.Record).Asset, "The LRC changed while the editor was saving.");
+                }
+                lrcWritten = true;
+            }
+
+            if (writesMetadata)
+            {
+                var sidecarBytes = System.Text.Encoding.UTF8.GetBytes(
+                    SidecarSerializer.Serialize(current.Sidecar with { UserMetadata = normalisedMetadata }));
+                if (!AtomicFile.TryReplaceUnchanged(current.SidecarPath, sidecarBytes, current.SidecarHash))
+                {
+                    var refreshed = LoadForEditing(current.Record).Asset;
+                    return new(lrcWritten ? EditorAssetStatus.PartialFailure : EditorAssetStatus.Conflict,
+                        refreshed, "Portable metadata changed during save; any completed LRC write was preserved.");
+                }
+            }
+
+            if (writesMetadata) ScanAndSynchronise();
+            return LoadForEditing(current.Record) is { Status: EditorAssetStatus.Ready, Asset: { } saved }
+                ? new(EditorAssetStatus.Saved, saved)
+                : new(EditorAssetStatus.PartialFailure, LoadForEditing(current.Record).Asset,
+                    "The assets were written, but could not be reloaded for confirmation.");
+        }
+        catch (Exception exception) when (IsStorageException(exception))
+        {
+            var refreshed = LoadForEditing(current.Record).Asset;
+            return new(lrcWritten ? EditorAssetStatus.PartialFailure : EditorAssetStatus.Failed,
+                refreshed, exception.Message);
+        }
+    }
+
+    private EditorAssetResult TryReadEditorSidecar(LocalTrackRecord record)
+    {
+        try
+        {
+            var sidecarPath = ResolveRelative(record.SidecarRelativePath);
+            if (!SidecarSerializer.TryRead(sidecarPath, out var sidecar, out var error))
+                return new(EditorAssetStatus.Failed, Error: error);
+            if (!string.Equals(sidecar!.LocalTrackId, record.LocalTrackId, StringComparison.OrdinalIgnoreCase))
+                return new(EditorAssetStatus.Failed, Error: "The portable sidecar belongs to a different local track.");
+            var directoryName = Path.GetFileName(Path.GetDirectoryName(sidecarPath));
+            var authoritativeRecord = ToRecord(sidecar, directoryName!);
+            var sidecarBytes = File.ReadAllBytes(sidecarPath);
+            return new(EditorAssetStatus.Ready,
+                new(authoritativeRecord, sidecar, ResolveRelative(authoritativeRecord.LyricsRelativePath), sidecarPath,
+                    string.Empty, string.Empty, LrcFileSnapshot.HashBytes(sidecarBytes), false));
+        }
+        catch (Exception exception) when (IsStorageException(exception))
+        {
+            return new(EditorAssetStatus.Failed, Error: exception.Message);
+        }
+    }
+
     public LocalLyricsLookupResult ReloadLocalLyrics(
         LocalTrackRecord record,
         string source,

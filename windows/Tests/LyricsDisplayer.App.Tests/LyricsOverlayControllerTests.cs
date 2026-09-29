@@ -43,6 +43,50 @@ public sealed class LyricsOverlayControllerTests
     }
 
     [Test]
+    public void MissingFilePresentationPersistsWhileHiddenAndClearsOnRestoredLyrics()
+    {
+        var harness = new Harness();
+        harness.Controller.SetContentMode(LyricsContentMode.AllLyrics);
+        harness.Controller.Update(null, EmptyTimeline(), localFileMissing: true);
+        harness.Controller.Show();
+        harness.Controller.Hide();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Controller.Presentation.PrimaryText,
+                Is.EqualTo(LyricsOverlayPresentationState.LocalFileMissingText));
+            Assert.That(harness.Controller.Presentation.AllLines, Is.Empty);
+            Assert.That(harness.Controller.Presentation.IsLocalFileMissing, Is.True);
+        });
+
+        harness.Controller.Update(TimedLyrics() with { Lines = [Line("A"), Line("B")] }, Timeline("A", "B"));
+        harness.Controller.Show();
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Controller.Presentation.IsLocalFileMissing, Is.False);
+            Assert.That(harness.Controller.Presentation.AllLines.Select(line => line.Text), Is.EqualTo(new[] { "A", "B" }));
+        });
+    }
+
+    [Test]
+    public void ExternalLrcMenuCommandUsesAvailabilityAndRoutesToSharedAction()
+    {
+        var harness = new Harness();
+        var opens = 0;
+        harness.Controller.OpenExternalLyricsRequested += () => opens++;
+        harness.Controller.SetExternalLyricsAvailability(false);
+        harness.Controller.Show();
+        Assert.That(harness.View.CanOpenExternalLyrics, Is.False);
+        harness.View.RequestCommand(OverlayCommand.OpenLrcExternally);
+        Assert.That(opens, Is.Zero);
+
+        harness.Controller.SetExternalLyricsAvailability(true);
+        Assert.That(harness.View.CanOpenExternalLyrics, Is.True);
+        harness.View.RequestCommand(OverlayCommand.OpenLrcExternally);
+        Assert.That(opens, Is.EqualTo(1));
+    }
+
+    [Test]
     public void ShowRecoversOverlayWhenItsMonitorWasRemovedWhileHidden()
     {
         var harness = new Harness(new OverlayPosition(500, 260));
@@ -560,11 +604,13 @@ public sealed class LyricsOverlayControllerTests
         public LyricsOverlayPresentationState? LastState { get; private set; }
         public OverlayInteractionState? Interaction { get; private set; }
         public List<LyricsOverlayPresentationState> RenderedStates { get; } = [];
+        public bool CanOpenExternalLyrics { get; private set; }
 
         public void SetPosition(OverlayPosition position) => Position = position;
         public void NormalizeWindowState() => WindowState = WindowState.Normal;
         public void CompleteGeometryRecovery() => GeometryRecoveryRequired = false;
         public void ApplyInteractionState(OverlayInteractionState state) => Interaction = state;
+        public void ApplyExternalLyricsAvailability(bool canOpen) => CanOpenExternalLyrics = canOpen;
         public void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs) { }
         public void SetLyrics(LyricsOverlayPresentationState state)
         {

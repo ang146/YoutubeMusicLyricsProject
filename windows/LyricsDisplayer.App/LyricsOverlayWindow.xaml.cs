@@ -98,6 +98,9 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
     public event Action<double, double>? OverlaySizeChanged;
     public event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
 
+    public void ApplyExternalLyricsAvailability(bool canOpen) =>
+        OpenLrcExternallyMenuItem.IsEnabled = canOpen;
+
     public void SetPosition(OverlayPosition position)
     {
         Left = position.Left;

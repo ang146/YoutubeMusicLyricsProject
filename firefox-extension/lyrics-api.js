@@ -68,6 +68,7 @@ const YtmLyrics = (() => {
           : null;
 
       const lines = [];
+      const untimedTextLines = [];
       let skippedLines = 0;
       let untimedLines = 0;
 
@@ -82,6 +83,7 @@ const YtmLyrics = (() => {
         // means untimed; a present but unusable cueRange is malformed timing.
         if (!Object.hasOwn(raw, "cueRange")) {
           untimedLines++;
+          untimedTextLines.push(raw.lyricLine);
           continue;
         }
 
@@ -129,6 +131,7 @@ const YtmLyrics = (() => {
             timed: false,
             source: "youtubeMusic",
             lines: [],
+            untimedLines: untimedTextLines,
             attribution
           },
           skippedLines
@@ -169,6 +172,8 @@ const YtmLyrics = (() => {
     const hasText = runs.some(
       run => run.text.trim().length > 0
     );
+    const untimedTextLines = runs.map(run => run.text).join("").split(/\r\n|\r|\n/);
+    while (untimedTextLines.length > 0 && untimedTextLines.at(-1) === "") untimedTextLines.pop();
 
     const attribution = Array.isArray(shelf.footer?.runs)
       ? shelf.footer.runs
@@ -187,6 +192,7 @@ const YtmLyrics = (() => {
             timed: false,
             source: "youtubeMusic",
             lines: [],
+            untimedLines: untimedTextLines,
             attribution
           }
         : unavailable(),

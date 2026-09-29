@@ -11,7 +11,7 @@ public sealed class LyricsSnapshotTests
         DateTimeOffset.Parse("2026-09-09T15:30:00Z"),
         new LyricsSnapshotPayload("abcdefghijk", available, timed, available ? "youtubeMusic" : null,
             timed ? [new LyricsLine(9200, 10630, "測試 \"text\"\n第二行"), new LyricsLine(10680, 12540, "")] : [],
-            "Test attribution"));
+            "Test attribution", available && !timed ? ["Untimed line A", "第二行"] : null));
 
     [TestCase(true, true)]
     [TestCase(true, false)]
@@ -29,6 +29,7 @@ public sealed class LyricsSnapshotTests
             Assert.That(message.Payload.Lines, Is.EqualTo(original.Payload.Lines));
             Assert.That(message.Payload.SourceTrackId, Is.EqualTo("abcdefghijk"));
             Assert.That(message.Payload.Attribution, Is.EqualTo("Test attribution"));
+            Assert.That(message.Payload.UntimedLines, Is.EqualTo(original.Payload.UntimedLines));
             Assert.That(ProtocolSerializer.Serialize(message), Does.Not.Contain("\n"));
         });
     }
@@ -60,5 +61,13 @@ public sealed class LyricsSnapshotTests
     public void InconsistentTimedStateRejected()
     {
         Assert.That(ProtocolSerializer.TryParse(ProtocolSerializer.Serialize(Envelope(false, true)), out _, out _), Is.False);
+    }
+
+    [Test]
+    public void MalformedUntimedLineRejected()
+    {
+        var json = JsonNode.Parse(ProtocolSerializer.Serialize(Envelope(true, false)))!;
+        json["payload"]!["untimedLines"]![0] = JsonNode.Parse("42");
+        Assert.That(ProtocolSerializer.TryParse(json.ToJsonString(), out _, out _), Is.False);
     }
 }

@@ -68,7 +68,9 @@ public sealed record LyricsSnapshotPayload(
     [property: JsonPropertyName("timed")] bool Timed,
     [property: JsonPropertyName("source")] string? Source,
     [property: JsonPropertyName("lines")] IReadOnlyList<LyricsLine> Lines,
-    [property: JsonPropertyName("attribution")] string? Attribution = null);
+    [property: JsonPropertyName("attribution")] string? Attribution = null,
+    [property: JsonPropertyName("untimedLines"),
+     JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<string>? UntimedLines = null);
 
 public abstract record ProtocolMessage(EnvelopeMetadata Envelope, string RawJson);
 

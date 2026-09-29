@@ -1,3 +1,4 @@
+using System.IO;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
@@ -14,9 +15,15 @@ public sealed class PlaybackStateCoordinator
     private readonly LyricsLibrary? _library;
     private readonly Action<string, string, string>? _log;
     private LyricsTimeline _lyricsTimeline = LyricsTimeline.Empty;
+    private LocalTrackRecord? _activeLocalLyricsRecord;
+    private bool _hasActiveLocalAssociation;
+    private bool _externalLrcUsable;
 
     public LyricsSnapshotMessage? CurrentLyrics { get; private set; }
     public LocalLyricsDocument? CurrentLocalLyrics { get; private set; }
+    public LocalTrackRecord? ActiveLocalLyricsRecord => _activeLocalLyricsRecord;
+    public bool IsCurrentLocalLrcUsable => CurrentLocalLyrics is not null && _externalLrcUsable;
+    public bool IsCurrentLocalLrcMissing { get; private set; }
     public string LyricsLoadedFrom { get; private set; } = "Pending / unknown";
     public string LocalAssociationStatus { get; private set; } = "Not checked";
 
@@ -35,10 +42,10 @@ public sealed class PlaybackStateCoordinator
 
     public long GlobalOffsetMs => CurrentLocalLyrics?.GlobalOffsetMs ?? 0;
 
-    public bool CanAdjustTiming => CurrentLocalLyrics is not null && _library is not null;
+    public bool CanAdjustTiming => IsCurrentLocalLrcUsable && CurrentLocalLyrics!.IsTimed && _library is not null;
 
     public bool CanAdjustCurrentLineTiming => _library is not null &&
-        CurrentLocalLyrics is { IsLrcWritable: true, LrcContentHash: not null } &&
+        IsCurrentLocalLrcUsable && CurrentLocalLyrics is { IsLrcWritable: true, LrcContentHash: not null } &&
         GetTimelinePosition().CurrentIndex is not null;
 
     public CurrentLineTimingTarget? CaptureCurrentLineTimingTarget()
@@ -46,7 +53,7 @@ public sealed class PlaybackStateCoordinator
         var document = CurrentLocalLyrics;
         var index = GetTimelinePosition().CurrentIndex;
         return document is { IsLrcWritable: true, LrcContentHash: not null } &&
-               _library is not null && index is not null
+               _library is not null && _externalLrcUsable && index is not null
             ? new(document, index.Value) : null;
     }
 
@@ -62,7 +69,7 @@ public sealed class PlaybackStateCoordinator
     {
         ArgumentNullException.ThrowIfNull(target);
         var current = CurrentLocalLyrics;
-        if (_library is null || current is null ||
+        if (_library is null || current is null || !current.IsTimed ||
             current.Record.LocalTrackId != target.Document.Record.LocalTrackId ||
             current.Record.LyricsRelativePath != target.Document.Record.LyricsRelativePath ||
             current.LrcContentHash != target.Document.LrcContentHash)
@@ -104,7 +111,7 @@ public sealed class PlaybackStateCoordinator
     public TimingAdjustmentResult AdjustTiming(long deltaMs)
     {
         var target = CurrentLocalLyrics;
-        if (target is null || _library is null)
+        if (target is null || !target.IsTimed || _library is null || !_externalLrcUsable)
             return new(TimingAdjustmentStatus.NoLocalLyrics);
         if (!LyricsTimingAdjustment.TryAdjustOffset(target.GlobalOffsetMs, deltaMs, out var adjusted))
             return new(TimingAdjustmentStatus.OffsetOverflow);
@@ -120,7 +127,7 @@ public sealed class PlaybackStateCoordinator
     public TimingAdjustmentResult ResetTiming()
     {
         var target = CurrentLocalLyrics;
-        if (target is null || _library is null)
+        if (target is null || !target.IsTimed || _library is null || !_externalLrcUsable)
             return new(TimingAdjustmentStatus.NoLocalLyrics);
         if (target.GlobalOffsetMs == 0)
             return new(TimingAdjustmentStatus.Succeeded, target);
@@ -132,7 +139,7 @@ public sealed class PlaybackStateCoordinator
     }
 
     public TimingAdjustmentTarget? CaptureTimingAdjustmentTarget() =>
-        CurrentLocalLyrics is null
+        CurrentLocalLyrics is not { IsTimed: true } || !IsCurrentLocalLrcUsable
             ? null
             : new(CurrentLocalLyrics.Record.LocalTrackId, CurrentLocalLyrics.GlobalOffsetMs);
 
@@ -140,7 +147,7 @@ public sealed class PlaybackStateCoordinator
     {
         ArgumentNullException.ThrowIfNull(target);
         var current = CurrentLocalLyrics;
-        if (current is null || _library is null)
+        if (current is null || !current.IsTimed || _library is null || !_externalLrcUsable)
             return new(TimingAdjustmentStatus.NoLocalLyrics);
         if (current.Record.LocalTrackId != target.LocalTrackId || current.GlobalOffsetMs != target.GlobalOffsetMs)
             return new(TimingAdjustmentStatus.TrackChanged,
@@ -164,6 +171,10 @@ public sealed class PlaybackStateCoordinator
                 previous.Payload.Track.SourceTrackId != snapshot.Payload.Track.SourceTrackId)
             {
                 CurrentLyrics = null;
+                _activeLocalLyricsRecord = null;
+                _hasActiveLocalAssociation = false;
+                _externalLrcUsable = false;
+                IsCurrentLocalLrcMissing = false;
                 CurrentLocalLyrics = null;
                 _lyricsTimeline = LyricsTimeline.Empty;
                 LyricsLoadedFrom = "Pending / unknown";
@@ -203,17 +214,21 @@ public sealed class PlaybackStateCoordinator
         }
         _lyricsSequence = snapshot.Envelope.Sequence;
 
-        if (CurrentLocalLyrics is not null)
+        if (_hasActiveLocalAssociation)
         {
-            _log?.Invoke("Information", "Library",
-                $"Remote lyrics ignored because local copy {CurrentLocalLyrics.Record.LocalTrackId} is authoritative.");
+            _log?.Invoke("Information", "Library", CurrentLocalLyrics is null
+                ? "Remote lyrics ignored because the current source has a local lyrics association that is unavailable or broken."
+                : $"Remote lyrics ignored because local copy {CurrentLocalLyrics.Record.LocalTrackId} is authoritative.");
             return LyricsApplyDecision.IgnoredBecauseLocal;
         }
 
         CurrentLyrics = snapshot;
         SetTimeline(snapshot.Payload);
         LyricsLoadedFrom = "YouTube Music (runtime)";
-        if (_library is null || !snapshot.Payload.Available || !snapshot.Payload.Timed || snapshot.Payload.Lines.Count == 0)
+        if (_library is null || !snapshot.Payload.Available ||
+            (snapshot.Payload.Timed
+                ? snapshot.Payload.Lines.Count == 0
+                : snapshot.Payload.UntimedLines is not { Count: > 0 }))
             return LyricsApplyDecision.AcceptedRemote;
 
         var imported = _library.Import(current.Payload.Track, snapshot.Payload);
@@ -234,19 +249,127 @@ public sealed class PlaybackStateCoordinator
         var lookup = _library.Lookup(snapshot.Envelope.Source, track.SourceTrackId,
             new SourceTrackMetadata(track.Title, track.Artist, track.Album, track.DurationMs));
         LocalAssociationStatus = lookup.Status.ToString();
+        _activeLocalLyricsRecord = lookup.Record ?? lookup.Document?.Record;
+        _hasActiveLocalAssociation = lookup.Status is not (LocalLyricsLookupStatus.NotFound or
+            LocalLyricsLookupStatus.LibraryUnavailable or LocalLyricsLookupStatus.IndexUnavailable);
         if (lookup.Document is not null) SetLocalLyrics(lookup.Document, snapshot.Envelope);
+        else if (_hasActiveLocalAssociation)
+        {
+            _externalLrcUsable = false;
+            CurrentLyrics = null;
+            _lyricsTimeline = LyricsTimeline.Empty;
+            LyricsLoadedFrom = "Local Library (unavailable)";
+        }
     }
 
     private void SetLocalLyrics(LocalLyricsDocument document, EnvelopeMetadata envelope)
     {
         CurrentLocalLyrics = document;
+        _activeLocalLyricsRecord = document.Record;
+        _hasActiveLocalAssociation = true;
+        _externalLrcUsable = true;
+        IsCurrentLocalLrcMissing = false;
         LyricsLoadedFrom = "Local Library";
         CurrentLyrics = new LyricsSnapshotMessage(
             envelope with { MessageType = ProtocolConstants.LyricsSnapshot },
-            new LyricsSnapshotPayload(Current!.Payload.Track.SourceTrackId, true, true,
-                document.Sidecar.Lyrics.Source, document.Lines, document.Sidecar.Lyrics.Attribution),
+            new LyricsSnapshotPayload(Current!.Payload.Track.SourceTrackId, true, document.IsTimed,
+                document.Sidecar.Lyrics.Source, document.Lines, document.Sidecar.Lyrics.Attribution,
+                document.IsTimed ? null : document.UntimedLines),
             "");
         _lyricsTimeline = new LyricsTimeline(document.Lines);
+    }
+
+    public ExternalLocalLyricsUpdate ReloadExternalLocalLyrics(string localTrackId, string observedFingerprint)
+    {
+        if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId || Current is null)
+            return ExternalLocalLyricsUpdate.Stale;
+        if (_library is null) return ExternalLocalLyricsUpdate.Unavailable;
+
+        var record = _activeLocalLyricsRecord;
+        var currentTrack = Current.Payload.Track;
+        var lookup = _library.ReloadLocalLyrics(record,
+            Current.Envelope.Source,
+            currentTrack.SourceTrackId,
+            new SourceTrackMetadata(currentTrack.Title, currentTrack.Artist, currentTrack.Album,
+                currentTrack.DurationMs));
+        if (lookup.Status == LocalLyricsLookupStatus.Found && lookup.Document is { } document)
+        {
+            if (!string.Equals(document.LrcContentHash, observedFingerprint, StringComparison.Ordinal))
+                return ExternalLocalLyricsUpdate.Retry;
+            _activeLocalLyricsRecord = document.Record;
+            if (_externalLrcUsable && CurrentLocalLyrics?.LrcContentHash == observedFingerprint)
+                return ExternalLocalLyricsUpdate.Unchanged;
+            var effectiveMetadata = CurrentLocalLyrics?.EffectiveMetadata ?? document.EffectiveMetadata;
+            SetLocalLyrics(document with { EffectiveMetadata = effectiveMetadata }, Current.Envelope);
+            LocalAssociationStatus = "Found";
+            _log?.Invoke("Information", "ExternalLyrics",
+                $"External LRC reloaded for LocalTrackId={localTrackId}.");
+            return ExternalLocalLyricsUpdate.Reloaded;
+        }
+
+        if (lookup.Status == LocalLyricsLookupStatus.BrokenRecord)
+        {
+            try
+            {
+                if (!File.Exists(_library.ResolveLyricsPath(record)))
+                    return ExternalLocalLyricsUpdate.Retry;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
+            {
+                return ExternalLocalLyricsUpdate.Unavailable;
+            }
+            MarkExternalLocalLyricsInvalid(localTrackId, lookup.Error);
+            return ExternalLocalLyricsUpdate.Invalid;
+        }
+        if (lookup.Status is LocalLyricsLookupStatus.LibraryUnavailable or LocalLyricsLookupStatus.IndexUnavailable)
+        {
+            MarkExternalLocalLyricsUnavailable(localTrackId, lookup.Error);
+            return ExternalLocalLyricsUpdate.Unavailable;
+        }
+        return ExternalLocalLyricsUpdate.Retry;
+    }
+
+    public bool MarkExternalLocalLyricsInvalid(string localTrackId, string? error = null)
+    {
+        if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId) return false;
+        if (IsCurrentLocalLrcMissing && CurrentLyrics is null && CurrentLocalLyrics is { } lastKnownGood && Current is { } current)
+            SetLocalLyrics(lastKnownGood, current.Envelope);
+        _externalLrcUsable = false;
+        IsCurrentLocalLrcMissing = false;
+        LocalAssociationStatus = "External LRC rejected";
+        LyricsLoadedFrom = CurrentLocalLyrics is null
+            ? "Local Library (external LRC rejected)"
+            : "Local Library (last valid lyrics retained)";
+        _log?.Invoke("Warning", "ExternalLyrics",
+            $"External LRC reload rejected for LocalTrackId={localTrackId}; keeping last-known-good runtime lyrics. {error}");
+        return true;
+    }
+
+    public bool MarkExternalLocalLyricsMissing(string localTrackId)
+    {
+        if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId) return false;
+        _externalLrcUsable = false;
+        IsCurrentLocalLrcMissing = true;
+        CurrentLyrics = null;
+        _lyricsTimeline = LyricsTimeline.Empty;
+        LocalAssociationStatus = "Local LRC unavailable";
+        LyricsLoadedFrom = "Local Library (file unavailable)";
+        _log?.Invoke("Warning", "ExternalLyrics", $"External LRC is missing for LocalTrackId={localTrackId}.");
+        return true;
+    }
+
+    public bool MarkExternalLocalLyricsUnavailable(string localTrackId, string? error = null)
+    {
+        if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId) return false;
+        _externalLrcUsable = false;
+        IsCurrentLocalLrcMissing = false;
+        LocalAssociationStatus = "External LRC temporarily unavailable";
+        LyricsLoadedFrom = CurrentLocalLyrics is null
+            ? "Local Library (file temporarily unavailable)"
+            : "Local Library (last valid lyrics retained)";
+        _log?.Invoke("Warning", "ExternalLyrics",
+            $"External LRC could not be read for LocalTrackId={localTrackId}; keeping last-known-good runtime lyrics. {error}");
+        return true;
     }
 
     private void SetTimeline(LyricsSnapshotPayload lyrics) =>
@@ -261,4 +384,14 @@ public enum LyricsApplyDecision
     AcceptedRemote,
     ImportedAsLocal,
     IgnoredBecauseLocal
+}
+
+public enum ExternalLocalLyricsUpdate
+{
+    Reloaded,
+    Unchanged,
+    Invalid,
+    Unavailable,
+    Retry,
+    Stale
 }

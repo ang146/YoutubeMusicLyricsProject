@@ -147,9 +147,9 @@ public sealed class CurrentLineTimingStorageTests
     }
 
     [Test]
-    public void ParsedOrderMapsBackToExactPhysicalOccurrenceAfterMalformedAndUnsortedLines()
+    public void ParsedOrderMapsBackToExactPhysicalOccurrenceAfterUntimedAndUnsortedLines()
     {
-        var content = "[by:Editor]\n[00:30.000]C\ninvalid\n[00:80.000]ignored\n[00:10.000]A\n[00:20.000]B";
+        var content = "[by:Editor]\n[00:30.000]C\ninvalid\n[00:10.000]A\n[00:20.000]B";
         var document = Load(content);
         Assert.That(_library.AdjustLineTiming(new(document, 1), 500).Succeeded, Is.True);
         Assert.That(File.ReadAllText(LrcPath), Is.EqualTo(content.Replace("[00:20.000]", "[00:20.500]")));

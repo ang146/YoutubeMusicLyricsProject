@@ -1,5 +1,6 @@
 using LyricsDisplayer.Core.Protocol;
 using Microsoft.Data.Sqlite;
+using System.Security;
 using System.Text.Json;
 
 namespace LyricsDisplayer.Core.Library;
@@ -11,6 +12,7 @@ public sealed class LyricsLibrary : IDisposable
     private readonly Action? _beforeLineCommit;
     private readonly HashSet<(string Source, string SourceTrackId)> _duplicateAssociations = [];
     private readonly HashSet<(string Source, string SourceTrackId)> _brokenAssociations = [];
+    private readonly Dictionary<(string Source, string SourceTrackId), LocalTrackRecord> _brokenRecords = [];
     private LyricsLibraryIndex? _index;
 
     public LibraryPaths Paths { get; }
@@ -74,6 +76,7 @@ public sealed class LyricsLibrary : IDisposable
 
         Log("Information", "Library", "Library scan started.");
         _brokenAssociations.Clear();
+        _brokenRecords.Clear();
         var valid = new List<LocalTrackRecord>();
         var existingDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var invalid = 0;
@@ -97,7 +100,10 @@ public sealed class LyricsLibrary : IDisposable
                 {
                     invalid++;
                     foreach (var association in ReadAssociationIdentities(sidecarPath))
+                    {
                         _brokenAssociations.Add(association);
+                        if (record is not null) _brokenRecords[association] = record;
+                    }
                     Log("Warning", "Library", $"Invalid local record {directoryName}: {error}");
                     continue;
                 }
@@ -149,7 +155,8 @@ public sealed class LyricsLibrary : IDisposable
             return new(LocalLyricsLookupStatus.DuplicateAssociation, Error: "Duplicate source association.");
         if (_brokenAssociations.Contains((source, sourceTrackId)))
             return new(LocalLyricsLookupStatus.BrokenRecord,
-                Error: "A broken portable record claims this source association.");
+                Error: "A broken portable record claims this source association.",
+                Record: _brokenRecords.GetValueOrDefault((source, sourceTrackId)));
         if (_index is null) return new(LocalLyricsLookupStatus.IndexUnavailable);
 
         LocalTrackRecord? indexed;
@@ -167,10 +174,18 @@ public sealed class LyricsLibrary : IDisposable
         try
         {
             var indexed = _index.FindByLocalTrackId(localTrackId);
-            if (indexed is null) return new(LocalLyricsLookupStatus.NotFound);
+            if (indexed is null)
+            {
+                var broken = _brokenRecords.Values.FirstOrDefault(record =>
+                    string.Equals(record.LocalTrackId, localTrackId, StringComparison.OrdinalIgnoreCase));
+                return broken is null
+                    ? new(LocalLyricsLookupStatus.NotFound)
+                    : new(LocalLyricsLookupStatus.BrokenRecord,
+                        Error: "The local lyrics record is currently invalid.", Record: broken);
+            }
             var association = indexed.SourceAssociations.FirstOrDefault();
             return association is null
-                ? new(LocalLyricsLookupStatus.BrokenRecord, Error: "Indexed record has no source association.")
+                ? new(LocalLyricsLookupStatus.BrokenRecord, Error: "Indexed record has no source association.", Record: indexed)
                 : Load(indexed, association.Source, association.SourceTrackId, null);
         }
         catch (Exception exception) when (IsStorageException(exception))
@@ -178,6 +193,45 @@ public sealed class LyricsLibrary : IDisposable
     }
 
     public IReadOnlyList<LocalTrackRecord> Search(string text) => _index?.Search(text) ?? [];
+
+    public string ResolveLyricsPath(LocalTrackRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return ResolveRelative(record.LyricsRelativePath);
+    }
+
+    public LocalLyricsLookupResult ReloadLocalLyrics(
+        LocalTrackRecord record,
+        string source,
+        string sourceTrackId,
+        SourceTrackMetadata? currentMetadata = null)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (!LibraryAvailable) return new(LocalLyricsLookupStatus.LibraryUnavailable, Record: record);
+        try
+        {
+            var sidecarPath = ResolveRelative(record.SidecarRelativePath);
+            var expectedDirectoryName = Path.GetFileName(Path.GetDirectoryName(sidecarPath));
+            if (!TryReadRecord(sidecarPath, expectedDirectoryName!, out var refreshedRecord,
+                    out var sidecar, out var error))
+                return new(LocalLyricsLookupStatus.BrokenRecord, Error: error, Record: record);
+
+            var association = sidecar!.SourceAssociations.FirstOrDefault(item =>
+                item.Source == source && item.SourceTrackId == sourceTrackId);
+            if (association is null)
+                return new(LocalLyricsLookupStatus.BrokenRecord,
+                    Error: "The active playback association is no longer present in the local record.", Record: record);
+
+            var document = LoadFromRecord(refreshedRecord!, sidecar, currentMetadata ?? association.Metadata);
+            return document is null
+                ? new(LocalLyricsLookupStatus.BrokenRecord, Error: "The local LRC is missing or unusable.", Record: record)
+                : new(LocalLyricsLookupStatus.Found, document, Record: document.Record);
+        }
+        catch (Exception exception) when (IsStorageException(exception))
+        {
+            return new(LocalLyricsLookupStatus.BrokenRecord, Error: exception.Message, Record: record);
+        }
+    }
 
     public TimingAdjustmentResult SetGlobalOffset(string localTrackId, long globalOffsetMs)
     {
@@ -230,7 +284,7 @@ public sealed class LyricsLibrary : IDisposable
             var sidecarJson = SidecarSerializer.Serialize(updatedSidecar);
             var duration = updatedSidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
             var parsed = LrcCodec.Parse(rewritten.Content!, duration);
-            if (!parsed.Success)
+            if (!parsed.Success || !parsed.HasTimedLyrics)
                 return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
 
             var savedBytes = AtomicFile.ReplacePair(lyricsPath, rewritten.Content!, sidecarPath, sidecarJson,
@@ -295,7 +349,7 @@ public sealed class LyricsLibrary : IDisposable
                 return new(TimingAdjustmentStatus.FileChanged, Error: rewritten.Error);
             var duration = document.Sidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
             var parsed = LrcCodec.Parse(rewritten.Content!, duration);
-            if (!parsed.Success)
+            if (!parsed.Success || !parsed.HasTimedLyrics)
                 return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
             var savedBytes = original.Encode(rewritten.Content!);
             if (!AtomicFile.TryReplaceUnchanged(path, savedBytes, expected.LrcContentHash, _beforeLineCommit))
@@ -327,8 +381,6 @@ public sealed class LyricsLibrary : IDisposable
     {
         if (!string.Equals(track.SourceTrackId, lyrics.SourceTrackId, StringComparison.Ordinal))
             return new(LyricsImportStatus.Failed, Error: "Lyrics sourceTrackId does not match the authoritative track.");
-        if (!lyrics.Available || !lyrics.Timed || lyrics.Lines.Count == 0)
-            return new(LyricsImportStatus.NotTimed);
         if (!LibraryAvailable) return new(LyricsImportStatus.LibraryUnavailable);
         if (_index is null) return new(LyricsImportStatus.IndexUnavailable);
 
@@ -342,6 +394,22 @@ public sealed class LyricsLibrary : IDisposable
             return new(lookup.Status == LocalLyricsLookupStatus.LibraryUnavailable
                 ? LyricsImportStatus.LibraryUnavailable : LyricsImportStatus.IndexUnavailable, Error: lookup.Error);
 
+        if (!lyrics.Available) return new(LyricsImportStatus.NotTimed);
+        string lrcContent;
+        if (lyrics.Timed)
+        {
+            if (lyrics.Lines.Count == 0 || lyrics.UntimedLines is { Count: > 0 })
+                return new(LyricsImportStatus.NotTimed);
+            lrcContent = LrcCodec.Serialize(lyrics.Lines);
+        }
+        else
+        {
+            var untimedLines = lyrics.UntimedLines ?? [];
+            if (lyrics.Lines.Count != 0 || !untimedLines.Any(line => !string.IsNullOrWhiteSpace(line)))
+                return new(LyricsImportStatus.NotTimed);
+            lrcContent = LrcCodec.SerializeUntimed(untimedLines);
+        }
+
         var localTrackId = Guid.NewGuid().ToString("D");
         var association = new SourceTrackAssociation(ProtocolConstants.YouTubeMusicSource, track.SourceTrackId,
             new(track.Title, track.Artist, track.Album, track.DurationMs));
@@ -354,7 +422,7 @@ public sealed class LyricsLibrary : IDisposable
         try
         {
             Directory.CreateDirectory(temporaryDirectory);
-            AtomicFile.WriteNew(Path.Combine(temporaryDirectory, "track.lrc"), LrcCodec.Serialize(lyrics.Lines));
+            AtomicFile.WriteNew(Path.Combine(temporaryDirectory, "track.lrc"), lrcContent);
             AtomicFile.WriteNew(Path.Combine(temporaryDirectory, "track.lyrics.json"), SidecarSerializer.Serialize(sidecar));
             Directory.Move(temporaryDirectory, finalDirectory);
         }
@@ -379,7 +447,7 @@ public sealed class LyricsLibrary : IDisposable
         }
 
         var document = LoadFromRecord(record, sidecar, association.Metadata);
-        Log("Information", "Library", $"Remote timed lyrics imported as local track {localTrackId}.");
+        Log("Information", "Library", $"Remote lyrics imported as local track {localTrackId}.");
         return new(LyricsImportStatus.Imported, document, localTrackId);
     }
 
@@ -391,18 +459,19 @@ public sealed class LyricsLibrary : IDisposable
         if (!TryReadRecord(sidecarPath, expectedDirectoryName!, out var record, out var authoritative, out var error))
         {
             Log("Warning", "Library", $"Local association is broken for {source}:{sourceTrackId}: {error}");
-            return new(LocalLyricsLookupStatus.BrokenRecord, Error: error);
+            return new(LocalLyricsLookupStatus.BrokenRecord, Error: error, Record: indexed);
         }
         var association = authoritative!.SourceAssociations.FirstOrDefault(item =>
             item.Source == source && item.SourceTrackId == sourceTrackId);
         if (association is null)
-            return new(LocalLyricsLookupStatus.BrokenRecord, Error: "Authoritative sidecar no longer contains the indexed association.");
+            return new(LocalLyricsLookupStatus.BrokenRecord,
+                Error: "Authoritative sidecar no longer contains the indexed association.", Record: indexed);
         var document = LoadFromRecord(record!, authoritative,
             currentMetadata ?? association.Metadata);
         if (document is null)
-            return new(LocalLyricsLookupStatus.BrokenRecord, Error: "Local LRC is missing or unusable.");
+            return new(LocalLyricsLookupStatus.BrokenRecord, Error: "Local LRC is missing or unusable.", Record: record);
         Log("Information", "Library", $"Local association found and lyrics loaded for {source}:{sourceTrackId}.");
-        return new(LocalLyricsLookupStatus.Found, document);
+        return new(LocalLyricsLookupStatus.Found, document, Record: document.Record);
     }
 
     private LocalLyricsDocument? LoadFromRecord(LocalTrackRecord record, LyricsSidecar sidecar,
@@ -421,7 +490,8 @@ public sealed class LyricsLibrary : IDisposable
             {
                 LrcContentHash = snapshot.Hash,
                 TimestampOccurrences = parsed.TimestampOccurrences,
-                IsLrcWritable = LrcFileSnapshot.IsWritable(lyricsPath)
+                IsLrcWritable = LrcFileSnapshot.IsWritable(lyricsPath),
+                UntimedLines = parsed.UntimedLines
             };
         }
         catch (Exception exception) when (IsStorageException(exception))
@@ -438,12 +508,13 @@ public sealed class LyricsLibrary : IDisposable
         if (!SidecarSerializer.TryRead(sidecarPath, out sidecar, out error)) return false;
         if (!string.Equals(sidecar!.LocalTrackId, directoryName, StringComparison.OrdinalIgnoreCase))
         { error = "localTrackId does not match its directory."; return false; }
+        record = ToRecord(sidecar, directoryName);
         var lyricsPath = Path.Combine(Path.GetDirectoryName(sidecarPath)!, sidecar.Lyrics.File);
         if (!File.Exists(lyricsPath)) { error = "Referenced LRC is missing."; return false; }
         var duration = sidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
         var parsed = LrcCodec.Parse(File.ReadAllText(lyricsPath), duration);
-        if (!parsed.Success) { error = parsed.Error!; return false; }
-        record = ToRecord(sidecar, directoryName);
+        if (!parsed.Success)
+        { error = parsed.Error!; return false; }
         return true;
     }
 
@@ -510,7 +581,7 @@ public sealed class LyricsLibrary : IDisposable
     }
 
     private static bool IsStorageException(Exception exception) =>
-        exception is IOException or UnauthorizedAccessException or InvalidDataException or SqliteException or ArgumentException;
+        exception is IOException or UnauthorizedAccessException or InvalidDataException or SqliteException or ArgumentException or SecurityException;
 
     private static void TryDeleteOwnTemporaryDirectory(string path)
     {

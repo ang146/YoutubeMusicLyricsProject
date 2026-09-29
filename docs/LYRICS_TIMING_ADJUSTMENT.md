@@ -85,13 +85,13 @@ Crossing a neighbour or creating a negative/overflowing timestamp rejects the ed
 
 ### Saving and re-evaluation
 
-The loaded LRC byte content has a SHA-256 identity. Before editing, the library re-reads and validates the authoritative asset and compares its path, global offset, and LRC identity with the captured document. After preparing and flushing a unique same-directory temporary file, it checks the LRC hash again immediately before replacement. An unexpected external change aborts the edit and safely reloads the current local document; an unusable changed document clears the stale timeline. No external-file watcher is introduced.
+The loaded LRC byte content has a SHA-256 identity. Before editing, the library re-reads and validates the authoritative asset and compares its path, global offset, and LRC identity with the captured document. After preparing and flushing a unique same-directory temporary file, it checks the LRC hash again immediately before replacement. An unexpected external change aborts the edit and safely reloads the current local document; an unusable changed document clears the stale timeline. Milestone 10 adds a read-only active-file watcher; watcher reloads never write the LRC. Content identity deduplicates notifications from Current Line and Bake self-writes. See [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
 
 Only the selected raw timestamp token is replaced, using canonical millisecond precision. Other timestamps, metadata/unknown tags, blank lines, mixed line endings, Unicode text, and existing encoding/BOM are retained. Failed writes clean up owned temporary files where possible and leave the previous valid runtime timing intact. File writability is checked when loading and again when saving; read-only assets have disabled current-line controls.
 
 After successful persistence, the app rebuilds the timeline from the edited parsed document and refreshed source occurrences/content identity, retaining the global offset and actual `PlaybackClock` position. Current/Next and the overlay are re-evaluated immediately. This may change which line is current; the next button click targets the newly current line, not a pinned prior selection. Later remote lyrics remain unable to overwrite the local edit.
 
-The pre-replacement hash check is best-effort write safety, not a filesystem compare-and-swap lock against arbitrary concurrent external replacements. No per-line metadata or full external-edit synchronization system is added.
+The pre-replacement hash check is best-effort write safety, not a filesystem compare-and-swap lock against arbitrary concurrent external replacements. External edits refresh parsed source-occurrence mappings before later Current Line edits. No per-line metadata or library-wide external-edit synchronization system is added.
 
 ## Deliberate scope limits
 

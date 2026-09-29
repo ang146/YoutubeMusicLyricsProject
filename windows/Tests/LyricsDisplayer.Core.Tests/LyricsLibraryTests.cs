@@ -21,6 +21,8 @@ public sealed class LyricsLibraryTests
     [TearDown] public void TearDown() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
 
     private static TrackInfo Track(string id = "P4SDPyGfxho") => new(id, "Source title", "Source artist", null, 10_000);
+    private static LyricsSnapshotPayload Untimed(params string[] lines) =>
+        new("P4SDPyGfxho", true, false, "youtubeMusic", [], "Provider", lines);
     private static LyricsSnapshotPayload Timed(string text = "原始歌詞") =>
         new("P4SDPyGfxho", true, true, "youtubeMusic", [new LyricsLine(1_000, 4_000, text), new LyricsLine(4_000, 8_000, "第二行")], "Provider");
 
@@ -61,12 +63,85 @@ public sealed class LyricsLibraryTests
         File.WriteAllText(lrc, "[00:01.000]手動編輯\n");
         var sidecarBefore = File.ReadAllText(sidecar);
         var second = library.Import(Track(), Timed("provider replacement"));
+        var untimed = library.Import(Track(), Untimed("untimed provider replacement"));
         Assert.Multiple(() =>
         {
             Assert.That(second.Status, Is.EqualTo(LyricsImportStatus.AlreadyLocal));
+            Assert.That(untimed.Status, Is.EqualTo(LyricsImportStatus.AlreadyLocal));
             Assert.That(File.ReadAllText(lrc), Does.Contain("手動編輯"));
             Assert.That(File.ReadAllText(lrc), Does.Not.Contain("provider replacement"));
             Assert.That(File.ReadAllText(sidecar), Is.EqualTo(sidecarBefore));
+        });
+    }
+
+    [Test]
+    public void UntimedProviderLyricsMaterialiseAsPlainUtf8AndRemainUntimedAfterRestart()
+    {
+        string localTrackId;
+        var lines = new[] { "第一行", "Line B", "第三行 🎵" };
+        using (var library = new LyricsLibrary(_paths))
+        {
+            library.Initialise();
+            var imported = library.Import(Track(), Untimed(lines));
+            Assert.That(imported.Status, Is.EqualTo(LyricsImportStatus.Imported));
+            localTrackId = imported.LocalTrackId!;
+            var path = Path.Combine(_paths.LibraryPath, "tracks", localTrackId, "track.lrc");
+            var bytes = File.ReadAllBytes(path);
+            var content = System.Text.Encoding.UTF8.GetString(bytes);
+            var document = library.Lookup("youtubeMusic", "P4SDPyGfxho").Document!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(bytes.AsSpan().StartsWith(System.Text.Encoding.UTF8.Preamble), Is.False);
+                Assert.That(content, Is.EqualTo("第一行\nLine B\n第三行 🎵\n"));
+                Assert.That(content, Does.Not.Contain("[00:00.000]"));
+                Assert.That(document.IsTimed, Is.False);
+                Assert.That(document.Lines, Is.Empty);
+                Assert.That(document.UntimedLines, Is.EqualTo(lines));
+            });
+        }
+
+        using (var restarted = new LyricsLibrary(_paths))
+        {
+            restarted.Initialise();
+            var reloaded = restarted.Lookup("youtubeMusic", "P4SDPyGfxho").Document!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(reloaded.Record.LocalTrackId, Is.EqualTo(localTrackId));
+                Assert.That(reloaded.IsTimed, Is.False);
+                Assert.That(reloaded.UntimedLines, Is.EqualTo(lines));
+            });
+        }
+
+        var editedPath = Path.Combine(_paths.LibraryPath, "tracks", localTrackId, "track.lrc");
+        File.WriteAllText(editedPath, "[00:01.000]第一行\n[00:02.000]Line B\n[00:03.000]第三行 🎵\n");
+        using var timedRestart = new LyricsLibrary(_paths);
+        timedRestart.Initialise();
+        var timedDocument = timedRestart.Lookup("youtubeMusic", "P4SDPyGfxho").Document!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(timedDocument.Record.LocalTrackId, Is.EqualTo(localTrackId));
+            Assert.That(timedDocument.IsTimed, Is.True);
+            Assert.That(timedDocument.Lines.Select(line => line.Text), Is.EqualTo(lines));
+        });
+    }
+
+    [Test]
+    public void ExistingLocalUntimedFileWinsOverLaterProviderUntimedLyrics()
+    {
+        using var library = new LyricsLibrary(_paths);
+        library.Initialise();
+        var imported = library.Import(Track(), Untimed("Original A", "Original B"));
+        var lrc = Path.Combine(_paths.LibraryPath, "tracks", imported.LocalTrackId!, "track.lrc");
+        File.WriteAllText(lrc, "User edited A\nOriginal B\n");
+        var before = File.ReadAllBytes(lrc);
+
+        var second = library.Import(Track(), Untimed("New provider A", "New provider B"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Status, Is.EqualTo(LyricsImportStatus.AlreadyLocal));
+            Assert.That(second.LocalTrackId, Is.EqualTo(imported.LocalTrackId));
+            Assert.That(File.ReadAllBytes(lrc), Is.EqualTo(before));
         });
     }
 
@@ -205,12 +280,12 @@ public sealed class LyricsLibraryTests
             var imported = library.Import(Track(), Timed());
             lrc = Path.Combine(_paths.LibraryPath, "tracks", imported.LocalTrackId!, "track.lrc");
         }
-        File.WriteAllText(lrc, "broken");
+        File.WriteAllText(lrc, "[0055.000]broken");
         using var restarted = new LyricsLibrary(_paths);
         restarted.Initialise();
         Assert.That(restarted.Lookup("youtubeMusic", "P4SDPyGfxho").Status, Is.EqualTo(LocalLyricsLookupStatus.BrokenRecord));
         Assert.That(restarted.Import(Track(), Timed("replacement")).Status, Is.EqualTo(LyricsImportStatus.BlockedByBrokenRecord));
-        Assert.That(File.ReadAllText(lrc), Is.EqualTo("broken"));
+        Assert.That(File.ReadAllText(lrc), Is.EqualTo("[0055.000]broken"));
     }
 
     [Test]

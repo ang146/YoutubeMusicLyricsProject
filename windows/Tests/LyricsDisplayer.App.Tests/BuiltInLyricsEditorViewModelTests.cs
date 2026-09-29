@@ -33,6 +33,26 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     [Test]
+    public void LoadedBlankPhysicalLineIsAnOrdinarySelectableEditorRow()
+    {
+        using var fixture = CreateViewModel("[ti:Song]\nA\n\n\nB\n");
+        var viewModel = fixture.ViewModel;
+
+        AssertRows(viewModel, "A", "", "", "B");
+        Assert.That(viewModel.IsDirty, Is.False);
+        var firstBlank = viewModel.Rows[1];
+        Assert.That(firstBlank.EditorLineId, Is.Not.EqualTo(Guid.Empty));
+        Assert.That(firstBlank.Timestamps, Is.All.Empty);
+
+        viewModel.SelectCell(firstBlank.EditorLineId, EditorColumn.Lyrics);
+        AssertRowCommandState(viewModel, insertAbove: true, insertBelow: true, delete: true, append: true);
+        viewModel.DeleteRowCommand.Execute(null);
+        AssertRows(viewModel, "A", "", "B");
+        Assert.That(viewModel.Selection.SelectedRowId, Is.Null);
+        AssertRowCommandState(viewModel, insertAbove: false, insertBelow: false, delete: false, append: true);
+    }
+
+    [Test]
     public void DeleteClearsSelectionAndDisablesRowCommandsUntilAnotherRowIsSelected()
     {
         using var fixture = CreateViewModel("A\nB\nC\n");

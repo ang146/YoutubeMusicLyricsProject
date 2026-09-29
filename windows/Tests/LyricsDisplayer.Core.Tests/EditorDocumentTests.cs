@@ -14,16 +14,102 @@ public sealed class EditorDocumentTests
         Assert.Multiple(() =>
         {
             Assert.That(EditorDocumentCodec.Serialize(document), Is.EqualTo(source));
-            Assert.That(document.Rows, Has.Count.EqualTo(2));
-            Assert.That(document.Rows[0].Timestamps.Select(item => item.Value), Is.EqualTo(new[] { "01:00.000", "02:30.00" }));
-            Assert.That(document.Rows[0].LyricsText, Is.EqualTo("副歌"));
+            Assert.That(document.Rows, Has.Count.EqualTo(5));
+            Assert.That(document.Rows.Select(row => row.LyricsText), Is.EqualTo(new[]
+                { "[x-custom:keep]", "", "副歌", "Untimed ♪", "[0055.000]Malformed" }));
+            Assert.That(document.Rows[2].Timestamps.Select(item => item.Value), Is.EqualTo(new[] { "01:00.000", "02:30.00" }));
+            Assert.That(document.Rows[0].Timestamps, Is.Empty);
             Assert.That(document.Rows[1].Timestamps, Is.Empty);
-            Assert.That(document.Rows[1].LyricsText, Is.EqualTo("Untimed ♪"));
+            Assert.That(document.Rows[4].Timestamps, Is.Empty);
             Assert.That(document.PhysicalLines.Select(line => line.Kind),
-                Does.Contain(EditorEntryKind.Metadata).And.Contain(EditorEntryKind.UnknownTag)
-                    .And.Contain(EditorEntryKind.Blank).And.Contain(EditorEntryKind.Unsupported));
+                Does.Contain(EditorEntryKind.Metadata).And.Contain(EditorEntryKind.Lyric));
             Assert.That(document.Validate(), Has.Some.Matches<EditorValidationDiagnostic>(item => item.Message.Contains("malformed")));
+            Assert.That(document.Validate(), Has.Some.Matches<EditorValidationDiagnostic>(item => item.Message.Contains("unrecognised tag")));
         });
+    }
+
+    [TestCase("A\n\nB", new[] { "A", "", "B" })]
+    [TestCase("A\n\n\nB", new[] { "A", "", "", "B" })]
+    [TestCase("\n\n[00:10.000]A", new[] { "", "", "A" })]
+    [TestCase("[00:10.000]A\n\n", new[] { "A", "" })]
+    [TestCase("A\n \t\nB", new[] { "A", " \t", "B" })]
+    public void EveryNonMetadataPhysicalLineProjectsAndRoundTripsInOrder(string source, string[] expectedRows)
+    {
+        var document = EditorDocumentCodec.Load(source);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(document.Rows.Select(row => row.LyricsText), Is.EqualTo(expectedRows));
+            Assert.That(document.Rows.Select(row => row.Id).Distinct().Count(), Is.EqualTo(expectedRows.Length));
+            Assert.That(EditorDocumentCodec.Serialize(document), Is.EqualTo(source));
+            Assert.That(EditorDocumentCodec.Serialize(EditorDocumentCodec.Load(EditorDocumentCodec.Serialize(document))), Is.EqualTo(source));
+        });
+    }
+
+    [Test]
+    public void RecognizedMetadataStaysHiddenWhileBlankUnknownAndMalformedLinesRemainEditableRows()
+    {
+        const string source = "[ti:Song]\n[ar:Artist]\n\n[00:10.000]A\n[something:whatever]\n[00:xx.000]Broken\nB";
+        var document = EditorDocumentCodec.Load(source);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(document.Rows.Select(row => row.LyricsText), Is.EqualTo(new[]
+                { "", "A", "[something:whatever]", "[00:xx.000]Broken", "B" }));
+            Assert.That(document.PhysicalLines.Count(line => line.Kind == EditorEntryKind.Metadata), Is.EqualTo(2));
+            Assert.That(document.Rows.All(row => row.Id != Guid.Empty), Is.True);
+            Assert.That(EditorDocumentCodec.Serialize(document), Is.EqualTo(source));
+        });
+    }
+
+    [Test]
+    public void BlankRowsRemainOrderedAroundUnicodeLyricsAndDoNotMakeLoadedDocumentDirty()
+    {
+        const string source = "\n繁體中文\n\n简体中文\n日本語\n\n한국어 😀\n[01:00.000][02:30.000]🎵";
+        var document = EditorDocumentCodec.Load(source);
+        var buffer = new EditorDocumentBuffer(document, UserTrackMetadata.Normalise(null, null));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(buffer.IsDirty, Is.False);
+            Assert.That(document.Rows.Select(row => row.LyricsText), Is.EqualTo(new[]
+                { "", "繁體中文", "", "简体中文", "日本語", "", "한국어 😀", "🎵" }));
+            Assert.That(document.Rows[^1].Timestamps.Select(timestamp => timestamp.Value),
+                Is.EqualTo(new[] { "01:00.000", "02:30.000" }));
+            Assert.That(EditorDocumentCodec.Serialize(EditorDocumentCodec.Load(EditorDocumentCodec.Serialize(document))), Is.EqualTo(source));
+        });
+    }
+
+    [Test]
+    public void EmptyRowInsertDeleteEditAndUndoRedoRoundTripWithoutSyntheticTiming()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("A\nB"), UserTrackMetadata.Normalise(null, null));
+        var rowA = buffer.Document.Rows[0].Id;
+        var insertedId = buffer.InsertBelow(rowA)!.Value;
+        Assert.That(buffer.Document.Rows.Select(row => row.LyricsText), Is.EqualTo(new[] { "A", "", "B" }));
+        Assert.That(buffer.Document.Rows[1].Timestamps, Is.Empty);
+        Assert.That(EditorDocumentCodec.Load(EditorDocumentCodec.Serialize(buffer.Document)).Rows.Select(row => row.LyricsText),
+            Is.EqualTo(new[] { "A", "", "B" }));
+
+        buffer.Undo();
+        Assert.That(buffer.Document.Rows.Select(row => row.LyricsText), Is.EqualTo(new[] { "A", "B" }));
+        buffer.Redo();
+        Assert.That(buffer.Document.Rows[1].Id, Is.EqualTo(insertedId));
+        buffer.SetLyrics(insertedId, "New untimed lyric");
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("A\nNew untimed lyric\nB"));
+        Assert.That(EditorDocumentCodec.Load(EditorDocumentCodec.Serialize(buffer.Document)).Rows.Select(row => row.LyricsText),
+            Is.EqualTo(new[] { "A", "New untimed lyric", "B" }));
+
+        var secondEmpty = buffer.InsertBelow(insertedId)!.Value;
+        var lastEmpty = buffer.InsertBelow(secondEmpty)!.Value;
+        Assert.That(buffer.Delete(secondEmpty), Is.True);
+        Assert.That(EditorDocumentCodec.Load(EditorDocumentCodec.Serialize(buffer.Document)).Rows.Select(row => row.LyricsText),
+            Is.EqualTo(new[] { "A", "New untimed lyric", "", "B" }));
+        buffer.Undo();
+        Assert.That(buffer.Document.Rows.Select(row => row.Id), Does.Contain(secondEmpty));
+        Assert.That(buffer.Document.Rows.Select(row => row.Id), Does.Contain(lastEmpty));
+        buffer.Redo();
+        Assert.That(buffer.Document.Rows.Select(row => row.Id), Does.Not.Contain(secondEmpty));
     }
 
     [Test]
@@ -68,13 +154,13 @@ public sealed class EditorDocumentTests
     }
 
     [Test]
-    public void AppendPlacesNewRowBeforeTrailingOpaqueLinesWithoutReordering()
+    public void AppendAddsVisibleUntimedRowAfterExistingUnknownTextWithoutReordering()
     {
         var source = "[ti:Title]\nA\n[x-end:preserve]";
         var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(source), UserTrackMetadata.Normalise(null, null));
 
         var id = buffer.Append();
-        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[ti:Title]\nA\n\n[x-end:preserve]"));
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[ti:Title]\nA\n[x-end:preserve]\n\n"));
         Assert.That(buffer.Document.Rows.Last().Id, Is.EqualTo(id));
         Assert.That(buffer.Document.Rows.Last().Timestamps, Is.Empty);
     }

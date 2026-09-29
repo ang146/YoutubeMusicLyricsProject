@@ -54,6 +54,7 @@ Timing actions are direct quick actions in the main context menu to support repe
 
 ```text
 Open Control Panel
+Open LRC Externally
 Lyrics Display > One Line / Two Lines / All Lyrics
 Current Line -0.5s (Earlier)
 Current Line -0.1s (Earlier)
@@ -69,6 +70,8 @@ Hide Desktop Lyrics
 ```
 
 Content and overlay toggles reflect current state. Current Line actions are disabled unless the playback coordinator exposes a writable current local timed line. Labels identify both scope (`Current Line` or `Global`) and direction (`Earlier` for negative deltas, `Later` for positive deltas). Actions invoke the existing M8 coordinator and storage paths, including current-line boundary checks, exact timestamp occurrence selection, and safe LRC write behavior. Global timing uses existing `GlobalOffsetMs` behavior; Global Reset clears only that offset and never undoes direct LRC edits. Bake remains in the Control Panel because it rewrites the whole LRC and requires confirmation.
+
+**Open LRC Externally** is enabled only for a safely resolved, usable active local timed LRC and routes to the same app command as the Control Panel button. Active-file watching and reload behavior are documented in [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
 
 The menu is available when click-through is on only if the pointer is over lyric text. **Open Control Panel** shows/restores and activates the Control Panel as an explicit user action. Automatic lyric updates remain non-activating.
 
@@ -131,4 +134,4 @@ Do not try to make YouTube Music Windows' current/priority media session; find a
 
 ## Current limitations
 
-All Lyrics is a contextual viewport estimated using wrapped text dimensions; WPF fallback fonts can differ slightly from the estimator. The fixed hotkeys are not user-configurable. The renderer still uses one centered stacked layout and static role/distance emphasis. Tray close-to-hide is optional and off by default. No M10 external editing/watcher, appearance editor, karaoke layout/animation, break rendering, media controls, provider search, or general plugin framework is included.
+All Lyrics is a contextual viewport estimated using wrapped text dimensions; WPF fallback fonts can differ slightly from the estimator. The fixed hotkeys are not user-configurable. The renderer still uses one centered stacked layout and static role/distance emphasis. Tray close-to-hide is optional and off by default. Milestone 10 adds external opening and active-LRC watching, but no built-in lyrics editor, appearance editor, karaoke layout/animation, break rendering, media controls, provider search, or general plugin framework is included.

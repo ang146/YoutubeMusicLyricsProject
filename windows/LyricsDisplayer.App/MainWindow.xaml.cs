@@ -25,6 +25,12 @@ public partial class MainWindow : Window
     private bool _synchronizingOverlayPreferences;
     private GlobalHotkeyService? _globalHotkeys;
     private TrayLifecycleService? _tray;
+    private ActiveLrcFileWatcher? _activeLrcWatcher;
+    private readonly ExternalLrcOpener _externalLrcOpener;
+    private string? _watchedLocalTrackId;
+    private string? _watchedLrcPath;
+    private string? _externalLrcStatus;
+    private int _externalLrcGeneration;
     private bool _allowApplicationExit;
     private string? _currentLineTimingStatusTrackId;
 
@@ -33,6 +39,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         var app = (App)Application.Current;
         var logger = app.Logger;
+        _externalLrcOpener = new ExternalLrcOpener(log: logger.Write);
         _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
             app.LyricsLibrary, logger.Write);
         _server = new NamedPipeServer(logger, _playbackState);
@@ -44,6 +51,7 @@ public partial class MainWindow : Window
         _overlay.VisibilityChanged += OnOverlayVisibilityChanged;
         _overlay.InteractionStateChanged += OnOverlayInteractionStateChanged;
         _overlay.OpenControlPanelRequested += OpenControlPanel;
+        _overlay.OpenExternalLyricsRequested += OpenCurrentLrcExternally;
         _overlay.TimingCommandRequested += OnOverlayTimingCommand;
         ShowOverlayCheckBox.Checked += OnShowOverlayChecked;
         ShowOverlayCheckBox.Unchecked += OnShowOverlayUnchecked;
@@ -63,6 +71,7 @@ public partial class MainWindow : Window
         TimingPlus100Button.Click += (_, _) => AdjustTiming(100);
         TimingPlus500Button.Click += (_, _) => AdjustTiming(500);
         TimingBakeButton.Click += (_, _) => BakeTiming();
+        OpenLrcExternallyButton.Click += (_, _) => OpenCurrentLrcExternally();
         CurrentLineMinus500Button.Click += (_, _) => AdjustCurrentLineTiming(-500);
         CurrentLineMinus100Button.Click += (_, _) => AdjustCurrentLineTiming(-100);
         CurrentLinePlus100Button.Click += (_, _) => AdjustCurrentLineTiming(100);
@@ -76,6 +85,7 @@ public partial class MainWindow : Window
         };
         _positionRefreshTimer.Tick += (_, _) => RefreshLocalPosition();
         Loaded += OnLoaded;
+        Activated += OnActivated;
         Closing += OnClosing;
         DisplayLibrary();
         UpdateTimingControls();
@@ -116,6 +126,9 @@ public partial class MainWindow : Window
             return;
         }
         _positionRefreshTimer.Stop();
+        _activeLrcWatcher?.Dispose();
+        _activeLrcWatcher = null;
+        _externalLrcGeneration++;
         _globalHotkeys?.Dispose();
         _tray?.Dispose();
         _overlay.Shutdown();
@@ -157,6 +170,8 @@ public partial class MainWindow : Window
 
     private void DisplayLyrics()
     {
+        SynchronizeActiveLrcWatcher();
+        UpdateExternalLrcAvailability();
         var lyrics = _playbackState.CurrentLyrics?.Payload;
         LyricsAvailableText.Text = lyrics?.Available.ToString() ?? "Pending / unknown";
         LyricsTimedText.Text = lyrics?.Timed.ToString() ?? "Pending / unknown";
@@ -333,6 +348,11 @@ public partial class MainWindow : Window
     private void OnOverlayVisibilityChanged(bool visible)
     {
         _tray?.SetOverlayVisible(visible);
+        if (visible)
+        {
+            SynchronizeActiveLrcWatcher(retryUnavailable: true);
+            _activeLrcWatcher?.CheckNow();
+        }
         _synchronizingOverlayToggle = true;
         try
         {
@@ -434,6 +454,174 @@ public partial class MainWindow : Window
     {
         OverlayTimingCommandRouter.Route(command, AdjustCurrentLineTiming, AdjustTiming, ResetTiming);
         UpdateOverlayTimingAvailability();
+    }
+
+    private void OnActivated(object? sender, EventArgs e)
+    {
+        SynchronizeActiveLrcWatcher(retryUnavailable: true);
+        _activeLrcWatcher?.CheckNow();
+    }
+
+    private void SynchronizeActiveLrcWatcher(bool retryUnavailable = false)
+    {
+        var record = _playbackState.ActiveLocalLyricsRecord;
+        if (record is null)
+        {
+            if (_watchedLocalTrackId is not null) StopWatchingActiveLrc();
+            _externalLrcStatus = "No current local timed LRC";
+            return;
+        }
+
+        string path;
+        try { path = ((App)Application.Current).LyricsLibrary.ResolveLyricsPath(record); }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
+        {
+            if (_watchedLocalTrackId is not null) StopWatchingActiveLrc();
+            _externalLrcStatus = "The current local LRC path is unavailable.";
+            ((App)Application.Current).Logger.Write("Warning", "ExternalLyrics",
+                $"Could not resolve active LRC path ({exception.GetType().Name}).");
+            return;
+        }
+
+        if (_watchedLocalTrackId == record.LocalTrackId &&
+            string.Equals(_watchedLrcPath, path, StringComparison.OrdinalIgnoreCase) &&
+            (_activeLrcWatcher is not null || !retryUnavailable)) return;
+
+        StopWatchingActiveLrc();
+        _watchedLocalTrackId = record.LocalTrackId;
+        _watchedLrcPath = path;
+        _externalLrcStatus = "Watching current LRC";
+        var generation = _externalLrcGeneration;
+        try
+        {
+            _activeLrcWatcher = new ActiveLrcFileWatcher(path,
+                _playbackState.CurrentLocalLyrics?.LrcContentHash,
+                observation => OnActiveLrcObservation(record.LocalTrackId, generation, observation),
+                ((App)Application.Current).Logger.Write);
+            _activeLrcWatcher.CheckNow();
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
+                                            NotSupportedException or System.Security.SecurityException)
+        {
+            _externalLrcStatus = "File watching is unavailable; the file will be checked when the app is activated.";
+            ((App)Application.Current).Logger.Write("Warning", "ExternalLyrics",
+                $"Could not watch active LRC ({exception.GetType().Name}).");
+        }
+    }
+
+    private void StopWatchingActiveLrc()
+    {
+        _externalLrcGeneration++;
+        _activeLrcWatcher?.Dispose();
+        _activeLrcWatcher = null;
+        _watchedLocalTrackId = null;
+        _watchedLrcPath = null;
+    }
+
+    private void OnActiveLrcObservation(
+        string localTrackId, int generation, ActiveLrcFileObservation observation)
+    {
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (_shutdown.IsCancellationRequested || generation != _externalLrcGeneration ||
+                _playbackState.ActiveLocalLyricsRecord?.LocalTrackId != localTrackId) return;
+
+            switch (observation.Kind)
+            {
+                case ActiveLrcFileObservationKind.Content:
+                {
+                    var result = _playbackState.ReloadExternalLocalLyrics(localTrackId, observation.Fingerprint!);
+                    switch (result)
+                    {
+                        case ExternalLocalLyricsUpdate.Reloaded:
+                            _externalLrcStatus = "External LRC reloaded";
+                            DisplayLyrics();
+                            return;
+                        case ExternalLocalLyricsUpdate.Unchanged:
+                            if (_playbackState.IsCurrentLocalLrcUsable) _externalLrcStatus = "Watching current LRC";
+                            UpdateExternalLrcAvailability();
+                            return;
+                        case ExternalLocalLyricsUpdate.Invalid:
+                            _externalLrcStatus = "External LRC is invalid; last valid lyrics are retained.";
+                            DisplayLyrics();
+                            return;
+                        case ExternalLocalLyricsUpdate.Unavailable:
+                            _externalLrcStatus = "External LRC is temporarily unavailable; last valid lyrics are retained.";
+                            DisplayLyrics();
+                            return;
+                        case ExternalLocalLyricsUpdate.Retry:
+                            _externalLrcStatus = "Checking the latest LRC change…";
+                            _activeLrcWatcher?.CheckNow();
+                            UpdateExternalLrcAvailability();
+                            return;
+                        case ExternalLocalLyricsUpdate.Stale:
+                            return;
+                    }
+                    break;
+                }
+                case ActiveLrcFileObservationKind.Missing:
+                    _playbackState.MarkExternalLocalLyricsMissing(localTrackId);
+                    _externalLrcStatus = "LRC file unavailable; it will be reloaded if restored.";
+                    DisplayLyrics();
+                    return;
+                case ActiveLrcFileObservationKind.Unavailable:
+                    _playbackState.MarkExternalLocalLyricsUnavailable(localTrackId, observation.Error);
+                    _externalLrcStatus = "LRC cannot currently be read; last valid lyrics are retained.";
+                    DisplayLyrics();
+                    return;
+            }
+        }));
+    }
+
+    private void UpdateExternalLrcAvailability()
+    {
+        var canOpen = false;
+        if (_playbackState.IsCurrentLocalLrcUsable && _playbackState.ActiveLocalLyricsRecord is { } record)
+        {
+            try
+            {
+                var path = ((App)Application.Current).LyricsLibrary.ResolveLyricsPath(record);
+                canOpen = File.Exists(path);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
+            {
+                canOpen = false;
+            }
+        }
+        OpenLrcExternallyButton.IsEnabled = canOpen;
+        _overlay.SetExternalLyricsAvailability(canOpen);
+        ExternalLrcStatusText.Text = _externalLrcStatus ??
+            (_playbackState.ActiveLocalLyricsRecord is null ? "No current local timed LRC" : "Watching current LRC");
+    }
+
+    private void OpenCurrentLrcExternally()
+    {
+        if (!_playbackState.IsCurrentLocalLrcUsable || _playbackState.ActiveLocalLyricsRecord is not { } record)
+        {
+            UpdateExternalLrcAvailability();
+            return;
+        }
+
+        string path;
+        try { path = ((App)Application.Current).LyricsLibrary.ResolveLyricsPath(record); }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
+        {
+            _externalLrcStatus = "The current local LRC path is unavailable.";
+            ((App)Application.Current).Logger.Write("Warning", "ExternalLyrics",
+                $"Could not resolve active LRC path ({exception.GetType().Name}).");
+            UpdateExternalLrcAvailability();
+            return;
+        }
+
+        if (!_externalLrcOpener.TryOpen(path, out var error))
+        {
+            _externalLrcStatus = error ?? "The current LRC could not be opened.";
+            UpdateExternalLrcAvailability();
+            return;
+        }
+
+        _externalLrcStatus = "Opened the current LRC externally";
+        UpdateExternalLrcAvailability();
     }
 
     private void UpdateOverlayTimingAvailability() => _overlay.SetTimingAvailability(

@@ -119,7 +119,8 @@ public enum LocalLyricsLookupStatus
 public sealed record LocalLyricsLookupResult(
     LocalLyricsLookupStatus Status,
     LocalLyricsDocument? Document = null,
-    string? Error = null);
+    string? Error = null,
+    LocalTrackRecord? Record = null);
 
 public enum LyricsImportStatus
 {

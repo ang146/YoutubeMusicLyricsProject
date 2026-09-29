@@ -43,4 +43,4 @@ The diagnostic UI's existing approximately 33 ms timer asks the monotonic `Playb
 - Loading an M5 local LRC constructs the timeline from its parsed lines. Later remote results cannot replace that local timeline source.
 - A legitimate same-track transition from accepted remote lyrics to the newly imported local document rebuilds the timeline from the accepted local lines.
 
-No current-line index or playback position is written to SQLite, sidecars, or LRC files. Live external-file watching remains deferred. Global timing offset and offset persistence belong to Milestone 8; Milestone 6 evaluates the unmodified local playback position.
+No current-line index or playback position is written to SQLite, sidecars, or LRC files. Milestone 10 watches only the active local LRC and rebuilds the timeline at the unchanged `PlaybackClock` position after valid external edits; see [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md). Global timing offset and offset persistence belong to Milestone 8; Milestone 6 evaluates the unmodified local playback position.

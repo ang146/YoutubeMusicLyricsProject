@@ -173,7 +173,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 9, the application retains its diagnostic/control-panel UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, current/next-line timeline evaluation, timing adjustment, and explicit overlay interaction preferences. Storage, indexing, timeline selection, overlay presentation mapping, interaction state, settings parsing, and geometry validation live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), and [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
+Through Milestone 10, the application retains its diagnostic/control-panel UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, current/next-line timeline evaluation, timing adjustment, overlay interaction preferences, and safe active-LRC external editing/reload. Storage, indexing, timeline selection, overlay presentation mapping, interaction state, settings parsing, geometry validation, and file-change coordination live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), and [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
 
 ### User-Facing Window Roles
 
@@ -792,7 +792,7 @@ Silent destructive rewriting is not acceptable.
 
 A persistent correction requires an authoritative local timed lyrics document. Controls remain disabled for pending, untimed, unavailable, or runtime-only results. SQLite does not store the offset. See [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md) for the implemented contract and safety details.
 
-The Milestone 8 Current Line follow-up is deliberately different: its explicit ±0.1/±0.5-second buttons directly edit only the current local LRC timestamp occurrence. Local parsing retains exact source locations and a loaded-content hash for safe targeting and stale-file rejection. Negative timestamps and crossings of adjacent starts are rejected; equal starts remain deterministic. The sidecar/global offset is unchanged, no per-line offsets are stored, and a successful save rebuilds the current timeline immediately. This is not a full editor or external-file watcher.
+The Milestone 8 Current Line follow-up is deliberately different: its explicit ±0.1/±0.5-second buttons directly edit only the current local LRC timestamp occurrence. Local parsing retains exact source locations and a loaded-content hash for safe targeting and stale-file rejection. Negative timestamps and crossings of adjacent starts are rejected; equal starts remain deterministic. The sidecar/global offset is unchanged, no per-line offsets are stored, and a successful save rebuilds the current timeline immediately. This is not a full editor; the active-file watcher is added separately in Milestone 10.
 
 ## 13.1 Explicit Break Markers and Future Karaoke Presentation
 
@@ -1393,11 +1393,17 @@ The interaction state is owned by the overlay controller and persisted in the ex
 
 ## Milestone 10 — External Editing
 
-Add:
+Implemented:
 
-* open LRC externally
-* detect external changes
-* reload safely
+* open the usable active local LRC with the Windows default associated application from the Control Panel or overlay context menu
+* watch only the active LRC's containing directory (and its track-directory parent for recreation), debounce events for 300 ms, and accept content only after two matching SHA-256 reads within six bounded attempts
+* handle Changed/Created/Deleted/Renamed events and atomic replacement saves, with bounded retry and watcher recovery; activation and overlay-show fingerprint checks provide a low-frequency fallback for SMB/NAS watcher gaps
+* validate/reload changed local lyrics read-only, preserve `GlobalOffsetMs` and `PlaybackClock`, rebuild timeline/source occurrences and overlay immediately, and retain last-known-good runtime lyrics for invalid edits without changing user files
+* mark persistently missing local LRC unavailable without creating it or falling back to provider lyrics; continue watching for automatic recovery
+* bind asynchronous observations to the active local track/path generation; keep watching while UI surfaces are hidden and dispose watchers at application shutdown
+* deduplicate identical content, including app-owned Current Line/Bake writes, without broad time-based suppression
+
+See [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md) for behavior, limitations, and SMB/UNC considerations. This milestone does not add a built-in editor or library-wide watcher.
 
 ---
 

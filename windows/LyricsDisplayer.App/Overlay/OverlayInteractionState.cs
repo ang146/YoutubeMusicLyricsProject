@@ -24,6 +24,7 @@ public sealed record OverlayInteractionState(
 public enum OverlayCommand
 {
     OpenControlPanel,
+    OpenLrcExternally,
     ToggleLocked,
     ToggleClickThrough,
     ToggleTopmost,

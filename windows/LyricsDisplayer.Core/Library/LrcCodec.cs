@@ -12,9 +12,12 @@ public sealed record LrcParseResult(
     string? Error = null)
 {
     public IReadOnlyList<LrcTimestampOccurrence> TimestampOccurrences { get; init; } = [];
+    public IReadOnlyList<LrcParseDiagnostic> Diagnostics { get; init; } = [];
+    public bool HasTimedLyrics => Lines.Count > 0;
 }
 
 public sealed record LrcTimestampOccurrence(int CharacterIndex, int Length, long StartMs);
+public sealed record LrcParseDiagnostic(int PhysicalLineNumber, string Message);
 
 public static partial class LrcCodec
 {
@@ -23,6 +26,9 @@ public static partial class LrcCodec
 
     [GeneratedRegex(@"^\[(ar|ti|al|by|offset|re|ve|length):", RegexOptions.IgnoreCase)]
     private static partial Regex MetadataRegex();
+
+    [GeneratedRegex(@"^\d+:")]
+    private static partial Regex TimestampLikePrefixRegex();
 
     public static string Serialize(IEnumerable<LyricsLine> lines)
     {
@@ -45,16 +51,37 @@ public static partial class LrcCodec
     public static LrcParseResult Parse(string text, long? durationMs = null)
     {
         var parsed = new List<(long StartMs, string Text, int Order, LrcTimestampOccurrence Occurrence)>();
+        var diagnostics = new List<LrcParseDiagnostic>();
         var skipped = 0;
         var order = 0;
+        var lineNumber = 1;
+        var scannedThrough = 0;
         foreach (Match physicalMatch in Regex.Matches(text, @"[^\r\n]+"))
         {
+            while (scannedThrough < physicalMatch.Index)
+            {
+                if (text[scannedThrough++] == '\r')
+                {
+                    if (scannedThrough < physicalMatch.Index && text[scannedThrough] == '\n') scannedThrough++;
+                    lineNumber++;
+                }
+                else if (text[scannedThrough - 1] == '\n') lineNumber++;
+            }
             var physicalLine = physicalMatch.Value;
+            var syntaxError = FindMalformedTimestampSyntax(physicalLine);
+            if (syntaxError is not null)
+            {
+                diagnostics.Add(new(lineNumber, syntaxError));
+                skipped++;
+                scannedThrough = physicalMatch.Index + physicalMatch.Length;
+                continue;
+            }
             if (physicalLine.Length == 0 || MetadataRegex().IsMatch(physicalLine)) continue;
             var matches = TimestampRegex().Matches(physicalLine);
             if (matches.Count == 0)
             {
                 skipped++;
+                scannedThrough = physicalMatch.Index + physicalMatch.Length;
                 continue;
             }
             var last = matches[^1];
@@ -66,6 +93,8 @@ public static partial class LrcCodec
                     !int.TryParse(match.Groups["seconds"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds) ||
                     seconds >= 60)
                 {
+                    diagnostics.Add(new(lineNumber, "Timestamp fields are outside the supported LRC format."));
+                    any = true;
                     continue;
                 }
                 var fractionText = match.Groups["fraction"].Value;
@@ -79,14 +108,23 @@ public static partial class LrcCodec
                 }
                 catch (OverflowException)
                 {
-                    // Isolate an invalid timestamp without discarding usable physical lines.
+                    diagnostics.Add(new(lineNumber, "Timestamp value is too large."));
+                    any = true;
                 }
             }
             if (!any) skipped++;
+            scannedThrough = physicalMatch.Index + physicalMatch.Length;
+        }
+
+        if (diagnostics.Count > 0)
+        {
+            var first = diagnostics[0];
+            return new LrcParseResult(false, [], skipped,
+                $"Line {first.PhysicalLineNumber}: {first.Message}") { Diagnostics = diagnostics };
         }
 
         if (parsed.Count == 0)
-            return new LrcParseResult(false, [], skipped, "The LRC contains no usable timestamped lines.");
+            return new LrcParseResult(true, [], skipped);
 
         var ordered = parsed.OrderBy(item => item.StartMs).ThenBy(item => item.Order).ToArray();
         var result = new List<LyricsLine>(ordered.Length);
@@ -102,5 +140,47 @@ public static partial class LrcCodec
         {
             TimestampOccurrences = ordered.Select(item => item.Occurrence).ToArray()
         };
+    }
+
+    private static string? FindMalformedTimestampSyntax(string line)
+    {
+        var matches = TimestampRegex().Matches(line);
+        var matchStarts = matches.Select(match => match.Index).ToHashSet();
+        for (var index = 0; index < line.Length; index++)
+        {
+            if (line[index] != '[') continue;
+            var end = line.IndexOf(']', index + 1);
+            var tokenEnd = end < 0 ? line.Length : end;
+            var token = line[(index + 1)..tokenEnd];
+            if (TimestampLikePrefixRegex().IsMatch(token) && !matchStarts.Contains(index))
+                return end < 0 ? "timestamp tag is missing its closing bracket." : "timestamp tag is malformed.";
+        }
+
+        var cursor = 0;
+        while (cursor < line.Length && char.IsWhiteSpace(line[cursor])) cursor++;
+        var foundTimestamp = false;
+        while (cursor < line.Length && line[cursor] == '[')
+        {
+            var end = line.IndexOf(']', cursor + 1);
+            if (end < 0)
+            {
+                if (foundTimestamp) return "timestamp sequence contains an unclosed bracketed token.";
+                break;
+            }
+
+            var tokenLength = end - cursor + 1;
+            var match = TimestampRegex().Match(line, cursor);
+            if (match.Success && match.Index == cursor && match.Length == tokenLength)
+            {
+                foundTimestamp = true;
+                cursor = end + 1;
+                continue;
+            }
+
+            if (foundTimestamp) return "timestamp sequence contains a malformed timestamp token.";
+            break;
+        }
+
+        return null;
     }
 }

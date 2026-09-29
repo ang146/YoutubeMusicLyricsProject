@@ -37,8 +37,14 @@ public sealed class LrcCodecTests
     public void MetadataTagsAreNotLyricsAndMultipleTimestampsExpand()
     {
         var result = LrcCodec.Parse("[ar:Artist]\n[ti:Title]\n[al:Album]\n[00:10.000][00:20.000]Same text", 30_000);
-        Assert.That(result.Lines.Select(line => (line.StartMs, line.Text)),
-            Is.EqualTo(new[] { (10_000L, "Same text"), (20_000L, "Same text") }));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.HasTimedLyrics, Is.True);
+            Assert.That(result.Diagnostics, Is.Empty);
+            Assert.That(result.Lines.Select(line => (line.StartMs, line.Text)),
+                Is.EqualTo(new[] { (10_000L, "Same text"), (20_000L, "Same text") }));
+        });
     }
 
     [Test]
@@ -62,6 +68,95 @@ public sealed class LrcCodecTests
     public void FinalLineFallsBackToItsStartWithoutReliableDuration()
     {
         Assert.That(LrcCodec.Parse("[00:03.000]last", 2_000).Lines.Single().EndMs, Is.EqualTo(3_000));
-        Assert.That(LrcCodec.Parse("metadata only").Success, Is.False);
+        var untimed = LrcCodec.Parse("metadata only");
+        Assert.Multiple(() =>
+        {
+            Assert.That(untimed.Success, Is.True);
+            Assert.That(untimed.HasTimedLyrics, Is.False);
+            Assert.That(untimed.Diagnostics, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void OrdinaryUntimedTextIsValidButHasNoTimedLines()
+    {
+        var result = LrcCodec.Parse("Line one\nLine two\n");
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.HasTimedLyrics, Is.False);
+            Assert.That(result.Lines, Is.Empty);
+            Assert.That(result.Diagnostics, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void SupportedAndUnknownMetadataRemainHarmlessUntimedContent()
+    {
+        var result = LrcCodec.Parse("[ar:Artist]\n[ti:Title]\n[unknown:kept harmless]\nLyrics without timestamps");
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.HasTimedLyrics, Is.False);
+            Assert.That(result.Diagnostics, Is.Empty);
+        });
+    }
+
+    [TestCase("[00:20.000Hello", "timestamp tag is missing its closing bracket.")]
+    [TestCase("[00:20.000Hello]", "timestamp tag is malformed.")]
+    [TestCase("[00:xx.000]B", "timestamp tag is malformed.")]
+    [TestCase("[00:20.xxx]B", "timestamp tag is malformed.")]
+    public void MalformedTimestampLikeSyntaxProducesFatalLineDiagnostic(string line, string reason)
+    {
+        var result = LrcCodec.Parse($"[00:10.000]A\n{line}\n[00:30.000]C");
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Lines, Is.Empty, "Fatal syntax must not expose a partial document.");
+            Assert.That(result.Diagnostics, Has.Count.EqualTo(1));
+            Assert.That(result.Diagnostics[0].PhysicalLineNumber, Is.EqualTo(2));
+            Assert.That(result.Diagnostics[0].Message, Does.Contain(reason));
+        });
+    }
+
+    [Test]
+    public void MalformedTokenInMultiTimestampSequenceRejectsWholeDocument()
+    {
+        var result = LrcCodec.Parse("[01:00.000][bad timestamp]Chorus\n[03:00.000]Next");
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Lines, Is.Empty);
+            Assert.That(result.Diagnostics.Single().PhysicalLineNumber, Is.EqualTo(1));
+        });
+    }
+
+    [TestCase("[00:60.000]B")]
+    [TestCase("[00:80.000]B")]
+    public void OutOfRangeTimestampFieldsAreFatalDiagnostics(string line)
+    {
+        var result = LrcCodec.Parse($"[00:10.000]A\n{line}\n[00:30.000]C");
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Lines, Is.Empty);
+            Assert.That(result.Diagnostics.Single().PhysicalLineNumber, Is.EqualTo(2));
+            Assert.That(result.Diagnostics.Single().Message, Does.Contain("supported LRC format"));
+        });
+    }
+
+    [Test]
+    public void IntentionalLineDeletionTextChangesTimestampChangesAndValidMultiTimestampRemainValid()
+    {
+        var result = LrcCodec.Parse("[00:10.000]A\n[00:31.000]Corrected C\n[01:00.000][02:00.000]Chorus");
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.Diagnostics, Is.Empty);
+            Assert.That(result.Lines.Select(line => (line.StartMs, line.Text)), Is.EqualTo(new[]
+            {
+                (10_000L, "A"), (31_000L, "Corrected C"), (60_000L, "Chorus"), (120_000L, "Chorus")
+            }));
+        });
     }
 }

@@ -1398,7 +1398,7 @@ Implemented:
 * open the usable active local LRC with the Windows default associated application from the Control Panel or overlay context menu
 * watch only the active LRC's containing directory (and its track-directory parent for recreation), debounce events for 300 ms, and accept content only after two matching SHA-256 reads within six bounded attempts
 * handle Changed/Created/Deleted/Renamed events and atomic replacement saves, with bounded retry and watcher recovery; activation and overlay-show fingerprint checks provide a low-frequency fallback for SMB/NAS watcher gaps
-* validate/reload changed local lyrics read-only, preserve `GlobalOffsetMs` and `PlaybackClock`, rebuild timeline/source occurrences and overlay immediately, and retain last-known-good runtime lyrics for invalid edits without changing user files
+* validate/reload changed local lyrics read-only, reject fatal timestamp-syntax diagnostics as a whole (never partially accepting a malformed document), preserve `GlobalOffsetMs` and `PlaybackClock`, rebuild timeline/source occurrences and overlay immediately, and retain last-known-good runtime lyrics for invalid edits without changing user files; valid untimed content remains distinct from malformed syntax
 * mark persistently missing local LRC unavailable without creating it or falling back to provider lyrics; continue watching for automatic recovery
 * bind asynchronous observations to the active local track/path generation; keep watching while UI surfaces are hidden and dispose watchers at application shutdown
 * deduplicate identical content, including app-owned Current Line/Bake writes, without broad time-based suppression

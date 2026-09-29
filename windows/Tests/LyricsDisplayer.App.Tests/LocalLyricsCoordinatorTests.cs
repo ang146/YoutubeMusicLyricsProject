@@ -267,8 +267,10 @@ public sealed class LocalLyricsCoordinatorTests
         var malformedSaves = new[]
         {
             "[00:10.000]A\n[00:20.000B\n[00:30.000]C\n",
+            "[00:10.000]A\n[0055.000]B\n[00:30.000]C\n",
             "[00:10.000]A\n[00:xx.000]B\n[00:30.000]C\n",
-            "[00:10.000]A\n[00:20.000][bad timestamp]B\n[00:30.000]C\n"
+            "[00:10.000]A\n[00:20.000][bad timestamp]B\n[00:30.000]C\n",
+            "[00:10.000]A\n[01:00.000][0200.000]B\n[00:30.000]C\n"
         };
         foreach (var malformed in malformedSaves)
         {

@@ -93,7 +93,7 @@ public sealed class LrcCodecTests
     [Test]
     public void SupportedAndUnknownMetadataRemainHarmlessUntimedContent()
     {
-        var result = LrcCodec.Parse("[ar:Artist]\n[ti:Title]\n[unknown:kept harmless]\nLyrics without timestamps");
+        var result = LrcCodec.Parse("[ar:Artist]\n[ti:Title]\n[unknown:kept harmless]\n[1.0]\nLyrics without timestamps");
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.True);
@@ -104,8 +104,11 @@ public sealed class LrcCodecTests
 
     [TestCase("[00:20.000Hello", "timestamp tag is missing its closing bracket.")]
     [TestCase("[00:20.000Hello]", "timestamp tag is malformed.")]
+    [TestCase("[0055.000]B", "timestamp tag is malformed.")]
     [TestCase("[00:xx.000]B", "timestamp tag is malformed.")]
     [TestCase("[00:20.xxx]B", "timestamp tag is malformed.")]
+    [TestCase("[00::20.000]B", "timestamp tag is malformed.")]
+    [TestCase("[00:20..000]B", "timestamp tag is malformed.")]
     public void MalformedTimestampLikeSyntaxProducesFatalLineDiagnostic(string line, string reason)
     {
         var result = LrcCodec.Parse($"[00:10.000]A\n{line}\n[00:30.000]C");
@@ -122,7 +125,7 @@ public sealed class LrcCodecTests
     [Test]
     public void MalformedTokenInMultiTimestampSequenceRejectsWholeDocument()
     {
-        var result = LrcCodec.Parse("[01:00.000][bad timestamp]Chorus\n[03:00.000]Next");
+        var result = LrcCodec.Parse("[01:00.000][0200.000]Chorus\n[03:00.000]Next");
         Assert.Multiple(() =>
         {
             Assert.That(result.Success, Is.False);

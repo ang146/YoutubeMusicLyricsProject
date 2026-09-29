@@ -27,9 +27,6 @@ public static partial class LrcCodec
     [GeneratedRegex(@"^\[(ar|ti|al|by|offset|re|ve|length):", RegexOptions.IgnoreCase)]
     private static partial Regex MetadataRegex();
 
-    [GeneratedRegex(@"^\d+:")]
-    private static partial Regex TimestampLikePrefixRegex();
-
     public static string Serialize(IEnumerable<LyricsLine> lines)
     {
         var builder = new StringBuilder();
@@ -152,7 +149,7 @@ public static partial class LrcCodec
             var end = line.IndexOf(']', index + 1);
             var tokenEnd = end < 0 ? line.Length : end;
             var token = line[(index + 1)..tokenEnd];
-            if (TimestampLikePrefixRegex().IsMatch(token) && !matchStarts.Contains(index))
+            if (LooksLikeTimestampToken(token) && !matchStarts.Contains(index))
                 return end < 0 ? "timestamp tag is missing its closing bracket." : "timestamp tag is malformed.";
         }
 
@@ -182,5 +179,16 @@ public static partial class LrcCodec
         }
 
         return null;
+    }
+
+    private static bool LooksLikeTimestampToken(string token)
+    {
+        if (token.Length == 0 || !char.IsDigit(token[0])) return false;
+        if (token.Contains(':')) return true;
+
+        // A missing-colon timestamp still has a minute/second-sized numeric field
+        // followed by the supported fractional separator (for example 0055.000).
+        var fractionSeparator = token.IndexOf('.');
+        return fractionSeparator >= 4 && token[..fractionSeparator].All(char.IsDigit);
     }
 }

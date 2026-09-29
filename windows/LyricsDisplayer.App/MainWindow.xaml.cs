@@ -542,7 +542,7 @@ public partial class MainWindow : Window
                             UpdateExternalLrcAvailability();
                             return;
                         case ExternalLocalLyricsUpdate.Invalid:
-                            _externalLrcStatus = "External LRC is invalid; last valid lyrics are retained.";
+                            _externalLrcStatus = "External LRC was rejected; last valid lyrics are retained.";
                             DisplayLyrics();
                             return;
                         case ExternalLocalLyricsUpdate.Unavailable:

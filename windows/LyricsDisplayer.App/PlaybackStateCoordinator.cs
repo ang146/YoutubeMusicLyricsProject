@@ -326,12 +326,12 @@ public sealed class PlaybackStateCoordinator
     {
         if (_activeLocalLyricsRecord?.LocalTrackId != localTrackId) return false;
         _externalLrcUsable = false;
-        LocalAssociationStatus = "External LRC parse error";
+        LocalAssociationStatus = "External LRC rejected";
         LyricsLoadedFrom = CurrentLocalLyrics is null
-            ? "Local Library (invalid external LRC)"
+            ? "Local Library (external LRC rejected)"
             : "Local Library (last valid lyrics retained)";
         _log?.Invoke("Warning", "ExternalLyrics",
-            $"External LRC parse failed for LocalTrackId={localTrackId}; keeping last-known-good runtime lyrics. {error}");
+            $"External LRC reload rejected for LocalTrackId={localTrackId}; keeping last-known-good runtime lyrics. {error}");
         return true;
     }
 

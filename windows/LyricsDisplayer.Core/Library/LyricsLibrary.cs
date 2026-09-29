@@ -284,7 +284,7 @@ public sealed class LyricsLibrary : IDisposable
             var sidecarJson = SidecarSerializer.Serialize(updatedSidecar);
             var duration = updatedSidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
             var parsed = LrcCodec.Parse(rewritten.Content!, duration);
-            if (!parsed.Success)
+            if (!parsed.Success || !parsed.HasTimedLyrics)
                 return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
 
             var savedBytes = AtomicFile.ReplacePair(lyricsPath, rewritten.Content!, sidecarPath, sidecarJson,
@@ -349,7 +349,7 @@ public sealed class LyricsLibrary : IDisposable
                 return new(TimingAdjustmentStatus.FileChanged, Error: rewritten.Error);
             var duration = document.Sidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
             var parsed = LrcCodec.Parse(rewritten.Content!, duration);
-            if (!parsed.Success)
+            if (!parsed.Success || !parsed.HasTimedLyrics)
                 return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
             var savedBytes = original.Encode(rewritten.Content!);
             if (!AtomicFile.TryReplaceUnchanged(path, savedBytes, expected.LrcContentHash, _beforeLineCommit))
@@ -469,7 +469,7 @@ public sealed class LyricsLibrary : IDisposable
             if (!File.Exists(lyricsPath)) return null;
             var snapshot = LrcFileSnapshot.Read(lyricsPath);
             var parsed = LrcCodec.Parse(snapshot.Content, currentMetadata.DurationMs);
-            if (!parsed.Success) return null;
+            if (!parsed.Success || !parsed.HasTimedLyrics) return null;
             var stored = sidecar.SourceAssociations.First().Metadata;
             return new(record, sidecar, parsed.Lines,
                 EffectiveTrackMetadata.From(stored, sidecar.UserMetadata, currentMetadata))
@@ -498,7 +498,10 @@ public sealed class LyricsLibrary : IDisposable
         if (!File.Exists(lyricsPath)) { error = "Referenced LRC is missing."; return false; }
         var duration = sidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
         var parsed = LrcCodec.Parse(File.ReadAllText(lyricsPath), duration);
-        if (!parsed.Success) { error = parsed.Error!; return false; }
+        if (!parsed.Success)
+        { error = parsed.Error!; return false; }
+        if (!parsed.HasTimedLyrics)
+        { error = "The local LRC contains no timed lyric lines."; return false; }
         return true;
     }
 

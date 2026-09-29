@@ -1,6 +1,7 @@
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Threading;
 
@@ -214,6 +215,96 @@ public sealed class LocalLyricsCoordinatorTests
             Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
         Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Single().Text, Is.EqualTo("Repaired line"));
         Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
+    }
+
+    [Test]
+    public async Task WatcherRejectsRepeatedMalformedSavesAndRecoversOnValidEdit()
+    {
+        using var library = InitialiseLibrary();
+        var track = TrackInfo("track-a");
+        var lyrics = Lyrics("track-a", 2).Payload with
+        {
+            Lines =
+            [
+                new LyricsLine(10_000, 20_000, "A"),
+                new LyricsLine(20_000, 30_000, "B"),
+                new LyricsLine(30_000, 40_000, "C")
+            ]
+        };
+        var imported = library.Import(track, lyrics);
+        var lrc = Path.Combine(_paths.LibraryPath, "tracks", imported.LocalTrackId!, "track.lrc");
+        const string original = "[00:10.000]A\n[00:20.000]B\n[00:30.000]C\n";
+        File.WriteAllText(lrc, original);
+
+        var coordinator = Coordinator(library);
+        var playback = Playback("track-a", 1);
+        coordinator.Apply(playback with
+        {
+            Payload = playback.Payload with
+            {
+                Playback = playback.Payload.Playback with { PositionMs = 15_000, Playing = false }
+            }
+        });
+        Assert.That(coordinator.AdjustTiming(500).Succeeded, Is.True);
+
+        var updates = new ConcurrentQueue<ExternalLocalLyricsUpdate>();
+        using var updateSignal = new SemaphoreSlim(0);
+        using var watcher = new ActiveLrcFileWatcher(lrc, coordinator.CurrentLocalLyrics!.LrcContentHash,
+            observation =>
+            {
+                if (observation.Kind != ActiveLrcFileObservationKind.Content) return;
+                updates.Enqueue(coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, observation.Fingerprint!));
+                updateSignal.Release();
+            }, debounce: TimeSpan.FromMilliseconds(10), retryDelay: TimeSpan.FromMilliseconds(5));
+
+        async Task<ExternalLocalLyricsUpdate> NextUpdate()
+        {
+            await updateSignal.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(updates.TryDequeue(out var update), Is.True);
+            return update;
+        }
+
+        var malformedSaves = new[]
+        {
+            "[00:10.000]A\n[00:20.000B\n[00:30.000]C\n",
+            "[00:10.000]A\n[0055.000]B\n[00:30.000]C\n",
+            "[00:10.000]A\n[00:xx.000]B\n[00:30.000]C\n",
+            "[00:10.000]A\n[00:20.000][bad timestamp]B\n[00:30.000]C\n",
+            "[00:10.000]A\n[01:00.000][0200.000]B\n[00:30.000]C\n"
+        };
+        foreach (var malformed in malformedSaves)
+        {
+            File.WriteAllText(lrc, malformed);
+            watcher.CheckNow();
+            Assert.That(await NextUpdate(), Is.EqualTo(ExternalLocalLyricsUpdate.Invalid));
+            Assert.Multiple(() =>
+            {
+                Assert.That(File.ReadAllText(lrc), Is.EqualTo(malformed), "Invalid disk content must remain untouched.");
+                Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Select(line => line.Text), Is.EqualTo(new[] { "A", "B", "C" }));
+                Assert.That(coordinator.GetTimelinePosition().CurrentLine!.Text, Is.EqualTo("A"));
+                Assert.That(coordinator.GetTimelinePosition().NextLine!.Text, Is.EqualTo("B"));
+                Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
+                Assert.That(coordinator.Current!.Payload.Playback.PositionMs, Is.EqualTo(15_000));
+                Assert.That(coordinator.Current.Payload.Playback.Playing, Is.False);
+                Assert.That(coordinator.AdjustTiming(100).Succeeded, Is.False);
+                Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.False);
+            });
+        }
+
+        const string recovered = "[00:10.000]A corrected\n[00:31.000]C\n";
+        File.WriteAllText(lrc, recovered);
+        watcher.CheckNow();
+        Assert.That(await NextUpdate(), Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Select(line => line.Text),
+                Is.EqualTo(new[] { "A corrected", "C" }));
+            Assert.That(coordinator.CurrentLyrics.Payload.Lines[1].StartMs, Is.EqualTo(31_000));
+            Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
+            Assert.That(coordinator.LocalAssociationStatus, Is.EqualTo("Found"));
+            Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
+        });
     }
 
     [Test]

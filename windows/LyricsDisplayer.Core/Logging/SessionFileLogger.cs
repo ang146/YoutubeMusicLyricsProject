@@ -48,7 +48,14 @@ public sealed partial class SessionFileLogger : IDisposable
 
     public string CurrentPath => _currentPath;
 
-    public void Write(string level, string category, string message)
+    public void Write(string level, string category, string message) =>
+        WriteCore(level, category, message, preserveLineBreaks: false);
+
+    /// <summary>Writes one event with readable, indented continuation lines.</summary>
+    public void WriteMultiline(string level, string category, string message) =>
+        WriteCore(level, category, message, preserveLineBreaks: true);
+
+    private void WriteCore(string level, string category, string message, bool preserveLineBreaks)
     {
         lock (_gate)
         {
@@ -64,7 +71,7 @@ public sealed partial class SessionFileLogger : IDisposable
 
             var safeLevel = SingleLine(level);
             var safeCategory = SingleLine(category);
-            var safeMessage = SingleLine(message);
+            var safeMessage = preserveLineBreaks ? Multiline(message) : SingleLine(message);
             var entry = $"{now:yyyy-MM-dd'T'HH:mm:ss.fffzzz} [{safeLevel}] [{safeCategory}] {safeMessage}{Environment.NewLine}";
             File.AppendAllText(_currentPath, entry, System.Text.Encoding.UTF8);
         }
@@ -141,6 +148,15 @@ public sealed partial class SessionFileLogger : IDisposable
     private static string SingleLine(string value) =>
         (value ?? string.Empty).Replace("\r", "\\r", StringComparison.Ordinal)
             .Replace("\n", "\\n", StringComparison.Ordinal);
+
+    private static string Multiline(string value)
+    {
+        var lines = (value ?? string.Empty).Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
+        if (lines.Length == 1) return SingleLine(lines[0]);
+
+        return string.Join(Environment.NewLine, lines.Select((line, index) =>
+            index == 0 ? SingleLine(line) : $"    {SingleLine(line)}"));
+    }
 
     [GeneratedRegex(@"^(?<date>\d{4}-\d{2}-\d{2})(?:-\([1-9]\d*\))?\.logs$", RegexOptions.CultureInvariant)]
     private static partial Regex RotatedFilePattern();

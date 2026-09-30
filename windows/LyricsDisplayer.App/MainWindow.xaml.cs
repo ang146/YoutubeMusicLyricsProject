@@ -134,7 +134,7 @@ public partial class MainWindow : Window
             _allowApplicationExit = false;
             return;
         }
-        if (ControlPanelClosePolicy.ShouldHideToTray(
+        if (!((App)Application.Current).IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
                 CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit))
         {
             e.Cancel = true;
@@ -550,36 +550,36 @@ public partial class MainWindow : Window
             switch (observation.Kind)
             {
                 case ActiveLrcFileObservationKind.Content:
-                {
-                    var result = _playbackState.ReloadExternalLocalLyrics(localTrackId, observation.Fingerprint!);
-                    switch (result)
                     {
-                        case ExternalLocalLyricsUpdate.Reloaded:
-                            _externalLrcStatus = "External LRC reloaded";
-                            DisplayLyrics();
-                            return;
-                        case ExternalLocalLyricsUpdate.Unchanged:
-                            if (_playbackState.IsCurrentLocalLrcUsable) _externalLrcStatus = "Watching current LRC";
-                            UpdateExternalLrcAvailability();
-                            return;
-                        case ExternalLocalLyricsUpdate.Invalid:
-                            _externalLrcStatus = "External LRC was rejected; last valid lyrics are retained.";
-                            DisplayLyrics();
-                            return;
-                        case ExternalLocalLyricsUpdate.Unavailable:
-                            _externalLrcStatus = "External LRC is temporarily unavailable; last valid lyrics are retained.";
-                            DisplayLyrics();
-                            return;
-                        case ExternalLocalLyricsUpdate.Retry:
-                            _externalLrcStatus = "Checking the latest LRC change…";
-                            _activeLrcWatcher?.CheckNow();
-                            UpdateExternalLrcAvailability();
-                            return;
-                        case ExternalLocalLyricsUpdate.Stale:
-                            return;
+                        var result = _playbackState.ReloadExternalLocalLyrics(localTrackId, observation.Fingerprint!);
+                        switch (result)
+                        {
+                            case ExternalLocalLyricsUpdate.Reloaded:
+                                _externalLrcStatus = "External LRC reloaded";
+                                DisplayLyrics();
+                                return;
+                            case ExternalLocalLyricsUpdate.Unchanged:
+                                if (_playbackState.IsCurrentLocalLrcUsable) _externalLrcStatus = "Watching current LRC";
+                                UpdateExternalLrcAvailability();
+                                return;
+                            case ExternalLocalLyricsUpdate.Invalid:
+                                _externalLrcStatus = "External LRC was rejected; last valid lyrics are retained.";
+                                DisplayLyrics();
+                                return;
+                            case ExternalLocalLyricsUpdate.Unavailable:
+                                _externalLrcStatus = "External LRC is temporarily unavailable; last valid lyrics are retained.";
+                                DisplayLyrics();
+                                return;
+                            case ExternalLocalLyricsUpdate.Retry:
+                                _externalLrcStatus = "Checking the latest LRC change…";
+                                _activeLrcWatcher?.CheckNow();
+                                UpdateExternalLrcAvailability();
+                                return;
+                            case ExternalLocalLyricsUpdate.Stale:
+                                return;
+                        }
+                        break;
                     }
-                    break;
-                }
                 case ActiveLrcFileObservationKind.Missing:
                     _playbackState.MarkExternalLocalLyricsMissing(localTrackId);
                     _externalLrcStatus = "LRC file unavailable; it will be reloaded if restored.";

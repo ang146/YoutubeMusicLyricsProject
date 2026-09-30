@@ -1201,6 +1201,31 @@ Useful entries include:
 
 Avoid repeatedly writing full lyrics payloads to logs during normal operation.
 
+## 15.8 Application Fatal Exception Reporting
+
+Standalone crash reports are written lazily under:
+
+```text
+%LOCALAPPDATA%\LyricsDisplayer\Logs\Crash\
+```
+
+An unexpected fatal exception is written to the existing application logger at
+`Fatal` severity and also to one uniquely named standalone report. The report
+includes runtime/process context and the exception/inner-exception chain. It
+does not include lyrics contents, browser contents, credentials, or exception
+data values. If the crash directory cannot be written, reporting attempts a
+minimal fallback there and then under `%TEMP%\LyricsDisplayer\Crash\`.
+
+WPF dispatcher exceptions trigger a best-effort fatal dialog followed by
+controlled application shutdown; fatal shutdown bypasses the normal
+close-to-tray path and does not attempt to save user data. AppDomain unhandled
+exceptions are recorded best-effort without showing UI. Unobserved task
+exceptions are logged at `Error` severity and do not by themselves create a
+crash report or request application shutdown.
+
+The current app logger writes and closes each entry synchronously and has no
+separate flush API, so the fatal log write is the available best-effort flush.
+
 ---
 
 # 16. Automatic App Launch

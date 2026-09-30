@@ -151,6 +151,130 @@ public sealed class CrashReportServiceTests
     }
 
     [Test]
+    public void FatalLogUsesReadableMultilineOutputWithoutChangingOrdinaryLogEscaping()
+    {
+        var logDirectory = Path.Combine(_directory, "App");
+        using var logger = new SessionFileLogger(logDirectory,
+            new FixedClock(new DateTimeOffset(2026, 9, 30, 5, 38, 12, TimeSpan.FromHours(8))));
+        logger.Write("Information", "Ordinary", "ordinary first line\r\nordinary second line");
+        var coordinator = new FatalExceptionCoordinator(CreateService(), logger.Write, logger.WriteMultiline);
+
+        coordinator.HandleDispatcherFatal(CaptureNestedException(), "dispatcher multiline test",
+            _ => { }, () => { });
+
+        var lines = File.ReadAllLines(logger.CurrentPath);
+        var fatalStart = Array.FindIndex(lines, line => line.Contains("[Fatal] [Application]", StringComparison.Ordinal));
+        var fatalText = string.Join(Environment.NewLine, lines.Skip(fatalStart));
+        Assert.Multiple(() =>
+        {
+            Assert.That(lines[0], Does.Contain("ordinary first line\\r\\nordinary second line"));
+            Assert.That(lines.Count(line => line.Contains("[Information] [Ordinary]", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(fatalStart, Is.GreaterThan(0));
+            Assert.That(lines[fatalStart], Does.Contain("Fatal unhandled exception."));
+            Assert.That(fatalText, Does.Contain(Environment.NewLine + "    Crash Report ID:"));
+            Assert.That(fatalText, Does.Contain(Environment.NewLine + "    Exception:"));
+            Assert.That(fatalText.Split(Environment.NewLine)
+                .Any(line => line.TrimStart().StartsWith("at ", StringComparison.Ordinal)), Is.True);
+            Assert.That(fatalText, Does.Contain(Environment.NewLine + "    Crash report path:"));
+            Assert.That(fatalText, Does.Not.Contain("\\r\\n"));
+            Assert.That(fatalText, Does.Not.Contain("\\n"));
+        });
+    }
+
+    [Test]
+    public void RepeatedDispatcherFatalRequestsOneDialogOneReportAndOneShutdown()
+    {
+        var writer = new TestWriter();
+        var coordinator = new FatalExceptionCoordinator(CreateService(writer), (_, _, _) => { });
+        var exception = new InvalidOperationException("same fatal incident");
+        var dialogRequests = 0;
+        var shutdownRequests = 0;
+
+        var primary = coordinator.HandleDispatcherFatal(exception, "dispatcher first entry",
+            _ => dialogRequests++, () => shutdownRequests++);
+        var duplicate = coordinator.HandleDispatcherFatal(exception, "dispatcher re-entry",
+            _ => dialogRequests++, () => shutdownRequests++);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(primary.IsPrimaryIncident, Is.True);
+            Assert.That(duplicate.IsPrimaryIncident, Is.False);
+            Assert.That(duplicate.WasAlreadyHandling, Is.True);
+            Assert.That(writer.Paths.Count(path => Path.GetFileName(path).StartsWith("crash-", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(dialogRequests, Is.EqualTo(1));
+            Assert.That(shutdownRequests, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void SecondaryFatalDuringShutdownDoesNotNotifyWriteOrShutdownAgain()
+    {
+        var writer = new TestWriter();
+        var coordinator = new FatalExceptionCoordinator(CreateService(writer), (_, _, _) => { });
+        var dialogRequests = 0;
+        var shutdownRequests = 0;
+
+        coordinator.HandleDispatcherFatal(new InvalidOperationException("primary"), "dispatcher",
+            _ => dialogRequests++, () =>
+            {
+                shutdownRequests++;
+                coordinator.HandleDispatcherFatal(new ObjectDisposedException("secondary shutdown"), "shutdown",
+                    _ => dialogRequests++, () => shutdownRequests++);
+            });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(writer.Paths.Count(path => Path.GetFileName(path).StartsWith("crash-", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(dialogRequests, Is.EqualTo(1));
+            Assert.That(shutdownRequests, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void AppDomainFatalAfterDispatcherDoesNotRequestAnotherDialogOrShutdown()
+    {
+        var writer = new TestWriter();
+        var coordinator = new FatalExceptionCoordinator(CreateService(writer), (_, _, _) => { });
+        var dialogRequests = 0;
+        var shutdownRequests = 0;
+
+        coordinator.HandleDispatcherFatal(new InvalidOperationException("primary"), "dispatcher",
+            _ => dialogRequests++, () => shutdownRequests++);
+        var appDomainResult = coordinator.ReportFatal(new InvalidOperationException("secondary callback"),
+            "AppDomain.CurrentDomain.UnhandledException", isTerminating: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(appDomainResult.IsPrimaryIncident, Is.False);
+            Assert.That(writer.Paths.Count(path => Path.GetFileName(path).StartsWith("crash-", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(dialogRequests, Is.EqualTo(1));
+            Assert.That(shutdownRequests, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void DialogFailureStillRequestsShutdownOnceAndDoesNotRetryDialog()
+    {
+        var writer = new TestWriter();
+        var coordinator = new FatalExceptionCoordinator(CreateService(writer), (_, _, _) => { });
+        var dialogRequests = 0;
+        var shutdownRequests = 0;
+
+        coordinator.HandleDispatcherFatal(new InvalidOperationException("dialog failure"), "dispatcher",
+            _ => { dialogRequests++; throw new InvalidOperationException("UI unavailable"); },
+            () => shutdownRequests++);
+        coordinator.HandleDispatcherFatal(new InvalidOperationException("same incident"), "dispatcher re-entry",
+            _ => dialogRequests++, () => shutdownRequests++);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dialogRequests, Is.EqualTo(1));
+            Assert.That(shutdownRequests, Is.EqualTo(1));
+            Assert.That(writer.Paths.Count(path => Path.GetFileName(path).StartsWith("crash-", StringComparison.Ordinal)), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
     public void ReentrantFatalDoesNotRecursivelyProcessOrDuplicateFullReport()
     {
         var writer = new TestWriter();

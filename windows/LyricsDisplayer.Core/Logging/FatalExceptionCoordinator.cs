@@ -3,23 +3,29 @@ using System.Threading;
 namespace LyricsDisplayer.Core.Logging;
 
 public sealed record FatalExceptionHandlingResult(
-    bool WasAlreadyHandling,
+    bool IsPrimaryIncident,
     CrashReportDocument? Report,
     CrashReportWriteResult? WriteResult,
-    string? ReentrantFallbackPath);
+    string? ReentrantFallbackPath)
+{
+    public bool WasAlreadyHandling => !IsPrimaryIncident;
+}
 
 /// <summary>Coordinates one fatal incident without depending on WPF or attempting application recovery.</summary>
 public sealed class FatalExceptionCoordinator
 {
     private readonly CrashReportService _reports;
     private readonly Action<string, string, string> _log;
+    private readonly Action<string, string, string> _fatalLog;
     private int _handling;
     private int _completed;
 
-    public FatalExceptionCoordinator(CrashReportService reports, Action<string, string, string> log)
+    public FatalExceptionCoordinator(CrashReportService reports, Action<string, string, string> log,
+        Action<string, string, string>? fatalLog = null)
     {
         _reports = reports ?? throw new ArgumentNullException(nameof(reports));
         _log = log ?? throw new ArgumentNullException(nameof(log));
+        _fatalLog = fatalLog ?? log;
     }
 
     public FatalExceptionHandlingResult ReportFatal(Exception exception, string fatalSource,
@@ -29,11 +35,11 @@ public sealed class FatalExceptionCoordinator
         if (Interlocked.CompareExchange(ref _handling, 1, 0) != 0)
         {
             if (Volatile.Read(ref _completed) != 0)
-                return new(true, null, null, null);
+                return new(false, null, null, null);
 
             var fallback = TryMinimalFallback(exception, fatalSource,
                 "A second fatal exception arrived while the primary report was being written.");
-            return new(true, null, null, fallback);
+            return new(false, null, null, fallback);
         }
 
         CrashReportDocument? report = null;
@@ -49,13 +55,13 @@ public sealed class FatalExceptionCoordinator
                 TryFatalLog(exception, fatalSource, null, preparationFailure);
                 var fallback = TryMinimalFallback(exception, fatalSource,
                     $"Crash-report formatting failed: {SafeException(preparationFailure)}");
-                return new(false, null, null, fallback);
+                return new(true, null, null, fallback);
             }
 
             Exception? loggerFailure = null;
             try
             {
-                _log("Fatal", "Application", FormatFatalLog(report));
+                _fatalLog("Fatal", "Application", FormatFatalLog(report));
             }
             catch (Exception failure)
             {
@@ -69,19 +75,49 @@ public sealed class FatalExceptionCoordinator
                 TryWriteFailureLog(report, reportFailure, fallbackPath,
                     writeResult.FallbackWriteFailure ?? writeResult.TemporaryFallbackWriteFailure);
             }
-            return new(false, report, writeResult, null);
+            return new(true, report, writeResult, null);
         }
         catch (Exception reporterFailure)
         {
             TryFatalLog(exception, fatalSource, report, reporterFailure);
             var fallback = TryMinimalFallback(exception, fatalSource,
                 $"Fatal reporter failed: {SafeException(reporterFailure)}", report?.CrashReportId);
-            return new(false, report, writeResult, fallback);
+            return new(true, report, writeResult, fallback);
         }
         finally
         {
             Volatile.Write(ref _completed, 1);
         }
+    }
+
+    /// <summary>
+    /// Handles a Dispatcher fatal incident as one lifecycle: only the primary incident may notify
+    /// the user or start shutdown. Notification failure never prevents the one shutdown request.
+    /// </summary>
+    public FatalExceptionHandlingResult HandleDispatcherFatal(Exception exception, string fatalSource,
+        Action<FatalExceptionHandlingResult> notifyUser, Action shutdown)
+    {
+        ArgumentNullException.ThrowIfNull(notifyUser);
+        ArgumentNullException.ThrowIfNull(shutdown);
+
+        var result = ReportFatal(exception, fatalSource, isTerminating: false);
+        if (!result.IsPrimaryIncident) return result;
+
+        try
+        {
+            notifyUser(result);
+        }
+        catch (Exception)
+        {
+            // The report is already captured; failed UI must not trigger another notification attempt.
+        }
+        finally
+        {
+            try { shutdown(); }
+            catch (Exception) { }
+        }
+
+        return result;
     }
 
     /// <summary>Unobserved task exceptions are recorded as Error and never initiate fatal shutdown.</summary>
@@ -107,7 +143,7 @@ public sealed class FatalExceptionCoordinator
         {
             var id = report?.CrashReportId ?? "unavailable";
             var path = report?.Path ?? "unavailable";
-            _log("Fatal", "Application",
+            _fatalLog("Fatal", "Application",
                 $"Fatal exception reporting failure. Crash Report ID: {id}. Fatal source: {fatalSource}. " +
                 $"Original exception: {SafeException(exception)}. Reporter failure: {SafeException(reporterFailure)}. " +
                 $"Crash report path: {path}");
@@ -126,7 +162,7 @@ public sealed class FatalExceptionCoordinator
             var message = $"Standalone crash report could not be written at '{report.Path}': {SafeException(primaryFailure)}. " +
                 $"Fallback path: {fallbackPath ?? "unavailable"}.";
             if (fallbackFailure is not null) message += $" Fallback write also failed: {SafeException(fallbackFailure)}.";
-            _log("Fatal", "Application", message);
+            _fatalLog("Fatal", "Application", message);
         }
         catch (Exception)
         {
@@ -147,8 +183,10 @@ public sealed class FatalExceptionCoordinator
     }
 
     private static string FormatFatalLog(CrashReportDocument report) =>
-        $"Fatal unhandled exception. Crash Report ID: {report.CrashReportId}. " +
-        $"Fatal source: {report.FatalSource}. Exception details:{Environment.NewLine}{report.ExceptionDetails}" +
+        $"Fatal unhandled exception.{Environment.NewLine}" +
+        $"Crash Report ID: {report.CrashReportId}{Environment.NewLine}" +
+        $"Fatal source: {report.FatalSource}{Environment.NewLine}" +
+        $"{report.ExceptionDetails}{Environment.NewLine}" +
         $"Crash report path: {report.Path}";
 
     private static string SafeException(Exception exception)

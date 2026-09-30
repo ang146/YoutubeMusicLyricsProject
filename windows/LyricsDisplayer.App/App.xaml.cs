@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Library;
@@ -12,6 +13,7 @@ public partial class App : System.Windows.Application
 {
     private readonly CrashReportService _crashReports;
     private readonly FatalExceptionCoordinator _fatalExceptionCoordinator;
+    private int _fatalShutdownStarted;
 
     static App()
     {
@@ -22,7 +24,7 @@ public partial class App : System.Windows.Application
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         _crashReports = new CrashReportService(Path.Combine(localAppData, "LyricsDisplayer", "Logs", "Crash"));
-        _fatalExceptionCoordinator = new FatalExceptionCoordinator(_crashReports, WriteLog);
+        _fatalExceptionCoordinator = new FatalExceptionCoordinator(_crashReports, WriteLog, WriteFatalLog);
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
@@ -31,7 +33,7 @@ public partial class App : System.Windows.Application
     public SessionFileLogger Logger { get; private set; } = null!;
     public LyricsLibrary LyricsLibrary { get; private set; } = null!;
     public ApplicationSettingsStore SettingsStore { get; private set; } = null!;
-    public bool IsFatalShutdown { get; private set; }
+    public bool IsFatalShutdown => Volatile.Read(ref _fatalShutdownStarted) != 0;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -56,12 +58,11 @@ public partial class App : System.Windows.Application
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         e.Handled = true;
-        IsFatalShutdown = true;
+        Interlocked.Exchange(ref _fatalShutdownStarted, 1);
         try
         {
-            var result = _fatalExceptionCoordinator.ReportFatal(e.Exception,
-                "Application.DispatcherUnhandledException", isTerminating: false);
-            ShowFatalErrorDialog(result);
+            _fatalExceptionCoordinator.HandleDispatcherFatal(e.Exception,
+                "Application.DispatcherUnhandledException", ShowFatalErrorDialog, () => Shutdown(-1));
         }
         catch (Exception reportingFailure)
         {
@@ -72,15 +73,11 @@ public partial class App : System.Windows.Application
             }
             catch (Exception) { }
         }
-        finally
-        {
-            try { Shutdown(-1); }
-            catch (Exception) { }
-        }
     }
 
     private void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
     {
+        Interlocked.Exchange(ref _fatalShutdownStarted, 1);
         var exception = e.ExceptionObject as Exception ??
             new Exception($"AppDomain.UnhandledException received a non-Exception object of type " +
                 $"'{e.ExceptionObject?.GetType().FullName ?? "null"}'.");
@@ -127,5 +124,12 @@ public partial class App : System.Windows.Application
         var logger = Logger;
         if (logger is null) throw new InvalidOperationException("The application logger is not initialized.");
         logger.Write(level, category, message);
+    }
+
+    private void WriteFatalLog(string level, string category, string message)
+    {
+        var logger = Logger;
+        if (logger is null) throw new InvalidOperationException("The application logger is not initialized.");
+        logger.WriteMultiline(level, category, message);
     }
 }

@@ -116,7 +116,7 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (ControlPanelClosePolicy.ShouldHideToTray(
+        if (!((App)Application.Current).IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
                 CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit))
         {
             e.Cancel = true;

@@ -17,15 +17,17 @@ public sealed class FatalExceptionCoordinator
     private readonly CrashReportService _reports;
     private readonly Action<string, string, string> _log;
     private readonly Action<string, string, string> _fatalLog;
+    private readonly Action? _onPrimaryFatalAccepted;
     private int _handling;
     private int _completed;
 
     public FatalExceptionCoordinator(CrashReportService reports, Action<string, string, string> log,
-        Action<string, string, string>? fatalLog = null)
+        Action<string, string, string>? fatalLog = null, Action? onPrimaryFatalAccepted = null)
     {
         _reports = reports ?? throw new ArgumentNullException(nameof(reports));
         _log = log ?? throw new ArgumentNullException(nameof(log));
         _fatalLog = fatalLog ?? log;
+        _onPrimaryFatalAccepted = onPrimaryFatalAccepted;
     }
 
     public FatalExceptionHandlingResult ReportFatal(Exception exception, string fatalSource,
@@ -46,6 +48,8 @@ public sealed class FatalExceptionCoordinator
         CrashReportWriteResult? writeResult = null;
         try
         {
+            _onPrimaryFatalAccepted?.Invoke();
+
             try
             {
                 report = _reports.Prepare(exception, fatalSource, isTerminating);

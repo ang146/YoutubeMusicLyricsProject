@@ -134,7 +134,7 @@ public partial class MainWindow : Window
             _allowApplicationExit = false;
             return;
         }
-        if (!((App)Application.Current).IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
+        if (!((App)Application.Current).Lifetime.IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
                 CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit))
         {
             e.Cancel = true;

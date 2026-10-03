@@ -1227,9 +1227,14 @@ best-effort and does not show UI.
 
 WPF dispatcher exceptions trigger a best-effort fatal dialog followed by
 controlled application shutdown; fatal shutdown bypasses the normal
-close-to-tray path and does not attempt to save user data. Unobserved task
-exceptions are logged at `Error` severity and do not by themselves create a
-crash report or request application shutdown.
+close-to-tray path and does not attempt to save user data. The application
+publishes a shared lifetime state (`None` or `FatalException`).
+The primary fatal owner transitions it to `FatalException` before diagnostics
+or notification. Editor close handling checks this state before committing
+pending grid edits: fatal shutdown closes without a dirty prompt, save, or
+cancel opportunity. Normal editor close and Tray Exit retain Save / Discard /
+Cancel behavior. Unobserved task exceptions are logged at `Error` severity
+and do not by themselves create a crash report or request application shutdown.
 
 The current app logger writes and closes each entry synchronously and has no
 separate flush API, so the fatal log write is the available best-effort flush.

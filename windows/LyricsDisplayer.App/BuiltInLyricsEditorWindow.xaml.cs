@@ -281,22 +281,26 @@ public partial class BuiltInLyricsEditorWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        CommitGridEdits();
-        if (!_viewModel.IsDirty) return;
+        var canClose = EditorCloseGuard.CanClose(
+            ((App)WpfApplication.Current).Lifetime,
+            CommitGridEdits,
+            () => _viewModel.IsDirty,
+            PromptForDirtyClose,
+            () => _viewModel.SaveCommand.Execute(EditorSaveAction.Save));
+        if (!canClose) e.Cancel = true;
+    }
+
+    private DirtyEditorCloseChoice PromptForDirtyClose()
+    {
         var answer = WpfMessageBox.Show(this,
             "Save changes before closing?\n\nYes = Save; No = Discard; Cancel = Keep editing.",
             "Unsaved lyrics changes", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
-        if (answer == MessageBoxResult.Cancel)
+        return answer switch
         {
-            e.Cancel = true;
-            return;
-        }
-        if (answer == MessageBoxResult.No)
-        {
-            return;
-        }
-        _viewModel.SaveCommand.Execute(EditorSaveAction.Save);
-        if (_viewModel.IsDirty) e.Cancel = true;
+            MessageBoxResult.Yes => DirtyEditorCloseChoice.Save,
+            MessageBoxResult.No => DirtyEditorCloseChoice.Discard,
+            _ => DirtyEditorCloseChoice.Cancel
+        };
     }
 
     private void OnConflictRequiresChoice()

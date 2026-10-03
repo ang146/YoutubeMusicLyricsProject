@@ -226,8 +226,10 @@ public sealed class LyricsLibraryTests
         });
     }
 
-    [Test]
-    public void EditorMetadataOnlySaveLeavesLrcBytesUntouchedAndPersistsOverrides()
+    [TestCase("User title", "User artist")]
+    [TestCase("User title", null)]
+    [TestCase(null, "User artist")]
+    public void EditorMetadataOnlySaveLeavesLrcBytesUntouchedAndPersistsOverrides(string? title, string? artist)
     {
         using var library = new LyricsLibrary(_paths);
         library.Initialise();
@@ -236,15 +238,46 @@ public sealed class LyricsLibraryTests
         var source = library.LoadForEditing(record).Asset!;
         var bytes = File.ReadAllBytes(source.LyricsPath);
         var saved = library.SaveEditorAssets(source, source.LrcContent,
-            UserTrackMetadata.Normalise("User title", "User artist"));
+            UserTrackMetadata.Normalise(title, artist));
         var reloaded = library.LoadForEditing(record).Asset!;
 
         Assert.Multiple(() =>
         {
             Assert.That(saved.Status, Is.EqualTo(EditorAssetStatus.Saved));
             Assert.That(File.ReadAllBytes(source.LyricsPath), Is.EqualTo(bytes));
-            Assert.That(reloaded.Sidecar.UserMetadata, Is.EqualTo(new UserTrackMetadata("User title", "User artist")));
+            Assert.That(reloaded.Sidecar.UserMetadata, Is.EqualTo(new UserTrackMetadata(title, artist)));
             Assert.That(reloaded.Record.LocalTrackId, Is.EqualTo(record.LocalTrackId));
+        });
+    }
+
+    [Test]
+    public void EditorLrcOnlySavePreservesExistingSidecarAndOverrides()
+    {
+        using var library = new LyricsLibrary(_paths);
+        library.Initialise();
+        var imported = library.Import(Track(), Timed());
+        var record = imported.Document!.Record;
+        var initial = library.LoadForEditing(record).Asset!;
+        var metadataSaved = library.SaveEditorAssets(initial, initial.LrcContent,
+            UserTrackMetadata.Normalise("Persistent title", "Persistent artist"));
+        Assert.That(metadataSaved.Status, Is.EqualTo(EditorAssetStatus.Saved));
+
+        var beforeLrcEdit = library.LoadForEditing(record).Asset!;
+        var sidecarBytes = File.ReadAllBytes(beforeLrcEdit.SidecarPath);
+        const string editedLyrics = "[00:01.000]Edited line\n";
+        var saved = library.SaveEditorAssets(beforeLrcEdit, editedLyrics, beforeLrcEdit.Sidecar.UserMetadata);
+        var reloaded = library.LoadForEditing(record).Asset!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(saved.Status, Is.EqualTo(EditorAssetStatus.Saved));
+            Assert.That(saved.Asset!.Sidecar.UserMetadata,
+                Is.EqualTo(new UserTrackMetadata("Persistent title", "Persistent artist")));
+            Assert.That(File.ReadAllBytes(beforeLrcEdit.SidecarPath), Is.EqualTo(sidecarBytes),
+                "An LRC-only save must not rewrite the sidecar.");
+            Assert.That(reloaded.Sidecar.UserMetadata,
+                Is.EqualTo(new UserTrackMetadata("Persistent title", "Persistent artist")));
+            Assert.That(reloaded.LrcContent, Is.EqualTo(editedLyrics));
         });
     }
 

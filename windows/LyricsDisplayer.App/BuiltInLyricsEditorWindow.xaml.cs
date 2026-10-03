@@ -389,8 +389,8 @@ public partial class BuiltInLyricsEditorWindow : Window
         {
             _committingGridEdits = wasCommittingGridEdits;
         }
-        _viewModel.CommitStagedEdits();
         _viewModel.CommitMetadataCommand.Execute(null);
+        _viewModel.CommitStagedEdits();
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Close();

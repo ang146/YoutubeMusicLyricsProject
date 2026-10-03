@@ -307,8 +307,15 @@ public sealed class LyricsLibrary : IDisposable
         catch (Exception exception) when (IsStorageException(exception))
         {
             var refreshed = LoadForEditing(current.Record).Asset;
+            var error = lrcWritten
+                ? writesMetadata
+                    ? $"The LRC was saved, but portable metadata could not be saved: {exception.Message}"
+                    : $"The LRC was written, but the save could not be verified: {exception.Message}"
+                : writesMetadata
+                    ? $"Portable metadata could not be saved: {exception.Message}"
+                    : $"The LRC could not be saved: {exception.Message}";
             return new(lrcWritten ? EditorAssetStatus.PartialFailure : EditorAssetStatus.Failed,
-                refreshed, exception.Message);
+                refreshed, error);
         }
     }
 

@@ -335,6 +335,221 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     [Test]
+    public void MetadataOnlySavePersistsBothOverridesKeepsEditorCleanAndUpdatesOnlyTheActiveTrack()
+    {
+        var root = CreateLibraryRoot();
+        try
+        {
+            using var library = new LyricsLibrary(CreateLibraryPaths(root));
+            Assert.That(library.Initialise().Completed, Is.True);
+            var trackA = ImportTrack(library, "track-a");
+            var trackB = ImportTrack(library, "track-b");
+            var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library);
+            playback.Apply(CreateMessage(1, "track-a", 1_000));
+            var sourceAsset = library.LoadForEditing(trackA.Record).Asset!;
+            var originalLrcBytes = File.ReadAllBytes(sourceAsset.LyricsPath);
+            using var viewModel = new BuiltInLyricsEditorViewModel(sourceAsset, library, playback);
+
+            viewModel.TitleOverride = "Custom Song Title";
+            viewModel.ArtistOverride = "Custom Artist";
+            viewModel.SaveCommand.Execute(null);
+
+            var savedA = library.LoadForEditing(trackA.Record).Asset!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(viewModel.TitleOverride, Is.EqualTo("Custom Song Title"));
+                Assert.That(viewModel.ArtistOverride, Is.EqualTo("Custom Artist"));
+                Assert.That(viewModel.EffectiveTitle, Is.EqualTo("Custom Song Title"));
+                Assert.That(viewModel.EffectiveArtist, Is.EqualTo("Custom Artist"));
+                Assert.That(viewModel.IsDirty, Is.False);
+                Assert.That(savedA.Sidecar.UserMetadata,
+                    Is.EqualTo(new UserTrackMetadata("Custom Song Title", "Custom Artist")));
+                Assert.That(File.ReadAllBytes(savedA.LyricsPath), Is.EqualTo(originalLrcBytes),
+                    "A metadata-only Save must not rewrite the LRC.");
+                Assert.That(playback.CurrentLocalLyrics!.Record.UserMetadata, Is.EqualTo(savedA.Sidecar.UserMetadata));
+                Assert.That(playback.CurrentLocalLyrics.EffectiveMetadata,
+                    Is.EqualTo(new EffectiveTrackMetadata("Custom Song Title", "Custom Artist")));
+            });
+
+            playback.Apply(CreateMessage(2, "track-b", 2_000));
+            var trackBEffectiveBefore = playback.CurrentLocalLyrics!.EffectiveMetadata;
+            viewModel.TitleOverride = "Track A Updated While B Plays";
+            viewModel.SaveCommand.Execute(null);
+            var savedB = library.LoadForEditing(trackB.Record).Asset!;
+            var reloadedA = library.LoadForEditing(trackA.Record).Asset!;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(savedB.Sidecar.UserMetadata, Is.EqualTo(new UserTrackMetadata(null, null)));
+                Assert.That(playback.CurrentLocalLyrics!.Record.LocalTrackId, Is.EqualTo(trackB.Record.LocalTrackId));
+                Assert.That(playback.CurrentLocalLyrics.EffectiveMetadata, Is.EqualTo(trackBEffectiveBefore));
+                Assert.That(reloadedA.Sidecar.UserMetadata,
+                    Is.EqualTo(new UserTrackMetadata("Track A Updated While B Plays", "Custom Artist")));
+                Assert.That(viewModel.IsDirty, Is.False);
+            });
+
+            playback.Apply(CreateMessage(3, "track-a", 3_000));
+            using var reopened = new BuiltInLyricsEditorViewModel(reloadedA, library, playback);
+            Assert.Multiple(() =>
+            {
+                Assert.That(reopened.TitleOverride, Is.EqualTo("Track A Updated While B Plays"));
+                Assert.That(reopened.ArtistOverride, Is.EqualTo("Custom Artist"));
+                Assert.That(reopened.IsDirty, Is.False);
+                Assert.That(playback.CurrentLocalLyrics!.EffectiveMetadata,
+                    Is.EqualTo(new EffectiveTrackMetadata("Track A Updated While B Plays", "Custom Artist")));
+            });
+
+            reopened.TitleOverride = "Unsaved Title";
+            reopened.UndoCommand.Execute(null);
+            Assert.Multiple(() =>
+            {
+                Assert.That(reopened.TitleOverride, Is.EqualTo("Track A Updated While B Plays"));
+                Assert.That(reopened.IsDirty, Is.False, "Undo back to the saved baseline should be clean.");
+            });
+            reopened.RedoCommand.Execute(null);
+            Assert.That(reopened.TitleOverride, Is.EqualTo("Unsaved Title"));
+            Assert.That(reopened.IsDirty, Is.True);
+
+            reopened.ClearTitleOverrideCommand.Execute(null);
+            reopened.ClearArtistOverrideCommand.Execute(null);
+            reopened.SaveCommand.Execute(null);
+            var cleared = library.LoadForEditing(trackA.Record).Asset!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(cleared.Sidecar.UserMetadata, Is.EqualTo(new UserTrackMetadata(null, null)));
+                Assert.That(reopened.EffectiveTitle, Is.EqualTo(reopened.SourceTitle));
+                Assert.That(reopened.EffectiveArtist, Is.EqualTo(reopened.SourceArtist));
+                Assert.That(reopened.IsDirty, Is.False);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public void PendingOverridesSurviveTimestampProjectionRebuildDuringCombinedSave()
+    {
+        var root = CreateLibraryRoot();
+        try
+        {
+            using var library = new LyricsLibrary(CreateLibraryPaths(root));
+            Assert.That(library.Initialise().Completed, Is.True);
+            var track = ImportTrack(library, "track-a");
+            var initialAsset = library.LoadForEditing(track.Record).Asset!;
+            File.WriteAllText(initialAsset.LyricsPath,
+                "[ti:Original LRC Title]\r\n[ar:Original LRC Artist]\r\n[00:01.000]Line");
+            var asset = library.LoadForEditing(track.Record).Asset!;
+            var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library);
+            playback.Apply(CreateMessage(1, "track-a", 1_000));
+            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library, playback);
+            var originalLrcBytes = File.ReadAllBytes(asset.LyricsPath);
+
+            viewModel.TitleOverride = "Combined Title";
+            viewModel.ArtistOverride = "Combined Artist";
+            viewModel.Rows[0].Timestamps[1] = "00:02.000";
+            viewModel.SaveCommand.Execute(null);
+
+            var saved = library.LoadForEditing(track.Record).Asset!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(saved.Sidecar.UserMetadata,
+                    Is.EqualTo(new UserTrackMetadata("Combined Title", "Combined Artist")));
+                Assert.That(saved.LrcContent, Does.Contain("[00:02.000]"));
+                Assert.That(saved.LrcContent, Does.Contain("[ti:Original LRC Title]\r\n[ar:Original LRC Artist]"));
+                Assert.That(File.ReadAllBytes(saved.LyricsPath), Is.Not.EqualTo(originalLrcBytes));
+                Assert.That(viewModel.TitleOverride, Is.EqualTo("Combined Title"));
+                Assert.That(viewModel.ArtistOverride, Is.EqualTo("Combined Artist"));
+                Assert.That(viewModel.IsDirty, Is.False);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public void MetadataWriteFailureKeepsOverrideVisibleAndEditorDirty()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Ignore("The sidecar sharing-violation check is Windows-specific.");
+        var root = CreateLibraryRoot();
+        try
+        {
+            using var library = new LyricsLibrary(CreateLibraryPaths(root));
+            Assert.That(library.Initialise().Completed, Is.True);
+            var track = ImportTrack(library, "track-a");
+            var asset = library.LoadForEditing(track.Record).Asset!;
+            var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library);
+            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library, playback);
+            viewModel.TitleOverride = "Keep Me";
+
+            using (new FileStream(asset.SidecarPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                viewModel.SaveCommand.Execute(null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(viewModel.TitleOverride, Is.EqualTo("Keep Me"));
+                Assert.That(viewModel.IsDirty, Is.True);
+                Assert.That(viewModel.Status, Is.Not.Empty);
+                Assert.That(library.LoadForEditing(track.Record).Asset!.Sidecar.UserMetadata.Title, Is.Null);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
+    public void CombinedSaveReportsPartialFailureAndRetriesOnlyTheUnsavedMetadata()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Ignore("The sidecar sharing-violation check is Windows-specific.");
+        var root = CreateLibraryRoot();
+        try
+        {
+            using var library = new LyricsLibrary(CreateLibraryPaths(root));
+            Assert.That(library.Initialise().Completed, Is.True);
+            var track = ImportTrack(library, "track-a");
+            var asset = library.LoadForEditing(track.Record).Asset!;
+            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library,
+                new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library));
+            viewModel.TitleOverride = "Pending title";
+            viewModel.Rows[0].LyricsText = "Changed lyric";
+
+            using (new FileStream(asset.SidecarPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                viewModel.SaveCommand.Execute(null);
+
+            var partial = library.LoadForEditing(track.Record).Asset!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(viewModel.IsDirty, Is.True);
+                Assert.That(viewModel.TitleOverride, Is.EqualTo("Pending title"));
+                Assert.That(viewModel.Status, Does.Contain("portable metadata"));
+                Assert.That(partial.LrcContent, Does.Contain("Changed lyric"));
+                Assert.That(partial.Sidecar.UserMetadata.Title, Is.Null);
+            });
+
+            var lrcAfterPartialWrite = File.ReadAllBytes(partial.LyricsPath);
+            viewModel.SaveCommand.Execute(null);
+            var completed = library.LoadForEditing(track.Record).Asset!;
+            Assert.Multiple(() =>
+            {
+                Assert.That(completed.Sidecar.UserMetadata.Title, Is.EqualTo("Pending title"));
+                Assert.That(completed.LrcContent, Does.Contain("Changed lyric"));
+                Assert.That(File.ReadAllBytes(completed.LyricsPath), Is.EqualTo(lrcAfterPartialWrite),
+                    "Retry should write the unsaved sidecar only, not rewrite the completed LRC.");
+                Assert.That(viewModel.IsDirty, Is.False);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Test]
     public void PlaybackUpdatesDoNotChangeEditorDocumentSelectionOrDirtyState()
     {
         using var fixture = CreateViewModel("Line A\nLine B\n");
@@ -397,6 +612,27 @@ public sealed class BuiltInLyricsEditorViewModelTests
         var payload = new PlaybackSnapshotPayload(new TrackInfo(trackId, "Title", "Artist", null, 60_000),
             new PlaybackState(positionMs, true, 1), new LyricsInfo(false, false, null, []));
         return new(metadata, payload, "{}");
+    }
+
+    private static string CreateLibraryRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "LyricsDisplayerAppTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    private static LibraryPaths CreateLibraryPaths(string root) => new(root,
+        Path.Combine(root, "settings.json"), Path.Combine(root, "Lyrics"),
+        Path.Combine(root, "library-index.db"), false);
+
+    private static LocalLyricsDocument ImportTrack(LyricsLibrary library, string sourceTrackId)
+    {
+        var track = new TrackInfo(sourceTrackId, "Title", "Artist", null, 60_000);
+        var lyrics = new LyricsSnapshotPayload(sourceTrackId, true, true, "youtubeMusic",
+            [new LyricsLine(1_000, 60_000, "Line")], "Test provider");
+        var imported = library.Import(track, lyrics);
+        Assert.That(imported.Document, Is.Not.Null, imported.Error);
+        return imported.Document!;
     }
 
     private sealed class EditorFixture(BuiltInLyricsEditorViewModel viewModel, LyricsLibrary library,

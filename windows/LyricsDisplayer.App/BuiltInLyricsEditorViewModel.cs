@@ -151,6 +151,10 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     public void CommitRowEdit(EditorRowViewModel row)
     {
+        if (_buffer.Document.Rows.All(item => item.Id != row.EditorLineId)) return;
+        // Capture header edits before committing a row that may expand the timestamp
+        // projection and rebuild Rows (which refreshes the header bindings too).
+        CommitMetadata();
         var previousColumnCount = TimestampColumnCount;
         if (!CommitRowToBuffer(row)) return;
 
@@ -164,6 +168,9 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     public void CommitStagedEdits()
     {
+        // Metadata text boxes are edited directly while row values are staged in the grid.
+        // Commit metadata first because a row commit can rebuild the observable projection.
+        CommitMetadata();
         var previousColumnCount = TimestampColumnCount;
         var stagedRows = Rows.ToArray();
         foreach (var row in stagedRows) CommitRowToBuffer(row);
@@ -257,8 +264,8 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             ReloadExternalVersion();
             return;
         }
-        CommitStagedEdits();
         CommitMetadata();
+        CommitStagedEdits();
         var content = EditorDocumentCodec.Serialize(_buffer.Document);
         var result = _library.SaveEditorAssets(_asset, content, _buffer.Metadata,
             overwriteExternalChanges: action == EditorSaveAction.OverwriteExternalChanges);
@@ -275,9 +282,10 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             _buffer.MarkSaved(content, saved.LrcHash, saved.Sidecar.UserMetadata);
             TitleOverride = saved.Sidecar.UserMetadata.Title ?? string.Empty;
             ArtistOverride = saved.Sidecar.UserMetadata.Artist ?? string.Empty;
+            _playback.ApplySavedEditorMetadata(saved.Record, saved.Sidecar);
             ExternalConflict = null;
             ExternalFileMissing = false;
-            Status = "Saved. Runtime lyrics update through the active LRC watcher.";
+            Status = "Saved. Metadata overrides are active now; runtime lyrics update through the active LRC watcher.";
             RefreshFromBuffer(keepSelection: true);
             SaveCompleted?.Invoke();
             return;

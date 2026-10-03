@@ -45,6 +45,7 @@ public partial class MainWindow : Window
         _externalLrcOpener = new ExternalLrcOpener(log: logger.Write);
         _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
             app.LyricsLibrary, logger.Write);
+        _playbackState.LocalMetadataChanged += DisplayLibrary;
         _server = new NamedPipeServer(logger, _playbackState);
         _overlay = new LyricsOverlayController(
             () => new LyricsOverlayWindow(),

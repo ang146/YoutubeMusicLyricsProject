@@ -26,6 +26,7 @@ public sealed class PlaybackStateCoordinator
     public bool IsCurrentLocalLrcMissing { get; private set; }
     public string LyricsLoadedFrom { get; private set; } = "Pending / unknown";
     public string LocalAssociationStatus { get; private set; } = "Not checked";
+    public event Action? LocalMetadataChanged;
 
     public PlaybackStateCoordinator(SnapshotStateTracker stateTracker, PlaybackClock playbackClock,
         LyricsLibrary? library = null, Action<string, string, string>? log = null)
@@ -103,6 +104,42 @@ public sealed class PlaybackStateCoordinator
     }
 
     public long GetLocalPositionMs() => _playbackClock.GetPositionMs();
+
+    /// <summary>Publishes saved portable metadata to the live document only when it is still the active editor track.</summary>
+    public bool ApplySavedEditorMetadata(LocalTrackRecord record, LyricsSidecar sidecar)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(sidecar);
+        if (!string.Equals(record.LocalTrackId, sidecar.LocalTrackId, StringComparison.OrdinalIgnoreCase) ||
+            CurrentLocalLyrics is not { } current || Current is not { } playback ||
+            !string.Equals(current.Record.LocalTrackId, record.LocalTrackId, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(_activeLocalLyricsRecord?.LocalTrackId, record.LocalTrackId,
+                StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var track = playback.Payload.Track;
+        var association = sidecar.SourceAssociations.FirstOrDefault(item =>
+            item.Source == playback.Envelope.Source && item.SourceTrackId == track.SourceTrackId);
+        if (association is null) return false;
+
+        var liveSource = new SourceTrackMetadata(track.Title, track.Artist, track.Album, track.DurationMs);
+        var updatedRecord = record with
+        {
+            UserMetadata = sidecar.UserMetadata,
+            SourceAssociations = sidecar.SourceAssociations,
+            LyricsSource = sidecar.Lyrics.Source,
+            Attribution = sidecar.Lyrics.Attribution
+        };
+        CurrentLocalLyrics = current with
+        {
+            Record = updatedRecord,
+            Sidecar = sidecar,
+            EffectiveMetadata = EffectiveTrackMetadata.From(association.Metadata, sidecar.UserMetadata, liveSource)
+        };
+        _activeLocalLyricsRecord = updatedRecord;
+        LocalMetadataChanged?.Invoke();
+        return true;
+    }
 
     public LyricsTimelinePosition GetTimelinePosition() =>
         _lyricsTimeline.Evaluate(LyricsTimingAdjustment.GetEvaluationPosition(

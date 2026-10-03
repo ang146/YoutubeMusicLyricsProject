@@ -71,7 +71,7 @@ internal static class AtomicFile
             beforeCommit?.Invoke();
             if (LrcFileSnapshot.HashBytes(File.ReadAllBytes(path)) != expectedHash) return false;
             if (!LrcFileSnapshot.IsWritable(path))
-                throw new UnauthorizedAccessException("The local LRC is not writable.");
+                throw new UnauthorizedAccessException("The target file is not writable.");
             File.Move(temporary, path, overwrite: true);
             temporary = string.Empty;
             return true;

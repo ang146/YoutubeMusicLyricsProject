@@ -249,6 +249,92 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     [Test]
+    public void CommittingStagedTimestampPreservesValueAndExpandsVisibleColumnCount()
+    {
+        using var fixture = CreateViewModel("[00:00.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var editingRow = viewModel.Rows[0];
+
+        Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(2));
+        editingRow.Timestamps[1] = "00:01.000";
+        viewModel.CommitStagedEdits();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[0], Is.Not.SameAs(editingRow),
+                "Expanding the timestamp column shape rebuilds the row projection.");
+            Assert.That(viewModel.Rows[0].Timestamps[1], Is.EqualTo("00:01.000"));
+            Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public void CommittingRowWithoutColumnShapeChangePreservesProjectionAndLogicalSelection()
+    {
+        using var fixture = CreateViewModel("[00:00.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows[0];
+        var selection = new EditorSelection(row.EditorLineId, EditorColumn.Timestamp, 0);
+        viewModel.SelectCell(selection.SelectedRowId, selection.SelectedColumn, selection.SelectedTimestampIndex);
+        row.Timestamps[0] = "00:01.000";
+
+        viewModel.CommitStagedEdits();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[0], Is.SameAs(row));
+            Assert.That(viewModel.Rows[0].Timestamps[0], Is.EqualTo("00:01.000"));
+            Assert.That(viewModel.Selection, Is.EqualTo(selection));
+            Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(2));
+            Assert.That(viewModel.IsDirty, Is.True);
+        });
+    }
+
+    [Test]
+    public void CommittingOneEditedRowWithoutColumnExpansionDoesNotReplaceGridItems()
+    {
+        using var fixture = CreateViewModel("[00:00.000]Line\nOther\n");
+        var viewModel = fixture.ViewModel;
+        var editingRow = viewModel.Rows[0];
+        var selectedRow = viewModel.Rows[1];
+        var selection = new EditorSelection(selectedRow.EditorLineId, EditorColumn.Timestamp, 0);
+        viewModel.SelectCell(selection.SelectedRowId, selection.SelectedColumn, selection.SelectedTimestampIndex);
+        editingRow.LyricsText = "Edited line";
+
+        viewModel.CommitRowEdit(editingRow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[0], Is.SameAs(editingRow));
+            Assert.That(viewModel.Rows[1], Is.SameAs(selectedRow));
+            Assert.That(viewModel.Selection, Is.EqualTo(selection));
+            Assert.That(viewModel.Rows[0].LyricsText, Is.EqualTo("Edited line"));
+            Assert.That(viewModel.IsDirty, Is.True);
+        });
+    }
+
+    [Test]
+    public void CommittingMetadataDoesNotRebuildOrMoveTheLyricsGridRows()
+    {
+        using var fixture = CreateViewModel("Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows[0];
+        var selection = new EditorSelection(row.EditorLineId, EditorColumn.Lyrics);
+        viewModel.SelectCell(selection.SelectedRowId, selection.SelectedColumn);
+        viewModel.TitleOverride = "Updated title";
+
+        viewModel.CommitMetadataCommand.Execute(null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[0], Is.SameAs(row));
+            Assert.That(viewModel.Selection, Is.EqualTo(selection));
+            Assert.That(viewModel.EffectiveTitle, Is.EqualTo("Updated title"));
+            Assert.That(viewModel.IsDirty, Is.True);
+        });
+    }
+
+    [Test]
     public void PlaybackUpdatesDoNotChangeEditorDocumentSelectionOrDirtyState()
     {
         using var fixture = CreateViewModel("Line A\nLine B\n");

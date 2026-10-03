@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -17,15 +18,22 @@ namespace LyricsDisplayer;
 public partial class BuiltInLyricsEditorWindow : Window
 {
     private readonly BuiltInLyricsEditorViewModel _viewModel;
+    private readonly Dictionary<DataGridColumn, EditorGridColumn> _logicalGridColumns = [];
     private readonly FileSystemWatcher? _fileWatcher;
     private readonly FileSystemWatcher? _sidecarWatcher;
     private readonly DispatcherTimer _externalChangeTimer;
     private readonly DispatcherTimer _playbackRefreshTimer;
+    private int _builtTimestampColumnCount = -1;
+    private bool _committingGridEdits;
+    private bool _gridRowsResetInProgress;
     private bool _closed;
 
     public BuiltInLyricsEditorWindow(BuiltInLyricsEditorViewModel viewModel)
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        // Subscribe before the ItemsSource binding so this guard is armed before the
+        // DataGrid reacts to the collection Reset emitted by RefreshFromBuffer.
+        _viewModel.Rows.CollectionChanged += OnViewModelRowsCollectionChanged;
         InitializeComponent();
         DataContext = viewModel;
         BuildTimestampColumns(viewModel.TimestampColumnCount);
@@ -97,6 +105,7 @@ public partial class BuiltInLyricsEditorWindow : Window
     private void BuildTimestampColumns(int count)
     {
         LyricsGrid.Columns.Clear();
+        _logicalGridColumns.Clear();
         for (var index = 0; index < count; index++)
         {
             var cellStyle = new Style(typeof(WpfDataGridCell));
@@ -108,7 +117,7 @@ public partial class BuiltInLyricsEditorWindow : Window
             invalidTimestamp.Setters.Add(new Setter(BackgroundProperty, System.Windows.Media.Brushes.MistyRose));
             invalidTimestamp.Setters.Add(new Setter(ToolTipProperty, "Invalid LRC timestamp; saving remains allowed."));
             cellStyle.Triggers.Add(invalidTimestamp);
-            LyricsGrid.Columns.Add(new DataGridTextColumn
+            var column = new DataGridTextColumn
             {
                 Header = $"Timestamp {index + 1}",
                 Binding = new WpfBinding($"Timestamps[{index}]")
@@ -118,9 +127,11 @@ public partial class BuiltInLyricsEditorWindow : Window
                 },
                 Width = new DataGridLength(112),
                 CellStyle = cellStyle
-            });
+            };
+            LyricsGrid.Columns.Add(column);
+            _logicalGridColumns.Add(column, new(EditorColumn.Timestamp, index));
         }
-        LyricsGrid.Columns.Add(new DataGridTextColumn
+        var lyricsColumn = new DataGridTextColumn
         {
             Header = "Lyrics",
             Binding = new WpfBinding(nameof(EditorRowViewModel.LyricsText))
@@ -129,24 +140,52 @@ public partial class BuiltInLyricsEditorWindow : Window
                 UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
             },
             Width = new DataGridLength(1, DataGridLengthUnitType.Star)
-        });
+        };
+        LyricsGrid.Columns.Add(lyricsColumn);
+        _logicalGridColumns.Add(lyricsColumn, new(EditorColumn.Lyrics));
+        _builtTimestampColumnCount = count;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(BuiltInLyricsEditorViewModel.TimestampColumnCount))
         {
-            var selected = _viewModel.Selection;
-            BuildTimestampColumns(_viewModel.TimestampColumnCount);
-            if (selected.SelectedRowId is { } rowId)
-                Dispatcher.BeginInvoke(new Action(() => RestoreSelectedCell(rowId, selected)));
+            try
+            {
+                var selected = _viewModel.Selection;
+                if (_builtTimestampColumnCount != _viewModel.TimestampColumnCount)
+                    BuildTimestampColumns(_viewModel.TimestampColumnCount);
+                if (selected.SelectedRowId is { } rowId)
+                {
+                    RestoreSelectedCell(rowId, selected);
+                }
+            }
+            finally
+            {
+                _gridRowsResetInProgress = false;
+            }
         }
+    }
+
+    private void OnViewModelRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action != NotifyCollectionChangedAction.Reset) return;
+        _gridRowsResetInProgress = true;
     }
 
     private void OnCellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
     {
         if (e.Row.Item is not EditorRowViewModel row) return;
-        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => _viewModel.CommitRowEdit(row)));
+        if (_committingGridEdits)
+        {
+            return;
+        }
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (!_viewModel.Rows.Any(current => ReferenceEquals(current, row)))
+                return;
+            _viewModel.CommitRowEdit(row);
+        }));
     }
 
     private void OnBeginningEdit(object? sender, DataGridBeginningEditEventArgs e)
@@ -154,8 +193,15 @@ public partial class BuiltInLyricsEditorWindow : Window
         if (e.Row.Item is EditorRowViewModel row) UpdateSelection(row, e.Column);
     }
 
-    private void OnSelectedCellsChanged(object? sender, SelectedCellsChangedEventArgs e) => SyncSelection();
-    private void OnCurrentCellChanged(object? sender, EventArgs e) => SyncSelection();
+    private void OnSelectedCellsChanged(object? sender, SelectedCellsChangedEventArgs e)
+    {
+        SyncSelection();
+    }
+
+    private void OnCurrentCellChanged(object? sender, EventArgs e)
+    {
+        SyncSelection();
+    }
 
     private void OnGridPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -172,19 +218,26 @@ public partial class BuiltInLyricsEditorWindow : Window
 
     private void SyncSelection()
     {
+        if (_gridRowsResetInProgress)
+            return;
         if (LyricsGrid.SelectedCells.Count == 1 && LyricsGrid.SelectedCells[0].Item is EditorRowViewModel row &&
             LyricsGrid.SelectedCells[0].Column is { } column)
+        {
             UpdateSelection(row, column);
+        }
         else if (_viewModel.Selection.SelectedRowId is not null)
+        {
             _viewModel.SelectCell(null, EditorColumn.Lyrics);
+        }
     }
 
     private void UpdateSelection(EditorRowViewModel row, DataGridColumn column)
     {
-        var timestampIndex = LyricsGrid.Columns.IndexOf(column);
-        if (timestampIndex >= 0 && timestampIndex < _viewModel.TimestampColumnCount)
-            _viewModel.SelectCell(row.EditorLineId, EditorColumn.Timestamp, timestampIndex);
-        else _viewModel.SelectCell(row.EditorLineId, EditorColumn.Lyrics);
+        if (_viewModel.Rows.All(current => current.EditorLineId != row.EditorLineId) ||
+            !_logicalGridColumns.TryGetValue(column, out var logicalColumn))
+            return;
+
+        _viewModel.SelectCell(row.EditorLineId, logicalColumn.Column, logicalColumn.TimestampIndex);
     }
 
     private void OnGridPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -214,65 +267,128 @@ public partial class BuiltInLyricsEditorWindow : Window
             }
         }
 
-        if (e.Key is not (Key.Enter or Key.Tab)) return;
-        var backwards = e.Key == Key.Enter
-            ? (Keyboard.Modifiers & ModifierKeys.Shift) != 0
-            : (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-        CommitGridEdits();
-        MoveGridCell(e.Key, backwards);
+        if (e.Key is not (Key.Enter or Key.Tab))
+            return;
+        // This editor owns grid navigation. Mark the routed input handled before any
+        // edit commit or selection changes so the DataGrid bubble handler cannot move again.
         e.Handled = true;
+        // Capture stable row/column identity before committing; a column-count change may
+        // rebuild the observable row collection before the navigation target is applied.
+        if (!TryCaptureNavigationCell(out var current))
+        {
+            return;
+        }
+
+        var backwards = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+        CommitGridEdits();
+        MoveGridCell(current, e.Key == Key.Enter ? EditorGridNavigationKey.Enter : EditorGridNavigationKey.Tab,
+            backwards);
     }
 
-    private void MoveGridCell(Key key, bool backwards)
+    private bool TryCaptureNavigationCell(out EditorSelection selection)
     {
-        if (LyricsGrid.CurrentCell.Item is not EditorRowViewModel current || LyricsGrid.Items.Count == 0) return;
-        var rowIndex = LyricsGrid.Items.IndexOf(current);
-        var timestampColumns = _viewModel.TimestampColumnCount;
-        var columnIndex = LyricsGrid.Columns.IndexOf(LyricsGrid.CurrentCell.Column);
-        var logicalColumn = Math.Clamp(columnIndex, 0, timestampColumns);
-        if (key == Key.Enter)
-            rowIndex = Math.Clamp(rowIndex + (backwards ? -1 : 1), 0, LyricsGrid.Items.Count - 1);
-        else
+        selection = new(null, EditorColumn.Lyrics);
+        if (LyricsGrid.CurrentCell.Item is not EditorRowViewModel current ||
+            !_viewModel.Rows.Any(row => row.EditorLineId == current.EditorLineId))
+            return false;
+
+        if (LyricsGrid.CurrentCell.Column is { } column &&
+            _logicalGridColumns.TryGetValue(column, out var logicalColumn) &&
+            column.Visibility == Visibility.Visible && !column.IsReadOnly)
         {
-            logicalColumn += backwards ? -1 : 1;
-            if (logicalColumn < 0)
-            {
-                rowIndex = Math.Max(0, rowIndex - 1);
-                logicalColumn = timestampColumns;
-            }
-            else if (logicalColumn > timestampColumns)
-            {
-                rowIndex = Math.Min(LyricsGrid.Items.Count - 1, rowIndex + 1);
-                logicalColumn = 0;
-            }
+            selection = new(current.EditorLineId, logicalColumn.Column, logicalColumn.TimestampIndex);
+            return true;
         }
-        if (LyricsGrid.Items[rowIndex] is not EditorRowViewModel target) return;
-        var cell = new DataGridCellInfo(target, LyricsGrid.Columns[logicalColumn]);
+
+        // A dynamic rebuild may replace the column while retaining the same logical selection.
+        var selected = _viewModel.Selection;
+        if (selected.SelectedRowId != current.EditorLineId ||
+            !EditorGridNavigation.TryResolveColumn(GetVisibleEditableColumns(), selected, out _))
+            return false;
+
+        selection = selected;
+        return true;
+    }
+
+    private void MoveGridCell(EditorSelection current, EditorGridNavigationKey key, bool backwards)
+    {
+        var rows = _viewModel.Rows.ToArray();
+        var visibleColumns = GetVisibleEditableColumns();
+        if (!EditorGridNavigation.TryMove(rows.Select(row => row.EditorLineId).ToArray(), visibleColumns,
+                current, key, backwards, out var destination))
+            return;
+
+        var target = rows.FirstOrDefault(row => row.EditorLineId == destination.SelectedRowId);
+        var targetColumn = ResolveGridColumn(destination.SelectedColumn, destination.SelectedTimestampIndex);
+        if (target is null || targetColumn is null || !LyricsGrid.Items.Contains(target))
+            return;
+
+        var cell = new DataGridCellInfo(target, targetColumn);
         LyricsGrid.CurrentCell = cell;
         LyricsGrid.SelectedCells.Clear();
         LyricsGrid.SelectedCells.Add(cell);
-        UpdateSelection(target, LyricsGrid.Columns[logicalColumn]);
-        LyricsGrid.ScrollIntoView(target, LyricsGrid.Columns[logicalColumn]);
-        Dispatcher.BeginInvoke(new Action(() => LyricsGrid.BeginEdit()));
+        _viewModel.SelectCell(destination.SelectedRowId, destination.SelectedColumn,
+            destination.SelectedTimestampIndex);
+        LyricsGrid.ScrollIntoView(target, targetColumn);
+        LyricsGrid.UpdateLayout();
+        if (_viewModel.Rows.Any(row => ReferenceEquals(row, target)) &&
+            LyricsGrid.Items.Contains(target) && _logicalGridColumns.ContainsKey(targetColumn) &&
+            ReferenceEquals(LyricsGrid.CurrentCell.Item, target) &&
+            ReferenceEquals(LyricsGrid.CurrentCell.Column, targetColumn))
+            LyricsGrid.BeginEdit();
+    }
+
+    private EditorGridColumn[] GetVisibleEditableColumns() => LyricsGrid.Columns
+        .Where(column => column.Visibility == Visibility.Visible && !column.IsReadOnly &&
+                         _logicalGridColumns.ContainsKey(column))
+        .OrderBy(column => column.DisplayIndex)
+        .Select(column => _logicalGridColumns[column])
+        .ToArray();
+
+    private DataGridColumn? ResolveGridColumn(EditorColumn column, int? timestampIndex)
+    {
+        var logicalColumns = GetVisibleEditableColumns();
+        if (!EditorGridNavigation.TryResolveColumn(logicalColumns,
+                new EditorSelection(null, column, timestampIndex), out var resolved))
+            return null;
+
+        return LyricsGrid.Columns.FirstOrDefault(gridColumn =>
+            gridColumn.Visibility == Visibility.Visible && !gridColumn.IsReadOnly &&
+            _logicalGridColumns.TryGetValue(gridColumn, out var logicalColumn) && logicalColumn == resolved);
     }
 
     private void RestoreSelectedCell(Guid rowId, EditorSelection selection)
     {
+        if (_viewModel.Selection != selection)
+            return;
         var row = _viewModel.Rows.FirstOrDefault(item => item.EditorLineId == rowId);
-        if (row is null) return;
-        var columnIndex = selection.SelectedColumn == EditorColumn.Lyrics
-            ? LyricsGrid.Columns.Count - 1
-            : Math.Clamp(selection.SelectedTimestampIndex ?? 0, 0, LyricsGrid.Columns.Count - 1);
-        var cell = new DataGridCellInfo(row, LyricsGrid.Columns[columnIndex]);
+        if (row is null)
+            return;
+        var column = ResolveGridColumn(selection.SelectedColumn, selection.SelectedTimestampIndex);
+        if (column is null || !LyricsGrid.Items.Contains(row))
+            return;
+        var cell = new DataGridCellInfo(row, column);
         LyricsGrid.CurrentCell = cell;
         LyricsGrid.SelectedCells.Clear();
         LyricsGrid.SelectedCells.Add(cell);
+        var resolved = _logicalGridColumns[column];
+        if (resolved.Column != selection.SelectedColumn || resolved.TimestampIndex != selection.SelectedTimestampIndex)
+            _viewModel.SelectCell(rowId, resolved.Column, resolved.TimestampIndex);
     }
 
     private void CommitGridEdits()
     {
-        LyricsGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-        LyricsGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        var wasCommittingGridEdits = _committingGridEdits;
+        _committingGridEdits = true;
+        try
+        {
+            LyricsGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+            LyricsGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        }
+        finally
+        {
+            _committingGridEdits = wasCommittingGridEdits;
+        }
         _viewModel.CommitStagedEdits();
         _viewModel.CommitMetadataCommand.Execute(null);
     }
@@ -334,6 +450,7 @@ public partial class BuiltInLyricsEditorWindow : Window
         _playbackRefreshTimer.Stop();
         _fileWatcher?.Dispose();
         _sidecarWatcher?.Dispose();
+        _viewModel.Rows.CollectionChanged -= OnViewModelRowsCollectionChanged;
         _viewModel.ConflictRequiresChoice -= OnConflictRequiresChoice;
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.Dispose();

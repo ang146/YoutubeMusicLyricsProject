@@ -151,18 +151,63 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     public void CommitRowEdit(EditorRowViewModel row)
     {
-        var current = _buffer.Document.Rows.FirstOrDefault(item => item.Id == row.EditorLineId);
-        if (current is null) return;
-        if (!string.Equals(current.LyricsText, row.LyricsText, StringComparison.Ordinal))
-            _buffer.SetLyrics(row.EditorLineId, row.LyricsText);
-        _buffer.SetTimestamps(row.EditorLineId, row.Timestamps.ToArray());
-        RefreshFromBuffer(keepSelection: true);
-        if (_buffer.Document.Validate().Count > 0) Status = "Validation warnings are advisory; Save remains available.";
+        var previousColumnCount = TimestampColumnCount;
+        if (!CommitRowToBuffer(row)) return;
+
+        if (TimestampColumnCount != previousColumnCount)
+            RefreshFromBuffer(keepSelection: true);
+        else if (Rows.FirstOrDefault(current => current.EditorLineId == row.EditorLineId) is { } currentRow)
+            SynchronizeRowFromBuffer(currentRow);
+
+        NotifyAfterRowCommit();
     }
 
     public void CommitStagedEdits()
     {
-        foreach (var row in Rows.ToArray()) CommitRowEdit(row);
+        var previousColumnCount = TimestampColumnCount;
+        var stagedRows = Rows.ToArray();
+        foreach (var row in stagedRows) CommitRowToBuffer(row);
+
+        if (TimestampColumnCount != previousColumnCount)
+            RefreshFromBuffer(keepSelection: true);
+        else
+            foreach (var row in Rows) SynchronizeRowFromBuffer(row);
+
+        NotifyAfterRowCommit();
+    }
+
+    private bool CommitRowToBuffer(EditorRowViewModel row)
+    {
+        if (_buffer.Document.Rows.All(item => item.Id != row.EditorLineId)) return false;
+        var current = _buffer.Document.Rows.First(item => item.Id == row.EditorLineId);
+        if (!string.Equals(current.LyricsText, row.LyricsText, StringComparison.Ordinal))
+            _buffer.SetLyrics(row.EditorLineId, row.LyricsText);
+        _buffer.SetTimestamps(row.EditorLineId, row.Timestamps.ToArray());
+        return true;
+    }
+
+    private void SynchronizeRowFromBuffer(EditorRowViewModel row)
+    {
+        var committed = _buffer.Document.Rows.FirstOrDefault(item => item.Id == row.EditorLineId);
+        if (committed is null) return;
+        row.LyricsText = committed.LyricsText;
+        for (var index = 0; index < row.Timestamps.Count; index++)
+        {
+            var value = index < committed.Timestamps.Count ? committed.Timestamps[index].Value : string.Empty;
+            if (!string.Equals(row.Timestamps[index], value, StringComparison.Ordinal))
+                row.Timestamps[index] = value;
+        }
+    }
+
+    private void NotifyAfterRowCommit()
+    {
+        OnPropertyChanged(nameof(Diagnostics));
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+        if (_buffer.Document.Validate().Count > 0)
+            Status = "Validation warnings are advisory; Save remains available.";
+        InvalidateCommands();
     }
 
     public void RefreshPlayback()
@@ -321,9 +366,18 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     private void CommitMetadata()
     {
+        var previous = _buffer.Metadata;
         _buffer.SetTitleOverride(TitleOverride);
         _buffer.SetArtistOverride(ArtistOverride);
-        RefreshFromBuffer(keepSelection: true);
+        if (previous == _buffer.Metadata) return;
+        TitleOverride = _buffer.Metadata.Title ?? string.Empty;
+        ArtistOverride = _buffer.Metadata.Artist ?? string.Empty;
+        OnPropertyChanged(nameof(EffectiveTitle));
+        OnPropertyChanged(nameof(EffectiveArtist));
+        OnPropertyChanged(nameof(IsDirty));
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+        InvalidateCommands();
     }
 
     private Guid? SelectedRowIdInDocument => _selection.SelectedRowId is { } id && FindDocumentRow(id) is not null

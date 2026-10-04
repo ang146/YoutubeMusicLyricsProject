@@ -92,7 +92,6 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         [GlobalMinus500MenuItem, GlobalMinus100MenuItem, GlobalResetMenuItem,
             GlobalPlus100MenuItem, GlobalPlus500MenuItem];
     internal Brush SurfaceBackgroundForTesting => OverlaySurface.Background;
-    internal bool TopmostPreferenceForTesting => TopmostMenuItem.IsChecked;
     public event Action? CloseRequested;
     public event Action<OverlayPosition, double, double>? DragCompleted;
     public event Action<OverlayCommand>? CommandRequested;
@@ -141,7 +140,6 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         AllLyricsMenuItem.IsChecked = state.ContentMode == LyricsContentMode.AllLyrics;
         LockedMenuItem.IsChecked = state.Locked;
         ClickThroughMenuItem.IsChecked = state.ClickThrough;
-        TopmostMenuItem.IsChecked = state.Topmost;
         PrimaryText.MaxWidth = Math.Max(100, state.Width - 56);
         SecondaryText.MaxWidth = Math.Max(100, state.Width - 56);
     }

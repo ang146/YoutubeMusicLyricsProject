@@ -82,14 +82,14 @@ public sealed class LyricsOverlayWindowTests
         var window = new LyricsOverlayWindow();
         try
         {
-            window.ApplyInteractionState(new(true, true, false, LyricsContentMode.OneLine, 1200, 420), effectiveTopmost: false);
+            window.ApplyInteractionState(new(true, true, LyricsContentMode.OneLine, 1200, 420), effectiveTopmost: true);
             var secondary = window.SecondaryTextForTesting;
 
             Assert.Multiple(() =>
             {
                 Assert.That(window.Width, Is.EqualTo(1200));
                 Assert.That(window.Height, Is.EqualTo(420));
-                Assert.That(window.Topmost, Is.False);
+                Assert.That(window.Topmost, Is.True);
                 Assert.That(secondary.Visibility, Is.EqualTo(Visibility.Collapsed));
                 Assert.That(window.Interaction.ClickThrough, Is.True);
                 Assert.That(((System.Windows.Media.SolidColorBrush)window.SurfaceBackgroundForTesting).Color.A, Is.Zero);
@@ -102,21 +102,35 @@ public sealed class LyricsOverlayWindowTests
     }
 
     [Test]
-    public void ModalSuppressionChangesEffectiveTopmostButPreservesPreferenceCheck()
+    public void ModalSuppressionChangesTopmostAndReleaseRestoresIt()
     {
         var window = new LyricsOverlayWindow();
         try
         {
-            var configured = new OverlayInteractionState(false, false, true,
+            var interaction = new OverlayInteractionState(false, false,
                 LyricsContentMode.TwoLines, 900, 220);
-            window.ApplyInteractionState(configured, effectiveTopmost: false);
+            window.ApplyInteractionState(interaction, effectiveTopmost: false);
+            Assert.That(window.Topmost, Is.False);
+            window.ApplyInteractionState(interaction, effectiveTopmost: true);
 
-            Assert.Multiple(() =>
-            {
-                Assert.That(window.Topmost, Is.False);
-                Assert.That(window.Interaction.Topmost, Is.True);
-                Assert.That(window.TopmostPreferenceForTesting, Is.True);
-            });
+            Assert.That(window.Topmost, Is.True);
+        }
+        finally
+        {
+            window.CloseForApplicationShutdown();
+        }
+    }
+
+    [Test]
+    public void OverlayContextMenuDoesNotExposeAlwaysOnTopToggle()
+    {
+        var window = new LyricsOverlayWindow();
+        try
+        {
+            var overlayMenu = window.ContextMenuForTesting.Items.OfType<MenuItem>()
+                .Single(item => Equals(item.Header, "Overlay"));
+            Assert.That(overlayMenu.Items.OfType<MenuItem>()
+                .Any(item => Equals(item.Header, "Always on Top")), Is.False);
         }
         finally
         {
@@ -132,7 +146,7 @@ public sealed class LyricsOverlayWindowTests
         {
             foreach (var mode in Enum.GetValues<LyricsContentMode>())
             {
-                window.ApplyInteractionState(new(false, false, true, mode, 913, 377), effectiveTopmost: true);
+                window.ApplyInteractionState(new(false, false, mode, 913, 377), effectiveTopmost: true);
                 Assert.That(window.Width, Is.EqualTo(913));
                 Assert.That(window.Height, Is.EqualTo(377));
             }
@@ -151,7 +165,7 @@ public sealed class LyricsOverlayWindowTests
         {
             window.Show();
             _ = new WindowInteropHelper(window).Handle;
-            window.ApplyInteractionState(new(false, true, true, LyricsContentMode.TwoLines, 900, 220), effectiveTopmost: true);
+            window.ApplyInteractionState(new(false, true, LyricsContentMode.TwoLines, 900, 220), effectiveTopmost: true);
             Assert.That(window.Interaction.ClickThrough, Is.True);
         }
         finally
@@ -166,7 +180,7 @@ public sealed class LyricsOverlayWindowTests
         var window = new LyricsOverlayWindow();
         try
         {
-            window.ApplyInteractionState(new(false, false, true, LyricsContentMode.AllLyrics, 900, 300), effectiveTopmost: true);
+            window.ApplyInteractionState(new(false, false, LyricsContentMode.AllLyrics, 900, 300), effectiveTopmost: true);
             window.ApplyTimingState(currentLineEnabled: false, globalTimingEnabled: false, globalOffsetMs: 0);
             var commands = new List<OverlayCommand>();
             window.CommandRequested += commands.Add;

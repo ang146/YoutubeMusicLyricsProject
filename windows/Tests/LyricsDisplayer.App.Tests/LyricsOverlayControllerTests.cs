@@ -39,6 +39,7 @@ public sealed class LyricsOverlayControllerTests
             Assert.That(harness.View.HideCalls, Is.EqualTo(2));
             Assert.That(harness.View.ShowWithoutActivationCalls, Is.EqualTo(3));
             Assert.That(harness.Controller.IsVisible, Is.True);
+            Assert.That(harness.View.EffectiveTopmost, Is.True);
         });
     }
 
@@ -287,7 +288,7 @@ public sealed class LyricsOverlayControllerTests
     [Test]
     public void PreferencesLoadBeforeWindowCreationAndApplyWhenWindowIsCreated()
     {
-        var preferences = new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1200, 377);
+        var preferences = new OverlayPreferences(true, true, LyricsContentMode.OneLine, 1200, 377);
         var harness = new Harness(preferences: preferences);
 
         Assert.That(harness.Controller.Interaction,
@@ -306,7 +307,6 @@ public sealed class LyricsOverlayControllerTests
 
         harness.Controller.SetLocked(true);
         harness.Controller.SetClickThrough(true);
-        harness.Controller.SetTopmost(false);
         harness.Controller.SetContentMode(LyricsContentMode.OneLine);
         harness.Controller.SetWidth(1200);
         harness.Controller.SetHeight(377);
@@ -314,62 +314,58 @@ public sealed class LyricsOverlayControllerTests
         Assert.Multiple(() =>
         {
             Assert.That(harness.View.Interaction, Is.EqualTo(harness.Controller.Interaction));
-            Assert.That(harness.PositionStore.SavedPreferences, Has.Count.EqualTo(6));
-            Assert.That(changes, Has.Count.EqualTo(6));
+            Assert.That(harness.PositionStore.SavedPreferences, Has.Count.EqualTo(5));
+            Assert.That(changes, Has.Count.EqualTo(5));
             Assert.That(harness.Controller.Interaction,
-                Is.EqualTo(new OverlayInteractionState(true, true, false, LyricsContentMode.OneLine, 1200, 377)));
+                Is.EqualTo(new OverlayInteractionState(true, true, LyricsContentMode.OneLine, 1200, 377)));
         });
     }
 
-    [TestCase(false, false, false)]
-    [TestCase(true, false, true)]
-    [TestCase(true, true, false)]
-    [TestCase(false, true, false)]
-    public void EffectiveTopmostCombinesConfiguredPreferenceAndEditorSuppression(
-        bool configuredTopmost, bool suppressed, bool expectedEffectiveTopmost)
+    [Test]
+    public void OverlayIsTopmostByDefaultAndRestoredAfterEditorSuppression()
     {
-        var preferences = OverlayPreferences.Default with { Topmost = configuredTopmost };
-        var harness = new Harness(preferences: preferences);
-        harness.Controller.SetEditorModalTopmostSuppressed(suppressed);
+        var harness = new Harness();
+        Assert.That(harness.Controller.EffectiveTopmost, Is.True);
         harness.Controller.Show();
+        Assert.That(harness.View.EffectiveTopmost, Is.True);
 
-        Assert.Multiple(() =>
-        {
-            Assert.That(harness.Controller.Interaction.Topmost, Is.EqualTo(configuredTopmost));
-            Assert.That(harness.Controller.EffectiveTopmost, Is.EqualTo(expectedEffectiveTopmost));
-            Assert.That(harness.View.Interaction!.Topmost, Is.EqualTo(configuredTopmost));
-            Assert.That(harness.View.EffectiveTopmost, Is.EqualTo(expectedEffectiveTopmost));
-            Assert.That(harness.PositionStore.SavedPreferences, Is.Empty,
-                "Temporary editor suppression must not write the user's preference.");
-        });
-    }
-
-    [TestCase(true, false, false)]
-    [TestCase(false, true, true)]
-    public void ReleasingEditorSuppressionUsesLatestConfiguredTopmostPreference(
-        bool initialPreference, bool latestPreference, bool expectedEffectiveTopmost)
-    {
-        var harness = new Harness(preferences: OverlayPreferences.Default with { Topmost = initialPreference });
-        harness.Controller.Show();
         harness.Controller.SetEditorModalTopmostSuppressed(true);
-
-        harness.Controller.SetTopmost(latestPreference);
-        Assert.That(harness.Controller.EffectiveTopmost, Is.False);
+        Assert.That(harness.View.EffectiveTopmost, Is.False);
         harness.Controller.SetEditorModalTopmostSuppressed(false);
 
         Assert.Multiple(() =>
         {
-            Assert.That(harness.Controller.Interaction.Topmost, Is.EqualTo(latestPreference));
-            Assert.That(harness.Controller.EffectiveTopmost, Is.EqualTo(expectedEffectiveTopmost));
-            Assert.That(harness.View.EffectiveTopmost, Is.EqualTo(expectedEffectiveTopmost));
-            Assert.That(harness.PositionStore.Preferences.Topmost, Is.EqualTo(latestPreference));
+            Assert.That(harness.Controller.EffectiveTopmost, Is.True);
+            Assert.That(harness.View.EffectiveTopmost, Is.True);
+            Assert.That(harness.PositionStore.SavedPreferences, Is.Empty,
+                "Temporary editor suppression must not write overlay preferences.");
+        });
+    }
+
+    [Test]
+    public void OverlayShownWhileEditorSuppressionIsActiveRemainsNonTopmostUntilRelease()
+    {
+        var harness = new Harness();
+        harness.Controller.SetEditorModalTopmostSuppressed(true);
+        harness.Controller.Show();
+        Assert.That(harness.View.EffectiveTopmost, Is.False);
+
+        harness.Controller.Hide();
+        harness.Controller.Show();
+        Assert.That(harness.View.EffectiveTopmost, Is.False);
+        harness.Controller.SetEditorModalTopmostSuppressed(false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Controller.EffectiveTopmost, Is.True);
+            Assert.That(harness.View.EffectiveTopmost, Is.True);
         });
     }
 
     [Test]
     public void SuppressionRequestedBeforeOverlayCreationAppliesOnShowWithoutChangingVisibilityOnRelease()
     {
-        var harness = new Harness(preferences: OverlayPreferences.Default with { Topmost = true });
+        var harness = new Harness();
         harness.Controller.SetEditorModalTopmostSuppressed(true);
         harness.Controller.Show();
         Assert.That(harness.View.EffectiveTopmost, Is.False);
@@ -379,7 +375,6 @@ public sealed class LyricsOverlayControllerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(harness.Controller.Interaction.Topmost, Is.True);
             Assert.That(harness.View.EffectiveTopmost, Is.True);
             Assert.That(harness.Controller.IsVisible, Is.False);
             Assert.That(harness.View.ShowWithoutActivationCalls, Is.EqualTo(1));
@@ -389,7 +384,7 @@ public sealed class LyricsOverlayControllerTests
     [Test]
     public void SuppressionCanBeAppliedWhenNoOverlayInstanceExists()
     {
-        var harness = new Harness(preferences: OverlayPreferences.Default with { Topmost = true });
+        var harness = new Harness();
 
         Assert.DoesNotThrow(() => harness.Controller.SetEditorModalTopmostSuppressed(true));
 
@@ -404,7 +399,7 @@ public sealed class LyricsOverlayControllerTests
     [Test]
     public void HiddenOverlayRemainsHiddenWhileSuppressionIsReleased()
     {
-        var harness = new Harness(preferences: OverlayPreferences.Default with { Topmost = true });
+        var harness = new Harness();
         harness.Controller.Show();
         harness.Controller.Hide();
         harness.Controller.SetEditorModalTopmostSuppressed(true);
@@ -423,7 +418,7 @@ public sealed class LyricsOverlayControllerTests
     [Test]
     public void SuppressionRemainsActiveUntilExplicitlyReleasedAfterModalReturn()
     {
-        var harness = new Harness(preferences: OverlayPreferences.Default with { Topmost = true });
+        var harness = new Harness();
         harness.Controller.Show();
         harness.Controller.SetEditorModalTopmostSuppressed(true);
 

@@ -80,7 +80,7 @@ public sealed class LyricsOverlayController
     public bool HasCreatedWindow => _view is not null;
     public LyricsOverlayPresentationState Presentation => _presentation;
     public OverlayInteractionState Interaction => _interaction;
-    public bool EffectiveTopmost => _interaction.Topmost && !_editorModalTopmostSuppressed;
+    public bool EffectiveTopmost => !_editorModalTopmostSuppressed;
 
     public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline, bool localFileMissing = false)
     {
@@ -110,9 +110,6 @@ public sealed class LyricsOverlayController
     public void SetClickThrough(bool value) =>
         ChangeInteraction(_interaction with { ClickThrough = value },
             $"click-through {(value ? "enabled" : "disabled")}");
-
-    public void SetTopmost(bool value) =>
-        ChangeInteraction(_interaction with { Topmost = value }, $"topmost {(value ? "enabled" : "disabled")}");
 
     public void SetEditorModalTopmostSuppressed(bool suppressed)
     {
@@ -168,6 +165,7 @@ public sealed class LyricsOverlayController
         RecoverAbnormalWindowStateIfNeeded();
         RecoverGeometryForCurrentWorkAreas();
         if (_reportedVisible) return;
+        ApplyInteractionState();
         _view!.ShowWithoutActivation();
         _reportedVisible = true;
         _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay shown.");
@@ -374,9 +372,6 @@ public sealed class LyricsOverlayController
                 break;
             case OverlayCommand.ToggleClickThrough:
                 SetClickThrough(!_interaction.ClickThrough);
-                break;
-            case OverlayCommand.ToggleTopmost:
-                SetTopmost(!_interaction.Topmost);
                 break;
             case OverlayCommand.SetOneLine:
                 SetContentMode(LyricsContentMode.OneLine);

@@ -65,8 +65,6 @@ public partial class MainWindow : Window
         OverlayLockedCheckBox.Unchecked += OnOverlayLockedChanged;
         OverlayClickThroughCheckBox.Checked += OnOverlayClickThroughChanged;
         OverlayClickThroughCheckBox.Unchecked += OnOverlayClickThroughChanged;
-        OverlayTopmostCheckBox.Checked += OnOverlayTopmostChanged;
-        OverlayTopmostCheckBox.Unchecked += OnOverlayTopmostChanged;
         OverlayContentModeComboBox.SelectionChanged += OnOverlayContentModeChanged;
         OverlayWidthApplyButton.Click += OnOverlayWidthApply;
         CloseControlPanelToTrayCheckBox.Checked += OnCloseToTrayChanged;
@@ -402,7 +400,6 @@ public partial class MainWindow : Window
         {
             OverlayLockedCheckBox.IsChecked = state.Locked;
             OverlayClickThroughCheckBox.IsChecked = state.ClickThrough;
-            OverlayTopmostCheckBox.IsChecked = state.Topmost;
             OverlayContentModeComboBox.SelectedIndex = (int)state.ContentMode;
             OverlayWidthTextBox.Text = state.Width.ToString("0", CultureInfo.InvariantCulture);
             OverlayPreferenceStatusText.Text = string.Empty;
@@ -423,12 +420,6 @@ public partial class MainWindow : Window
     {
         if (!_synchronizingOverlayPreferences)
             _overlay.SetClickThrough(OverlayClickThroughCheckBox.IsChecked == true);
-    }
-
-    private void OnOverlayTopmostChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_synchronizingOverlayPreferences)
-            _overlay.SetTopmost(OverlayTopmostCheckBox.IsChecked == true);
     }
 
     private void OnOverlayContentModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

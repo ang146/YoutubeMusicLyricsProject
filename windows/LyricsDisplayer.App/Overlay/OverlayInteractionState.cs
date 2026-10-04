@@ -5,17 +5,16 @@ namespace LyricsDisplayer;
 public sealed record OverlayInteractionState(
     bool Locked,
     bool ClickThrough,
-    bool Topmost,
     LyricsContentMode ContentMode,
     double Width,
     double Height)
 {
     public static OverlayInteractionState FromPreferences(OverlayPreferences preferences) =>
-        new(preferences.Locked, preferences.ClickThrough, preferences.Topmost,
-            preferences.ContentMode, preferences.Width, preferences.Height);
+        new(preferences.Locked, preferences.ClickThrough, preferences.ContentMode,
+            preferences.Width, preferences.Height);
 
     public OverlayPreferences ToPreferences() =>
-        new(Locked, ClickThrough, Topmost, ContentMode, Width, Height);
+        new(Locked, ClickThrough, ContentMode, Width, Height);
 
     public bool CanDragOnLyrics => !Locked;
     public bool CanResize => !ClickThrough;
@@ -28,7 +27,6 @@ public enum OverlayCommand
     OpenBuiltInEditor,
     ToggleLocked,
     ToggleClickThrough,
-    ToggleTopmost,
     SetOneLine,
     SetTwoLines,
     SetAllLyrics,

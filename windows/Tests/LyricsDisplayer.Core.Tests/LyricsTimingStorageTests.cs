@@ -84,6 +84,24 @@ public sealed class LyricsTimingStorageTests
     }
 
     [Test]
+    public void ZeroOffsetBakeIsANoOp()
+    {
+        using var library = CreateLibrary();
+        var id = Import(library, "track-zero-offset");
+        const string original = "[00:00.00]\r\n";
+        File.WriteAllText(LrcPath(id), original);
+
+        var result = library.BakeGlobalOffset(id);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(TimingAdjustmentStatus.NothingToBake));
+            Assert.That(File.ReadAllText(LrcPath(id)), Is.EqualTo(original));
+            Assert.That(library.Lookup(id).Document!.GlobalOffsetMs, Is.Zero);
+        });
+    }
+
+    [Test]
     public void BakePreservesEffectiveTimelineBoundary()
     {
         using var library = CreateLibrary();
@@ -121,6 +139,53 @@ public sealed class LyricsTimingStorageTests
             Assert.That(File.ReadAllText(LrcPath(id)), Is.EqualTo(lrcBefore));
             Assert.That(File.ReadAllText(SidecarPath(id)), Is.EqualTo(sidecarBefore));
             Assert.That(library.Lookup(id).Document!.GlobalOffsetMs, Is.EqualTo(-500));
+        });
+    }
+
+    [Test]
+    public void NegativeBakePreservesBlankAndBreakAnchorsBakesEveryOccurrenceAndResetsOffset()
+    {
+        using var library = CreateLibrary();
+        var id = Import(library, "track-zero-anchors");
+        const string original = "[ar:Artist]\r\n[00:00.000]\r\n[00:00.000]  ♪\r\n" +
+                                "[00:00.000][02:00.000]♪\r\n[00:13.854]Line A\r\n";
+        File.WriteAllText(LrcPath(id), original);
+        Assert.That(library.SetGlobalOffset(id, -100).Succeeded, Is.True);
+
+        var result = library.BakeGlobalOffset(id);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Succeeded, Is.True, result.Error);
+            Assert.That(File.ReadAllText(LrcPath(id)), Is.EqualTo(
+                "[ar:Artist]\r\n[00:00.000]\r\n[00:00.000]  ♪\r\n" +
+                "[00:00.000][01:59.900]♪\r\n[00:13.754]Line A\r\n"));
+            Assert.That(result.Document!.GlobalOffsetMs, Is.Zero);
+            Assert.That(library.Lookup(id).Document!.GlobalOffsetMs, Is.Zero);
+            Assert.That(result.Document.Lines.Any(line => line.Text == ""), Is.True,
+                "The zero-time blank line remains a timed runtime line.");
+        });
+    }
+
+    [Test]
+    public void NegativeBakeWithProtectedZeroAndFailingNearZeroLeavesBothFilesAndOffsetUnchanged()
+    {
+        using var library = CreateLibrary();
+        var id = Import(library, "track-zero-anchor-reject");
+        const string original = "[00:00.000]\n[00:00.050]Actual lyric\n[00:10.000]Later\n";
+        File.WriteAllText(LrcPath(id), original);
+        Assert.That(library.SetGlobalOffset(id, -100).Succeeded, Is.True);
+        var lrcBefore = File.ReadAllBytes(LrcPath(id));
+        var sidecarBefore = File.ReadAllBytes(SidecarPath(id));
+
+        var result = library.BakeGlobalOffset(id);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Status, Is.EqualTo(TimingAdjustmentStatus.NegativeTimestamp));
+            Assert.That(File.ReadAllBytes(LrcPath(id)), Is.EqualTo(lrcBefore));
+            Assert.That(File.ReadAllBytes(SidecarPath(id)), Is.EqualTo(sidecarBefore));
+            Assert.That(library.Lookup(id).Document!.GlobalOffsetMs, Is.EqualTo(-100));
         });
     }
 

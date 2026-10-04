@@ -35,6 +35,81 @@ public sealed class LrcTimestampRewriterTests
             Is.EqualTo("[00:10.500]xxxx\n[00:13.500]♪\n[00:20.500]yyyy\n"));
     }
 
+    [TestCase("")]
+    [TestCase("   \t")]
+    [TestCase("♪")]
+    [TestCase("  ♪\t")]
+    public void NegativeBakePreservesExactZeroForBlankOrBreakAnchorWithoutTrimmingText(string lyricsText)
+    {
+        var original = $"[00:00.000]{lyricsText}\r\n[00:13.854]Line A\r\n";
+
+        var result = LrcTimestampRewriter.Rewrite(original, -100);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(result.Content, Is.EqualTo($"[00:00.000]{lyricsText}\r\n[00:13.754]Line A\r\n"));
+        });
+    }
+
+    [Test]
+    public void NegativeBakeProtectsOnlyTheZeroOccurrenceOnAMultiTimestampBreakRow()
+    {
+        const string original = "[00:00.000][02:00.000] ♪\n";
+
+        var result = LrcTimestampRewriter.Rewrite(original, -100);
+
+        Assert.That(result.Content, Is.EqualTo("[00:00.000][01:59.900] ♪\n"));
+    }
+
+    [TestCase("[00:00.000]Hello", -100)]
+    [TestCase("[00:00.001]", -100)]
+    [TestCase("[00:00.050] ♪", -100)]
+    [TestCase("[00:00.099]   ", -100)]
+    public void NegativeBakeStillRejectsOrdinaryOrNearZeroTimestamps(string original, long deltaMs)
+    {
+        var result = LrcTimestampRewriter.Rewrite(original, deltaMs);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ContainsNegativeTimestamp, Is.True);
+            Assert.That(result.Content, Is.Null);
+        });
+    }
+
+    [Test]
+    public void ProtectedZeroDoesNotPermitAnotherOccurrenceToBecomeNegative()
+    {
+        const string original = "[00:00.000]♪\n[00:00.050]Line\n";
+
+        var result = LrcTimestampRewriter.Rewrite(original, -100);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ContainsNegativeTimestamp, Is.True);
+            Assert.That(result.Content, Is.Null, "The rewriter returns no partial content on failure.");
+        });
+    }
+
+    [Test]
+    public void MultipleProtectedAnchorsStayZeroButPositiveBakeMovesThemNormally()
+    {
+        const string original = "[00:00.000]\n[00:00.000] ♪\n[00:10.000]Line\n";
+
+        var negative = LrcTimestampRewriter.Rewrite(original, -100);
+        var positive = LrcTimestampRewriter.Rewrite(original, 100);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(negative.Content, Is.EqualTo(
+                "[00:00.000]\n[00:00.000] ♪\n[00:09.900]Line\n"));
+            Assert.That(positive.Content, Is.EqualTo(
+                "[00:00.100]\n[00:00.100] ♪\n[00:10.100]Line\n"));
+        });
+    }
+
     [Test]
     public void NegativeResultIsRejectedWithoutProducingContent()
     {

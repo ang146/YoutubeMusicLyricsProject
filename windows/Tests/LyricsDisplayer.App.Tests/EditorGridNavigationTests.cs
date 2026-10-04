@@ -193,4 +193,5 @@ public sealed class EditorGridNavigationTests
         var moved = EditorGridNavigation.TryMove(rows, columns, current, key, backwards, out _);
         Assert.That(moved, Is.False);
     }
+
 }

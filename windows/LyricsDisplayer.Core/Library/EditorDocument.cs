@@ -39,10 +39,22 @@ public sealed record EditorPhysicalLine(
     string RawText,
     string LineEnding,
     EditorLyricRow? LyricRow = null,
-    string? Diagnostic = null,
+    bool ValidateRawText = false,
     bool IsModified = false);
 
-public sealed record EditorValidationDiagnostic(Guid? RowId, int? PhysicalLine, int? TimestampIndex, string Message);
+public enum EditorValidationSeverity
+{
+    Warning,
+    Error
+}
+
+public sealed record EditorValidationDiagnostic(
+    Guid? RowId,
+    int? PhysicalLine,
+    int? TimestampIndex,
+    EditorValidationSeverity Severity,
+    string Message,
+    EditorColumn? TargetColumn = null);
 
 public enum EditorAssetStatus
 {
@@ -90,20 +102,26 @@ public sealed record EditorDocument(
         for (var lineIndex = 0; lineIndex < PhysicalLines.Count; lineIndex++)
         {
             var line = PhysicalLines[lineIndex];
-            if (line.Diagnostic is not null)
-                diagnostics.Add(new(line.LyricRow?.Id, lineIndex + 1, null, line.Diagnostic));
             if (line.LyricRow is not { } row) continue;
+            var physicalLine = lineIndex + 1;
+
+            if ((row.Timestamps.Count == 0 || line.ValidateRawText) &&
+                EditorDocumentCodec.GetUntimedTextDiagnostic(row.LyricsText) is { } textDiagnostic)
+                diagnostics.Add(new(row.Id, physicalLine, null, textDiagnostic.Severity, textDiagnostic.Message,
+                    EditorColumn.Lyrics));
 
             for (var index = 0; index < row.Timestamps.Count; index++)
             {
                 var timestamp = row.Timestamps[index];
                 if (!EditorDocumentCodec.TryParseTimestamp(timestamp.Value, out var value))
                 {
-                    diagnostics.Add(new(row.Id, lineIndex + 1, index, $"Timestamp '{timestamp.Value}' is invalid."));
+                    diagnostics.Add(new(row.Id, physicalLine, index, EditorValidationSeverity.Error,
+                        $"Timestamp '{timestamp.Value}' is invalid.", EditorColumn.Timestamp));
                     continue;
                 }
                 if (previous is not null && value < previous.Value)
-                    diagnostics.Add(new(row.Id, lineIndex + 1, index, "Timestamp is earlier than the preceding document timestamp."));
+                    diagnostics.Add(new(row.Id, physicalLine, index, EditorValidationSeverity.Warning,
+                        "Timestamp is earlier than the preceding document timestamp.", EditorColumn.Timestamp));
                 previous = value;
             }
         }
@@ -135,7 +153,7 @@ public static partial class EditorDocumentCodec
         var split = SplitPhysicalLines(content);
         var lines = new List<EditorPhysicalLine>(split.Count);
         var defaultEnding = split.Select(item => item.Ending).FirstOrDefault(item => item.Length > 0) ?? "\n";
-        foreach (var (text, ending, lineNumber) in split)
+        foreach (var (text, ending) in split)
         {
             var tag = TagPrefixRegex().Match(text);
             if (tag.Success && KnownMetadata.Contains(tag.Groups["name"].Value))
@@ -169,23 +187,16 @@ public static partial class EditorDocumentCodec
                 {
                     var malformedRow = new EditorLyricRow(Guid.NewGuid(), text, []);
                     lines.Add(new(Guid.NewGuid(), EditorEntryKind.Lyric, text, ending, malformedRow,
-                        Diagnostic: $"Physical line {lineNumber} contains malformed timestamp syntax and remains visible as untimed text."));
+                        ValidateRawText: true));
                     continue;
                 }
             }
 
-            var hasUnknownTag = tag.Success &&
-                !KnownMetadata.Contains(tag.Groups["name"].Value) &&
-                !tag.Groups["name"].Value.All(char.IsDigit);
-            var diagnostic = hasUnknownTag
-                ? $"Physical line {lineNumber} contains an unrecognised tag and remains visible as lyric text."
-                : text.Contains('[') && text.Contains(':')
-                    ? $"Physical line {lineNumber} contains unsupported bracketed content and remains visible as lyric text."
-                    : null;
-            if (diagnostic is not null)
+            if (GetUntimedTextDiagnostic(text) is not null)
             {
                 var rawRow = new EditorLyricRow(Guid.NewGuid(), text, []);
-                lines.Add(new(Guid.NewGuid(), EditorEntryKind.Lyric, text, ending, rawRow, Diagnostic: diagnostic));
+                lines.Add(new(Guid.NewGuid(), EditorEntryKind.Lyric, text, ending, rawRow,
+                    ValidateRawText: true));
             }
             else
             {
@@ -240,6 +251,33 @@ public static partial class EditorDocumentCodec
     private static string RemoveOuterBrackets(string value) =>
         value.Length >= 2 && value[0] == '[' && value[^1] == ']' ? value[1..^1] : value;
 
+    internal static (EditorValidationSeverity Severity, string Message)? GetUntimedTextDiagnostic(string text)
+    {
+        var prefix = TimestampPrefixRegex().Match(text);
+        if (prefix.Success)
+        {
+            var tokens = BracketTokenRegex().Matches(prefix.Groups["tokens"].Value);
+            var allValid = tokens.Count > 0;
+            foreach (Match token in tokens)
+                allValid &= TryParseTimestamp(token.Groups["value"].Value, out _);
+
+            var firstToken = tokens.Count > 0 ? tokens[0].Groups["value"].Value : string.Empty;
+            if (!allValid && firstToken.Length > 0 && char.IsDigit(firstToken[0]))
+                return (EditorValidationSeverity.Error,
+                    "Malformed timestamp syntax remains visible as untimed text.");
+        }
+
+        var tag = TagPrefixRegex().Match(text);
+        var hasUnknownTag = tag.Success &&
+            !KnownMetadata.Contains(tag.Groups["name"].Value) &&
+            !tag.Groups["name"].Value.All(char.IsDigit);
+        if (hasUnknownTag)
+            return (EditorValidationSeverity.Warning, "Unrecognised tag remains visible as lyric text.");
+        if (text.Contains('[') && text.Contains(':'))
+            return (EditorValidationSeverity.Warning, "Unsupported bracketed content remains visible as lyric text.");
+        return null;
+    }
+
     internal static string SerializeLyricRow(EditorLyricRow row)
     {
         var builder = new StringBuilder();
@@ -249,21 +287,20 @@ public static partial class EditorDocumentCodec
         return builder.Append(row.LyricsText).ToString();
     }
 
-    private static List<(string Text, string Ending, int LineNumber)> SplitPhysicalLines(string content)
+    private static List<(string Text, string Ending)> SplitPhysicalLines(string content)
     {
-        var result = new List<(string, string, int)>();
+        var result = new List<(string, string)>();
         var start = 0;
-        var lineNumber = 1;
         for (var index = 0; index < content.Length; index++)
         {
             if (content[index] is not ('\r' or '\n')) continue;
             var end = index + 1;
             if (content[index] == '\r' && end < content.Length && content[end] == '\n') end++;
-            result.Add((content[start..index], content[index..end], lineNumber++));
+            result.Add((content[start..index], content[index..end]));
             start = end;
             index = end - 1;
         }
-        if (start < content.Length) result.Add((content[start..], string.Empty, lineNumber));
+        if (start < content.Length) result.Add((content[start..], string.Empty));
         return result;
     }
 }

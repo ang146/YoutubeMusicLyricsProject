@@ -1,15 +1,16 @@
 using System.ComponentModel;
 using System.Collections.Specialized;
-using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Library;
 using WpfApplication = System.Windows.Application;
 using WpfBinding = System.Windows.Data.Binding;
+using WpfControl = System.Windows.Controls.Control;
 using WpfDataGridCell = System.Windows.Controls.DataGridCell;
 using WpfMessageBox = System.Windows.MessageBox;
 
@@ -106,17 +107,9 @@ public partial class BuiltInLyricsEditorWindow : Window
     {
         LyricsGrid.Columns.Clear();
         _logicalGridColumns.Clear();
+
         for (var index = 0; index < count; index++)
         {
-            var cellStyle = new Style(typeof(WpfDataGridCell));
-            var invalidTimestamp = new DataTrigger
-            {
-                Binding = new WpfBinding($"Timestamps[{index}]") { Converter = InvalidTimestampConverter.Instance },
-                Value = true
-            };
-            invalidTimestamp.Setters.Add(new Setter(BackgroundProperty, System.Windows.Media.Brushes.MistyRose));
-            invalidTimestamp.Setters.Add(new Setter(ToolTipProperty, "Invalid LRC timestamp; saving remains allowed."));
-            cellStyle.Triggers.Add(invalidTimestamp);
             var column = new DataGridTextColumn
             {
                 Header = $"Timestamp {index + 1}",
@@ -126,7 +119,8 @@ public partial class BuiltInLyricsEditorWindow : Window
                     UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
                 },
                 Width = new DataGridLength(112),
-                CellStyle = cellStyle
+                CellStyle = CreateDiagnosticCellStyle(
+                    $"TimestampDiagnosticSeverities[{index}]")
             };
             LyricsGrid.Columns.Add(column);
             _logicalGridColumns.Add(column, new(EditorColumn.Timestamp, index));
@@ -139,11 +133,38 @@ public partial class BuiltInLyricsEditorWindow : Window
                 Mode = BindingMode.TwoWay,
                 UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
             },
-            Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            Width = new DataGridLength(1, DataGridLengthUnitType.Star),
+            CellStyle = CreateDiagnosticCellStyle(nameof(EditorRowViewModel.LyricsDiagnosticSeverity))
         };
         LyricsGrid.Columns.Add(lyricsColumn);
         _logicalGridColumns.Add(lyricsColumn, new(EditorColumn.Lyrics));
         _builtTimestampColumnCount = count;
+    }
+
+    private Style CreateDiagnosticCellStyle(string severityBindingPath)
+    {
+        var style = new Style(typeof(WpfDataGridCell), (Style)FindResource("EditorDiagnosticCellBaseStyle"));
+        AddSeverityTrigger(style, severityBindingPath, EditorValidationSeverity.Warning,
+            (System.Windows.Media.Brush)FindResource("EditorWarningCellBackground"),
+            (System.Windows.Media.Brush)FindResource("EditorWarningCellForeground"));
+        AddSeverityTrigger(style, severityBindingPath, EditorValidationSeverity.Error,
+            (System.Windows.Media.Brush)FindResource("EditorErrorCellBackground"),
+            (System.Windows.Media.Brush)FindResource("EditorErrorCellForeground"));
+        return style;
+    }
+
+    private static void AddSeverityTrigger(Style style, string bindingPath,
+        EditorValidationSeverity severity, System.Windows.Media.Brush background,
+        System.Windows.Media.Brush foreground)
+    {
+        var trigger = new DataTrigger
+        {
+            Binding = new WpfBinding(bindingPath),
+            Value = severity
+        };
+        trigger.Setters.Add(new Setter(WpfControl.BackgroundProperty, background));
+        trigger.Setters.Add(new Setter(WpfControl.ForegroundProperty, foreground));
+        style.Triggers.Add(trigger);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -169,8 +190,34 @@ public partial class BuiltInLyricsEditorWindow : Window
 
     private void OnViewModelRowsCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action != NotifyCollectionChangedAction.Reset) return;
-        _gridRowsResetInProgress = true;
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+            _gridRowsResetInProgress = true;
+    }
+
+    private void OnGridLoadingRow(object? sender, DataGridRowEventArgs e) =>
+        e.Row.SetBinding(DataGridRow.HeaderProperty,
+            new WpfBinding(nameof(EditorRowViewModel.VisibleLineNumber)));
+
+    private void OnGridPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindVisualAncestor<DataGridRowHeader>(e.OriginalSource as DependencyObject) is not null)
+            e.Handled = true;
+    }
+
+    private static T? FindVisualAncestor<T>(DependencyObject? element) where T : DependencyObject
+    {
+        while (element is not null)
+        {
+            if (element is T match) return match;
+            element = element switch
+            {
+                System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D =>
+                    System.Windows.Media.VisualTreeHelper.GetParent(element),
+                FrameworkContentElement content => content.Parent ?? content.TemplatedParent as DependencyObject,
+                _ => LogicalTreeHelper.GetParent(element)
+            };
+        }
+        return null;
     }
 
     private void OnCellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
@@ -233,10 +280,8 @@ public partial class BuiltInLyricsEditorWindow : Window
 
     private void UpdateSelection(EditorRowViewModel row, DataGridColumn column)
     {
-        if (_viewModel.Rows.All(current => current.EditorLineId != row.EditorLineId) ||
-            !_logicalGridColumns.TryGetValue(column, out var logicalColumn))
-            return;
-
+        if (_viewModel.Rows.All(current => current.EditorLineId != row.EditorLineId)) return;
+        if (!_logicalGridColumns.TryGetValue(column, out var logicalColumn)) return;
         _viewModel.SelectCell(row.EditorLineId, logicalColumn.Column, logicalColumn.TimestampIndex);
     }
 
@@ -272,6 +317,8 @@ public partial class BuiltInLyricsEditorWindow : Window
         // This editor owns grid navigation. Mark the routed input handled before any
         // edit commit or selection changes so the DataGrid bubble handler cannot move again.
         e.Handled = true;
+        var key = e.Key;
+        var backwards = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         // Capture stable row/column identity before committing; a column-count change may
         // rebuild the observable row collection before the navigation target is applied.
         if (!TryCaptureNavigationCell(out var current))
@@ -279,9 +326,8 @@ public partial class BuiltInLyricsEditorWindow : Window
             return;
         }
 
-        var backwards = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
         CommitGridEdits();
-        MoveGridCell(current, e.Key == Key.Enter ? EditorGridNavigationKey.Enter : EditorGridNavigationKey.Tab,
+        MoveGridCell(current, key == Key.Enter ? EditorGridNavigationKey.Enter : EditorGridNavigationKey.Tab,
             backwards);
     }
 
@@ -290,6 +336,9 @@ public partial class BuiltInLyricsEditorWindow : Window
         selection = new(null, EditorColumn.Lyrics);
         if (LyricsGrid.CurrentCell.Item is not EditorRowViewModel current ||
             !_viewModel.Rows.Any(row => row.EditorLineId == current.EditorLineId))
+            return false;
+
+        if (LyricsGrid.CurrentCell.Column?.IsReadOnly == true)
             return false;
 
         if (LyricsGrid.CurrentCell.Column is { } column &&
@@ -318,7 +367,12 @@ public partial class BuiltInLyricsEditorWindow : Window
                 current, key, backwards, out var destination))
             return;
 
-        var target = rows.FirstOrDefault(row => row.EditorLineId == destination.SelectedRowId);
+        FocusGridCell(destination);
+    }
+
+    private void FocusGridCell(EditorSelection destination)
+    {
+        var target = _viewModel.Rows.FirstOrDefault(row => row.EditorLineId == destination.SelectedRowId);
         var targetColumn = ResolveGridColumn(destination.SelectedColumn, destination.SelectedTimestampIndex);
         if (target is null || targetColumn is null || !LyricsGrid.Items.Contains(target))
             return;
@@ -455,16 +509,4 @@ public partial class BuiltInLyricsEditorWindow : Window
         _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         _viewModel.Dispose();
     }
-}
-
-internal sealed class InvalidTimestampConverter : IValueConverter
-{
-    public static InvalidTimestampConverter Instance { get; } = new();
-
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
-        value is string timestamp && !string.IsNullOrWhiteSpace(timestamp) &&
-        !EditorDocumentCodec.TryParseTimestamp(timestamp, out _);
-
-    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) =>
-        System.Windows.Data.Binding.DoNothing;
 }

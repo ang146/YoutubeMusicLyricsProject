@@ -211,11 +211,12 @@ Editor navigation keys such as Enter/Tab are editor-local. Existing overlay visi
 
 Built-in editor validation is advisory, not permission enforcement.
 
-Validation severity should be immediately visible in the grid:
+Validation severity should be immediately visible in the owning data cell:
 
-- errors use a clear red error background
-- warnings use a clear yellow warning background
-- the grid includes an explicit line-number column so diagnostics can identify the affected line
+- malformed or invalid timestamps are Errors; out-of-order timestamps and unrecognised/unsupported bracketed text are Warnings
+- `Timestamp[n]` diagnostics style only that timestamp cell; lyric-text diagnostics style only the Lyrics cell; Error styling wins if one cell has both severities
+- diagnostics that have no explicit cell target remain summary-only and do not colour an arbitrary cell or the row-number gutter
+- a neutral `DataGrid.RowHeader` displays one-based numbering of visible editor rows; hidden recognized metadata does not count, while blank visible rows do
 
 The validation area should summarize rather than render an unbounded list of messages, for example:
 
@@ -223,7 +224,7 @@ The validation area should summarize rather than render an unbounded list of mes
 Warnings: 4    Errors: 1
 ```
 
-Hovering or otherwise inspecting the summary may show diagnostic details including line number and reason. When there are no warnings or errors, the validation summary and the advisory message should disappear rather than leaving a permanent warning notice on screen.
+Hovering the bottom `Warnings: N    Errors: N` summary shows every diagnostic as `Severity: Line N - message`, using the same visible-row numbering as the gutter. Entries are ordered by visible line, Error before Warning on the same line, then stable validation order. The tooltip is absent when there are no diagnostics. Counts remain visible at zero; the advisory notice appears only while at least one diagnostic exists and explains that saving is still allowed.
 
 Validation remains non-blocking: the user may save the exact content they chose even when warnings or errors are present.
 

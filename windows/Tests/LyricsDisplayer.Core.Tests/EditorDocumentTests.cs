@@ -23,9 +23,49 @@ public sealed class EditorDocumentTests
             Assert.That(document.Rows[4].Timestamps, Is.Empty);
             Assert.That(document.PhysicalLines.Select(line => line.Kind),
                 Does.Contain(EditorEntryKind.Metadata).And.Contain(EditorEntryKind.Lyric));
-            Assert.That(document.Validate(), Has.Some.Matches<EditorValidationDiagnostic>(item => item.Message.Contains("malformed")));
-            Assert.That(document.Validate(), Has.Some.Matches<EditorValidationDiagnostic>(item => item.Message.Contains("unrecognised tag")));
+            Assert.That(document.Validate(), Has.Some.Matches<EditorValidationDiagnostic>(item =>
+                item.Severity == EditorValidationSeverity.Error && item.Message.Contains("malformed", StringComparison.OrdinalIgnoreCase)));
+            Assert.That(document.Validate(), Has.Some.Matches<EditorValidationDiagnostic>(item =>
+                item.Severity == EditorValidationSeverity.Warning && item.Message.Contains("unrecognised tag", StringComparison.OrdinalIgnoreCase)));
         });
+    }
+
+    [Test]
+    public void ValidationDiagnosticsRetainPhysicalSourceLinesAndExplicitCellOwnership()
+    {
+        var document = EditorDocumentCodec.Load(
+            "[ti:Song]\n[00:30.000]First\n[x-custom:keep]\n\n[00:20.000]Second\n[00:xx.000]Broken");
+        var diagnostics = document.Validate();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostics.Count(item => item.Severity == EditorValidationSeverity.Warning), Is.EqualTo(2));
+            Assert.That(diagnostics.Count(item => item.Severity == EditorValidationSeverity.Error), Is.EqualTo(1));
+            Assert.That(diagnostics.Select(item => item.PhysicalLine), Is.EqualTo(new int?[] { 3, 5, 6 }));
+            Assert.That(diagnostics.Select(item => item.TargetColumn), Is.EqualTo(new EditorColumn?[]
+                { EditorColumn.Lyrics, EditorColumn.Timestamp, EditorColumn.Lyrics }));
+            Assert.That(document.Rows.Select(row => row.LyricsText),
+                Is.EqualTo(new[] { "First", "[x-custom:keep]", "", "Second", "[00:xx.000]Broken" }));
+            Assert.That(diagnostics.All(item => item.Message.Contains("Physical line", StringComparison.OrdinalIgnoreCase)),
+                Is.False, "The live physical line number is carried separately so it cannot become stale.");
+        });
+    }
+
+    [Test]
+    public void UntimedTextDiagnosticsFollowPhysicalEditsAndDisappearWhenTheTextIsFixed()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("First\n[00:xx.000]Broken"),
+            UserTrackMetadata.Normalise(null, null));
+        var firstRowId = buffer.Document.Rows[0].Id;
+        var malformedRowId = buffer.Document.Rows[1].Id;
+
+        Assert.That(buffer.Document.Validate().Single().PhysicalLine, Is.EqualTo(2));
+        buffer.InsertAbove(firstRowId);
+        Assert.That(buffer.Document.Validate().Single().PhysicalLine, Is.EqualTo(3));
+
+        buffer.SetLyrics(malformedRowId, "Fixed lyric");
+
+        Assert.That(buffer.Document.Validate(), Is.Empty);
     }
 
     [TestCase("A\n\nB", new[] { "A", "", "B" })]

@@ -3,6 +3,30 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Built-in Lyrics Editor" Width="1080" Height="720" MinWidth="760" MinHeight="480"
         WindowStartupLocation="CenterScreen" ShowInTaskbar="True">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <SolidColorBrush x:Key="EditorWarningCellBackground" Color="#FFFFE3A3" />
+        <SolidColorBrush x:Key="EditorWarningCellForeground" Color="#FF593800" />
+        <SolidColorBrush x:Key="EditorErrorCellBackground" Color="#FFFFC7C7" />
+        <SolidColorBrush x:Key="EditorErrorCellForeground" Color="#FF650000" />
+        <Style x:Key="EditorDiagnosticCellBaseStyle" TargetType="{x:Type DataGridCell}"
+               BasedOn="{StaticResource {x:Type DataGridCell}}" />
+        <Style x:Key="EditorRowHeaderStyle" TargetType="{x:Type DataGridRowHeader}">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="ContextMenu" Value="{x:Null}" />
+            <Setter Property="HorizontalContentAlignment" Value="Right" />
+            <Setter Property="Padding" Value="6,0,6,0" />
+        </Style>
+        <DataTemplate x:Key="EditorRowHeaderTemplate">
+            <TextBlock Text="{Binding}" TextAlignment="Right"
+                       Foreground="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+        </DataTemplate>
+        <Style x:Key="EditorValidationSummaryStyle" TargetType="{x:Type StackPanel}">
+            <Setter Property="ToolTip" Value="{Binding ValidationSummaryToolTip}" />
+            <Setter Property="ToolTipService.ShowDuration" Value="60000" />
+        </Style>
+    </Window.Resources>
     <Grid Margin="14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -67,7 +91,11 @@
         <DataGrid x:Name="LyricsGrid" Grid.Row="4" ItemsSource="{Binding Rows}"
                   AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                   CanUserSortColumns="False" SelectionMode="Single" SelectionUnit="Cell"
-                  HeadersVisibility="Column" GridLinesVisibility="All"
+                  HeadersVisibility="All" RowHeaderWidth="48"
+                  RowHeaderStyle="{StaticResource EditorRowHeaderStyle}"
+                  RowHeaderTemplate="{StaticResource EditorRowHeaderTemplate}"
+                  LoadingRow="OnGridLoadingRow" PreviewMouseDown="OnGridPreviewMouseDown"
+                  GridLinesVisibility="All"
                   CellEditEnding="OnCellEditEnding" SelectedCellsChanged="OnSelectedCellsChanged"
                   CurrentCellChanged="OnCurrentCellChanged" PreviewKeyDown="OnGridPreviewKeyDown"
                   BeginningEdit="OnBeginningEdit">
@@ -98,13 +126,16 @@
                 <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="Close" Click="OnCloseClick" Padding="18,6" IsCancel="True" />
             </StackPanel>
-            <ItemsControl ItemsSource="{Binding Diagnostics}" MaxHeight="64" Margin="0,0,10,0">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Message}" Foreground="#FF9C1C1C" TextWrapping="Wrap" />
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,10,0"
+                        Style="{StaticResource EditorValidationSummaryStyle}">
+                <TextBlock Text="Warnings: " VerticalAlignment="Center" Foreground="#FF805000" />
+                <TextBlock Text="{Binding WarningCount}" VerticalAlignment="Center" Foreground="#FF805000" />
+                <TextBlock Text="    Errors: " VerticalAlignment="Center" Foreground="#FF8F0000" />
+                <TextBlock Text="{Binding ErrorCount}" VerticalAlignment="Center" Foreground="#FF8F0000" />
+                <TextBlock Text="Validation issues are advisory; saving is still allowed."
+                           Visibility="{Binding HasValidationDiagnostics, Converter={StaticResource BooleanToVisibilityConverter}}"
+                           VerticalAlignment="Center" Margin="18,0,0,0" TextWrapping="Wrap" />
+            </StackPanel>
         </DockPanel>
     </Grid>
 </Window>

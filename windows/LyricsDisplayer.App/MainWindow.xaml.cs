@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private string? _externalLrcStatus;
     private int _externalLrcGeneration;
     private bool _allowApplicationExit;
+    private bool _applicationExitPending;
     private string? _currentLineTimingStatusTrackId;
 
     public MainWindow()
@@ -129,18 +130,23 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        var app = (App)Application.Current;
+        var hideToTray = !app.Lifetime.IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
+            CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit);
+        _applicationExitPending = app.Lifetime.IsFatalShutdown || !hideToTray;
         if (_editorWindow is { } editor && !editor.RequestCloseFromApplication())
         {
             e.Cancel = true;
+            _applicationExitPending = false;
             _allowApplicationExit = false;
             return;
         }
-        if (!((App)Application.Current).Lifetime.IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
-                CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit))
+        if (hideToTray)
         {
             e.Cancel = true;
+            _applicationExitPending = false;
             Hide();
-            ((App)Application.Current).Logger.Write("Information", "Application",
+            app.Logger.Write("Information", "Application",
                 "Control Panel hidden to the system tray.");
             return;
         }
@@ -683,9 +689,19 @@ public partial class MainWindow : Window
         window.Owner = this;
         _editorWindow = window;
         _openBuiltInEditorCommand.Invalidate();
-        try { window.ShowDialog(); }
+        var topmostSuppressionStarted = false;
+        try
+        {
+            _overlay.SetEditorModalTopmostSuppressed(true);
+            topmostSuppressionStarted = true;
+            window.ShowDialog();
+        }
         finally
         {
+            var shuttingDown = _applicationExitPending || app.Lifetime.IsFatalShutdown ||
+                               app.Dispatcher.HasShutdownStarted || app.Dispatcher.HasShutdownFinished;
+            if (topmostSuppressionStarted && !shuttingDown)
+                _overlay.SetEditorModalTopmostSuppressed(false);
             _editorWindow = null;
             _openBuiltInEditorCommand.Invalidate();
             UpdateExternalLrcAvailability();

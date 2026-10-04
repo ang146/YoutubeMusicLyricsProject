@@ -92,6 +92,7 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         [GlobalMinus500MenuItem, GlobalMinus100MenuItem, GlobalResetMenuItem,
             GlobalPlus100MenuItem, GlobalPlus500MenuItem];
     internal Brush SurfaceBackgroundForTesting => OverlaySurface.Background;
+    internal bool TopmostPreferenceForTesting => TopmostMenuItem.IsChecked;
     public event Action? CloseRequested;
     public event Action<OverlayPosition, double, double>? DragCompleted;
     public event Action<OverlayCommand>? CommandRequested;
@@ -123,7 +124,7 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         SecondaryText.MaxWidth = Math.Max(100, Width - 56);
     }
 
-    public void ApplyInteractionState(OverlayInteractionState state)
+    public void ApplyInteractionState(OverlayInteractionState state, bool effectiveTopmost)
     {
         _interaction = state;
         OverlaySurface.Background = state.ClickThrough
@@ -131,7 +132,7 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
             : new SolidColorBrush(Color.FromArgb(0x30, 0, 0, 0));
         if (Math.Abs(Width - state.Width) > 0.1) Width = state.Width;
         if (Math.Abs(Height - state.Height) > 0.1) Height = state.Height;
-        Topmost = state.Topmost;
+        Topmost = effectiveTopmost;
         SecondaryText.Visibility = state.ContentMode == LyricsContentMode.TwoLines
             ? Visibility.Visible
             : Visibility.Collapsed;

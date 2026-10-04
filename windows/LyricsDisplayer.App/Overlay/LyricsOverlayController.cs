@@ -22,7 +22,7 @@ public interface ILyricsOverlayView
     event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
     void SetPosition(OverlayPosition position);
     void SetLyrics(LyricsOverlayPresentationState state);
-    void ApplyInteractionState(OverlayInteractionState state);
+    void ApplyInteractionState(OverlayInteractionState state, bool effectiveTopmost);
     void ApplyExternalLyricsAvailability(bool canOpen);
     void ApplyBuiltInEditorAvailability(bool canOpen) { }
     void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs);
@@ -51,6 +51,7 @@ public sealed class LyricsOverlayController
     private long _globalOffsetMs;
     private bool _reportedVisible;
     private bool _shuttingDown;
+    private bool _editorModalTopmostSuppressed;
     private bool _canOpenExternalLyrics;
     private bool _canOpenBuiltInEditor;
     private bool _localFileMissing;
@@ -79,6 +80,7 @@ public sealed class LyricsOverlayController
     public bool HasCreatedWindow => _view is not null;
     public LyricsOverlayPresentationState Presentation => _presentation;
     public OverlayInteractionState Interaction => _interaction;
+    public bool EffectiveTopmost => _interaction.Topmost && !_editorModalTopmostSuppressed;
 
     public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline, bool localFileMissing = false)
     {
@@ -111,6 +113,13 @@ public sealed class LyricsOverlayController
 
     public void SetTopmost(bool value) =>
         ChangeInteraction(_interaction with { Topmost = value }, $"topmost {(value ? "enabled" : "disabled")}");
+
+    public void SetEditorModalTopmostSuppressed(bool suppressed)
+    {
+        if (_editorModalTopmostSuppressed == suppressed) return;
+        _editorModalTopmostSuppressed = suppressed;
+        ApplyInteractionState();
+    }
 
     public void SetContentMode(LyricsContentMode value) =>
         ChangeInteraction(_interaction with
@@ -196,7 +205,7 @@ public sealed class LyricsOverlayController
         _view.CommandRequested += OnCommandRequested;
         _view.OverlaySizeChanged += OnViewSizeChanged;
         _view.GeometryChangeCompleted += OnGeometryChangeCompleted;
-        _view.ApplyInteractionState(_interaction);
+        ApplyInteractionState();
         _view.ApplyExternalLyricsAvailability(_canOpenExternalLyrics);
         _view.ApplyBuiltInEditorAvailability(_canOpenBuiltInEditor);
         _view.ApplyTimingState(_currentLineTimingEnabled, _globalTimingEnabled, _globalOffsetMs);
@@ -219,7 +228,7 @@ public sealed class LyricsOverlayController
             (_view.WindowState == WindowState.Normal && !_view.GeometryRecoveryRequired)) return;
 
         _view.NormalizeWindowState();
-        _view.ApplyInteractionState(_interaction);
+        ApplyInteractionState();
         var savedPosition = _settingsStore.LoadOverlayPosition();
         var placement = OverlayPositionResolver.Resolve(
             savedPosition,
@@ -304,7 +313,7 @@ public sealed class LyricsOverlayController
         var contentModeChanged = next.ContentMode != _interaction.ContentMode;
         OverlayPosition? recoveredPosition = null;
         _interaction = next;
-        _view?.ApplyInteractionState(next);
+        ApplyInteractionState();
 
         if (contentModeChanged)
         {
@@ -426,7 +435,7 @@ public sealed class LyricsOverlayController
         var placement = OverlayPositionResolver.Resolve(position, width, height, _workAreas());
         _interaction = _interaction with { Width = placement.Width, Height = placement.Height };
         if (Math.Abs(width - placement.Width) > 0.1 || Math.Abs(height - placement.Height) > 0.1)
-            _view.ApplyInteractionState(_interaction);
+            ApplyInteractionState();
         if (_view is not null && placement.UsedFallback)
         {
             _view.SetPosition(placement.Position);
@@ -448,6 +457,8 @@ public sealed class LyricsOverlayController
         if (Math.Abs(placement.Width - _interaction.Width) < 0.1 &&
             Math.Abs(placement.Height - _interaction.Height) < 0.1) return;
         _interaction = _interaction with { Width = placement.Width, Height = placement.Height };
-        _view.ApplyInteractionState(_interaction);
+        ApplyInteractionState();
     }
+
+    private void ApplyInteractionState() => _view?.ApplyInteractionState(_interaction, EffectiveTopmost);
 }

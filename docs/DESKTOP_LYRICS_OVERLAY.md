@@ -1,6 +1,6 @@
 # Desktop Lyrics Overlay
 
-Milestone 7 adds a user-facing WPF desktop lyrics window alongside the existing diagnostics window. It is a presentation endpoint: the overlay does not retrieve lyrics, read the local library, calculate playback time, or select lyric lines.
+Milestone 7 introduced the Desktop Lyrics Overlay as the ambient WPF lyrics surface. It is separate from the Main Lyrics Window and does not retrieve lyrics, read the local library, calculate playback time, or select lyric lines.
 
 ## State flow and display semantics
 
@@ -10,7 +10,7 @@ The existing local `PlaybackClock` and Milestone 6 `LyricsTimeline` continue to 
 PlaybackClock -> LyricsTimeline -> LyricsPresentationState -> Overlay viewport/layout -> LyricsOverlayWindow
 ```
 
-The Desktop Overlay applies its own One/Two/contextual-All viewport and appearance policy; the contextual All view is bounded and does not truncate the shared full-document representation. A future Main Lyrics Window can consume the same semantic state while presenting the complete document as a normal reading surface. Topmost, click-through, geometry, hit testing, and other window behavior remain outside shared lyrics presentation.
+The Desktop Overlay applies its own One/Two/contextual-All viewport and appearance policy; the contextual All view is bounded and does not truncate the shared full-document representation. The Main Lyrics Window consumes the same semantic state while presenting the complete document as a normal reading surface. Topmost, click-through, geometry, hit testing, and other window behavior remain outside shared lyrics presentation.
 
 - Current and next lines become primary and secondary text respectively in Two Lines mode.
 - Before the first timestamp, primary is blank and the first line is secondary.
@@ -32,7 +32,7 @@ The visible overlay is permanently WPF `Topmost` during normal operation. This i
 
 The window has `ShowActivated=false`, suppresses mouse activation, and is shown through a non-activating lifecycle path. Lyric updates do not activate or focus the window. With click-through off, invisible edge/corner hit regions resize the borderless window. With click-through on, the backing disappears and empty regions including edges pass through while lyric text remains interactive. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
-The current MainWindow's **Show Desktop Lyrics** control, global shortcut, and tray menu show or hide one lazily created overlay instance. In the target UI this remains an explicit show/hide action available from the Main Lyrics Window/tray/shared commands. Repeated show operations reuse it. An ordinary overlay close request is intercepted as hide. If **Close Control Panel to system tray** is enabled, closing MainWindow hides it while the application continues; otherwise it keeps the existing exit behavior. Tray Exit performs real application shutdown and closes the overlay.
+The Main Lyrics Window's **Show Desktop Lyrics** action, global shortcut, and tray menu show or hide one lazily created overlay instance. Repeated show operations reuse it. An ordinary overlay close request is intercepted as hide. If the persisted close-to-tray preference is enabled, closing the Main Lyrics Window hides it while the application continues; otherwise it keeps the existing exit behavior. Tray Exit performs real application shutdown and closes the overlay.
 
 ## Dragging and position persistence
 
@@ -69,7 +69,7 @@ During a manual drag, the cursor selects the target monitor and the complete ove
 
 ## Current limitations and future break design
 
-The renderer consumes the existing timeline result for One Line, Two Lines, and All Lyrics; the All Lyrics contextual viewport follows the exact current occurrence, places nearby past/upcoming lines around it, and gives it the strongest presentation emphasis with distance falloff. Milestone 9 adds lock, partial click-through, persistent independent geometry/content preferences, timing quick actions, global shortcuts, and tray lifecycle around that presentation; see [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md). Milestone 10 allows opening and reloading the active timed or untimed LRC externally, so the overlay reflects valid external edits immediately; the overlay itself does not own editing. Milestone 11 exposes **Open Built-in Editor** in the overlay context menu, but that menu only invokes the shared editor command and never owns editor state. The target desktop-surface redesign also shares ordinary lyrics commands with the future Main Lyrics Window, while overlay-only options remain limited to overlay presentation/interaction such as content mode, click-through, and lock. Skins, progress fill, karaoke layouts/animation, word/character timing, countdowns, preparation animation, and other advanced presentation remain outside the overlay implementation.
+The renderer consumes the existing timeline result for One Line, Two Lines, and All Lyrics; the All Lyrics contextual viewport follows the exact current occurrence, places nearby past/upcoming lines around it, and gives it the strongest presentation emphasis with distance falloff. Milestone 9 adds lock, partial click-through, persistent independent geometry/content preferences, timing quick actions, global shortcuts, and tray lifecycle around that presentation; see [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md). Milestone 10 allows opening and reloading the active timed or untimed LRC externally, so the overlay reflects valid external edits immediately; the overlay itself does not own editing. Milestone 11 exposes **Open Built-in Editor** in the overlay context menu, but that menu only invokes the shared editor command and never owns editor state. The Main Lyrics Window shares ordinary lyrics commands, while overlay-only options remain limited to overlay presentation/interaction such as content mode, click-through, and lock. Skins, progress fill, karaoke layouts/animation, word/character timing, countdowns, preparation animation, and other advanced presentation remain outside the overlay implementation.
 
 Breaks must eventually be represented explicitly. Timestamp gap length alone must never imply a break. The proposed canonical LRC marker is:
 
@@ -79,8 +79,8 @@ Breaks must eventually be represented explicitly. Timestamp gap length alone mus
 
 In M7, `♪` is ordinary lyric text with no special behavior. A future renderer may, only during an explicit break, show a separate preparation indicator when the next lyric is **more than three seconds** away. When the next lyric is three seconds or less away, it should show the upcoming lyric directly with no separate prepare cue. Three seconds controls future prepare-cue presentation only; it does not determine whether a break exists. Break semantics, editing, and karaoke rendering remain unimplemented.
 
-## Relationship to the future Main Lyrics Window
+## Relationship to the Main Lyrics Window
 
-The Desktop Lyrics Overlay is intentionally not the only lyrics-reading surface. The future Main Lyrics Window is a conventional focusable window for complete lyrics reading and always presents the full lyrics document; it does not expose the overlay's One/Two/All content-mode selector. The overlay remains the always-on-top ambient surface and keeps the existing `OneLine`, `TwoLines`, and bounded contextual `AllLyrics` modes.
+The Desktop Lyrics Overlay is intentionally not the only lyrics-reading surface. The Main Lyrics Window is a conventional, non-Topmost focusable window for complete lyrics reading and always presents the full lyrics document; it does not expose the overlay's One/Two/All content-mode selector. The overlay remains the always-on-top ambient surface and keeps the existing `OneLine`, `TwoLines`, and bounded contextual `AllLyrics` modes.
 
 Track metadata/playback controls are planned for the independent Media Controller, settings/diagnostics for the Settings window, and timing-authoring controls for the Built-in Lyrics Editor. These responsibilities should not accumulate in the overlay renderer.

@@ -79,6 +79,12 @@ The command adds the current playback position to the selected lyric row using t
 
 Five timestamp occurrences per lyric row is the agreed editor UI limit for this command. Existing source data with more occurrences must still be preserved losslessly even if the initial UI cannot add beyond five. Editing/replacing an existing timestamp remains a normal cell edit rather than a separate playback command. Do not split this workflow into separate **Set Current Time** and **Add Current Time** commands.
 
+## Manual timestamp input
+
+Timestamp cells keep the exact staged text while the user edits. On the normal DataGrid commit path (including Tab, Shift+Tab, Enter, Shift+Enter, and focus leaving the cell), changed valid input is normalized with the existing canonical formatter to `mm:ss.fff`. The editor accepts `0` as `00:00.000`, and `minutes:seconds[.fraction]` with one- or two-digit seconds and one to three fractional digits; fractional digits are right-padded to milliseconds. Minutes may exceed 59, while seconds must remain below 60.
+
+Empty or whitespace-only input clears the occurrence. Unsupported or invalid text is retained for the existing advisory validation flow. Plain integers other than the special `0` shortcut are not interpreted as total seconds (`72` does not mean 72 seconds). This is an editor-input grammar only; the authoritative LRC parser stays strict, and valid edits are stored/saved in canonical timestamp format.
+
 ## Editor document model
 
 The editor must not reduce an LRC file to a simple `List<(timestamp, text)>`. It needs a structured editable buffer that can preserve real LRC structure and future extensions.

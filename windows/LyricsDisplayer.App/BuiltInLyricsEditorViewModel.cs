@@ -225,7 +225,21 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         var current = _buffer.Document.Rows.First(item => item.Id == row.EditorLineId);
         if (!string.Equals(current.LyricsText, row.LyricsText, StringComparison.Ordinal))
             _buffer.SetLyrics(row.EditorLineId, row.LyricsText);
-        _buffer.SetTimestamps(row.EditorLineId, row.Timestamps.ToArray());
+
+        var timestampValues = row.Timestamps.ToArray();
+        for (var index = 0; index < timestampValues.Length; index++)
+        {
+            var committedValue = index < current.Timestamps.Count ? current.Timestamps[index].Value : string.Empty;
+            var stagedValue = timestampValues[index] ?? string.Empty;
+            if (string.Equals(committedValue, stagedValue, StringComparison.Ordinal)) continue;
+
+            var normalizedValue = EditorTimestampInputParser.NormalizeCommittedValue(stagedValue);
+            timestampValues[index] = normalizedValue;
+            if (!string.Equals(stagedValue, normalizedValue, StringComparison.Ordinal))
+                row.Timestamps[index] = normalizedValue;
+        }
+
+        _buffer.SetTimestamps(row.EditorLineId, timestampValues);
         return true;
     }
 

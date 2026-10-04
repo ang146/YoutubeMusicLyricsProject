@@ -9,6 +9,44 @@ namespace LyricsDisplayer.App.Tests;
 public sealed class MainLyricsWindowViewModelTests
 {
     [Test]
+    public void EffectiveMetadataUpdatesHeaderAndHidesUnavailableArtist()
+    {
+        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var propertyChanges = new List<string?>();
+        viewModel.PropertyChanged += (_, args) => propertyChanges.Add(args.PropertyName);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.EffectiveTitle, Is.EqualTo("Lyrics Displayer"));
+            Assert.That(viewModel.EffectiveArtist, Is.Empty);
+            Assert.That(viewModel.HasEffectiveArtist, Is.False);
+        });
+
+        viewModel.SetEffectiveMetadata(new EffectiveTrackMetadata("Effective title", "Effective artist"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.EffectiveTitle, Is.EqualTo("Effective title"));
+            Assert.That(viewModel.EffectiveArtist, Is.EqualTo("Effective artist"));
+            Assert.That(viewModel.HasEffectiveArtist, Is.True);
+            Assert.That(propertyChanges, Is.EqualTo(new[]
+            {
+                nameof(viewModel.EffectiveTitle), nameof(viewModel.EffectiveArtist),
+                nameof(viewModel.HasEffectiveArtist)
+            }));
+        });
+
+        viewModel.SetEffectiveMetadata(new EffectiveTrackMetadata("", " "));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.EffectiveTitle, Is.EqualTo("Lyrics Displayer"));
+            Assert.That(viewModel.EffectiveArtist, Is.Empty);
+            Assert.That(viewModel.HasEffectiveArtist, Is.False);
+        });
+    }
+
+    [Test]
     public void TimedPresentationExposesEverySourceOrderedLineAndFollowsResolvedCurrentLine()
     {
         var documentLines = new[]

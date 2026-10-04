@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Windows.Input;
+using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
 
@@ -39,11 +40,19 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
     private string _connectionStatus = "Waiting for playback source";
     private string _externalLyricsStatus = "No current local LRC";
     private bool _canOpenExternalLyrics;
+    private EffectiveTrackMetadata? _effectiveMetadata;
 
     public ObservableCollection<MainLyricsLineViewModel> Lines { get; } = [];
     public LyricsPresentationState Presentation => _presentation;
     public ICommand OpenBuiltInEditorCommand { get; }
     public MainLyricsLineViewModel? CurrentLine => _currentLine;
+    public string EffectiveTitle => string.IsNullOrWhiteSpace(_effectiveMetadata?.Title)
+        ? "Lyrics Displayer"
+        : _effectiveMetadata.Title;
+    public string EffectiveArtist => string.IsNullOrWhiteSpace(_effectiveMetadata?.Artist)
+        ? string.Empty
+        : _effectiveMetadata.Artist;
+    public bool HasEffectiveArtist => EffectiveArtist.Length > 0;
     public bool HasLines => Lines.Count > 0;
     public bool HasNoLines => Lines.Count == 0;
     public string EmptyStateMessage => HasLines ? string.Empty : _presentation.Status switch
@@ -116,6 +125,15 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
     }
 
     public void SetConnectionStatus(string value) => ConnectionStatus = value;
+
+    public void SetEffectiveMetadata(EffectiveTrackMetadata? metadata)
+    {
+        if (_effectiveMetadata == metadata) return;
+        _effectiveMetadata = metadata;
+        OnPropertyChanged(nameof(EffectiveTitle));
+        OnPropertyChanged(nameof(EffectiveArtist));
+        OnPropertyChanged(nameof(HasEffectiveArtist));
+    }
 
     public void SetCanOpenExternalLyrics(bool value) => CanOpenExternalLyrics = value;
 

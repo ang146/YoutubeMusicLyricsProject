@@ -51,6 +51,7 @@ public partial class MainWindow : Window
         _externalLrcOpener = new ExternalLrcOpener(log: logger.Write);
         _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
             app.LyricsLibrary, logger.Write);
+        _playbackState.LocalMetadataChanged += OnLocalMetadataChanged;
         _server = new NamedPipeServer(logger, _playbackState);
         _overlay = new LyricsOverlayController(
             () => new LyricsOverlayWindow(),
@@ -172,6 +173,7 @@ public partial class MainWindow : Window
     private void RefreshLocalPosition()
     {
         UpdateOverlayTimingAvailability();
+        _viewModel.SetEffectiveMetadata(_playbackState.EffectiveMetadata);
         var playback = _playbackState.Current;
         PlaybackTrackIdentity? trackIdentity = playback is null
             ? null
@@ -194,6 +196,9 @@ public partial class MainWindow : Window
             _playbackState.IsCurrentLocalLrcMissing, timelineLines);
         if (trackChanged) QueueCurrentLineAutoCenter();
     }
+
+    private void OnLocalMetadataChanged() =>
+        Dispatcher.InvokeAsync(() => _viewModel.SetEffectiveMetadata(_playbackState.EffectiveMetadata));
 
     private void AdjustCurrentLineTiming(long deltaMs)
     {

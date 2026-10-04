@@ -22,8 +22,9 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="Lyrics Displayer" FontSize="24" FontWeight="SemiBold" />
-                <TextBlock Text="Lyrics" FontSize="13" Foreground="#FF6B7280" />
+                <TextBlock Text="{Binding EffectiveTitle}" FontSize="24" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding EffectiveArtist}" FontSize="13" Foreground="#FF6B7280"
+                           Visibility="{Binding HasEffectiveArtist, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </StackPanel>
             <WrapPanel Grid.Column="1" VerticalAlignment="Center">
                 <Button Content="Open Built-in Editor" Command="{Binding OpenBuiltInEditorCommand}"

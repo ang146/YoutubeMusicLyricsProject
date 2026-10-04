@@ -93,6 +93,7 @@ public sealed class LyricsTimelineTests
         var timeline = new LyricsTimeline([Line(20_000, "C"), Line(10_000, "A"), Line(15_000, "B")]);
         Assert.Multiple(() =>
         {
+            Assert.That(timeline.OrderedLines.Select(line => line.Text), Is.EqualTo(new[] { "A", "B", "C" }));
             Assert.That(timeline.Evaluate(10_000).CurrentLine!.Text, Is.EqualTo("A"));
             Assert.That(timeline.Evaluate(15_000).CurrentLine!.Text, Is.EqualTo("B"));
             Assert.That(timeline.Evaluate(20_000).CurrentLine!.Text, Is.EqualTo("C"));

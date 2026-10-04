@@ -16,15 +16,17 @@ public sealed class LyricsTimeline
     private readonly IReadOnlyList<LyricsLine> _lines;
 
     public static LyricsTimeline Empty { get; } = new([]);
+    public IReadOnlyList<LyricsLine> OrderedLines => _lines;
 
     public LyricsTimeline(IReadOnlyList<LyricsLine> lines)
     {
         ArgumentNullException.ThrowIfNull(lines);
-        _lines = lines.Select((line, originalIndex) => (Line: line, OriginalIndex: originalIndex))
+        var orderedLines = lines.Select((line, originalIndex) => (Line: line, OriginalIndex: originalIndex))
             .OrderBy(item => item.Line.StartMs)
             .ThenBy(item => item.OriginalIndex)
             .Select(item => item.Line)
             .ToArray();
+        _lines = Array.AsReadOnly(orderedLines);
     }
 
     public bool HasLyrics => _lines.Count > 0;

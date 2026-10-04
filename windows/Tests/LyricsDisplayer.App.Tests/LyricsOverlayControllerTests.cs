@@ -184,8 +184,8 @@ public sealed class LyricsOverlayControllerTests
         var harness = new Harness();
         harness.Controller.Show();
         var position = Timeline("A", "B");
-        harness.Controller.Update(TimedLyrics(), position);
-        harness.Controller.Update(TimedLyrics(), position);
+        harness.Controller.Update(TimedLyrics("A", "B"), position);
+        harness.Controller.Update(TimedLyrics("A", "B"), position);
 
         Assert.Multiple(() =>
         {
@@ -200,8 +200,8 @@ public sealed class LyricsOverlayControllerTests
     {
         var harness = new Harness();
         harness.Controller.Show();
-        harness.Controller.Update(TimedLyrics(), Timeline("Line 3", "Line 4"));
-        harness.Controller.Update(TimedLyrics(), Timeline("Line 15", "Line 16"));
+        harness.Controller.Update(TimedLyrics("Line 3", "Line 4"), Timeline("Line 3", "Line 4"));
+        harness.Controller.Update(TimedLyrics("Line 15", "Line 16"), Timeline("Line 15", "Line 16"));
 
         Assert.Multiple(() =>
         {
@@ -216,11 +216,11 @@ public sealed class LyricsOverlayControllerTests
     {
         var harness = new Harness();
         harness.Controller.Show();
-        harness.Controller.Update(TimedLyrics(), Timeline("Track A lyric", "Track A next"));
+        harness.Controller.Update(TimedLyrics("Track A lyric", "Track A next"), Timeline("Track A lyric", "Track A next"));
         harness.Controller.Update(null, EmptyTimeline());
         Assert.That(harness.View.LastState, Is.EqualTo(LyricsOverlayPresentationState.Empty));
 
-        harness.Controller.Update(TimedLyrics(), Timeline("Track B lyric", "Track B next"));
+        harness.Controller.Update(TimedLyrics("Track B lyric", "Track B next"), Timeline("Track B lyric", "Track B next"));
         Assert.That(harness.View.LastState!.PrimaryText, Is.EqualTo("Track B lyric"));
     }
 
@@ -231,7 +231,7 @@ public sealed class LyricsOverlayControllerTests
     {
         var harness = new Harness();
         harness.Controller.Show();
-        harness.Controller.Update(TimedLyrics(), Timeline("Track A lyric", "Track A next"));
+        harness.Controller.Update(TimedLyrics("Track A lyric", "Track A next"), Timeline("Track A lyric", "Track A next"));
         harness.Controller.Update(null, EmptyTimeline());
         Assert.That(harness.View.LastState, Is.EqualTo(LyricsOverlayPresentationState.Empty));
 
@@ -256,7 +256,7 @@ public sealed class LyricsOverlayControllerTests
         harness.Controller.Update(Lyrics(available, timed), EmptyTimeline());
         Assert.That(harness.View.LastState!.PrimaryText, Is.EqualTo(expectedStatus));
 
-        harness.Controller.Update(TimedLyrics(), Timeline("A", "B"));
+        harness.Controller.Update(TimedLyrics("A", "B"), Timeline("A", "B"));
         Assert.That(harness.View.LastState, Is.EqualTo(new LyricsOverlayPresentationState("A", "B")));
     }
 
@@ -462,7 +462,7 @@ public sealed class LyricsOverlayControllerTests
     {
         var harness = new Harness();
         harness.Controller.Show();
-        harness.Controller.Update(TimedLyrics(), Timeline("A", "B"));
+        harness.Controller.Update(TimedLyrics("A", "B"), Timeline("A", "B"));
         harness.Controller.SetContentMode(LyricsContentMode.OneLine);
         Assert.Multiple(() =>
         {
@@ -470,7 +470,7 @@ public sealed class LyricsOverlayControllerTests
             Assert.That(harness.View.LastState.SecondaryText, Is.Empty);
         });
 
-        harness.Controller.Update(TimedLyrics(), new(null, null, 0, Line("First")));
+        harness.Controller.Update(TimedLyrics("First"), new(null, null, 0, Line("First")));
         Assert.Multiple(() =>
         {
             Assert.That(harness.View.LastState!.PrimaryText, Is.EqualTo("First"));
@@ -638,7 +638,8 @@ public sealed class LyricsOverlayControllerTests
         new(0, Line(current), 1, Line(next));
 
     private static LyricsTimelinePosition EmptyTimeline() => new(null, null, null, null);
-    private static LyricsSnapshotPayload TimedLyrics() => Lyrics(available: true, timed: true);
+    private static LyricsSnapshotPayload TimedLyrics(params string[] lines) =>
+        Lyrics(available: true, timed: true) with { Lines = lines.Select(Line).ToArray() };
     private static LyricsSnapshotPayload Lyrics(bool available, bool timed) =>
         new("track", available, timed, available ? "youtubeMusic" : null, [], null);
     private static LyricsLine Line(string text) => new(0, 1, text);

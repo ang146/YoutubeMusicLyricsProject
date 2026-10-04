@@ -4,11 +4,13 @@ Milestone 7 adds a user-facing WPF desktop lyrics window alongside the existing 
 
 ## State flow and display semantics
 
-The existing local `PlaybackClock` and Milestone 6 `LyricsTimeline` continue to resolve a `LyricsTimelinePosition`. A small presentation mapping converts only that resolved state:
+The existing local `PlaybackClock` and Milestone 6 `LyricsTimeline` continue to resolve a `LyricsTimelinePosition`. Canonical lyrics/timeline state is distinct from presentation state: the surface-neutral `LyricsPresentationState` retains the full source-ordered document, semantic line roles, and the resolved current/next occurrence. A small presentation mapping adapts that state to the overlay:
 
 ```text
-PlaybackClock -> LyricsTimeline -> LyricsOverlayPresentationState -> LyricsOverlayWindow
+PlaybackClock -> LyricsTimeline -> LyricsPresentationState -> Overlay viewport/layout -> LyricsOverlayWindow
 ```
+
+The Desktop Overlay applies its own One/Two/contextual-All viewport and appearance policy; the contextual All view is bounded and does not truncate the shared full-document representation. A future Main Lyrics Window can consume the same semantic state while presenting the complete document as a normal reading surface. Topmost, click-through, geometry, hit testing, and other window behavior remain outside shared lyrics presentation.
 
 - Current and next lines become primary and secondary text respectively in Two Lines mode.
 - Before the first timestamp, primary is blank and the first line is secondary.

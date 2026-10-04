@@ -93,9 +93,9 @@ public sealed class ApplicationSettingsStoreTests
     [Test]
     public void OverlayPreferencesRoundTripAndPreservePositionAndUnknownSettings()
     {
-        Write("""{"overlay":{"left":12,"top":34,"futureOverlayValue":"kept"},"futureRootValue":7}""");
+        Write("""{"overlay":{"left":12,"top":34,"topmost":false,"futureOverlayValue":"kept"},"futureRootValue":7}""");
         var store = Store();
-        var preferences = new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1230, 377);
+        var preferences = new OverlayPreferences(true, true, LyricsContentMode.OneLine, 1230, 377);
         store.SaveOverlayPreferences(preferences);
 
         var loaded = store.Load().Settings;
@@ -107,6 +107,8 @@ public sealed class ApplicationSettingsStoreTests
             Assert.That(loaded.OverlayPosition, Is.EqualTo(new OverlayPosition(12, 34)));
             Assert.That(document.RootElement.GetProperty("overlay").GetProperty("futureOverlayValue").GetString(),
                 Is.EqualTo("kept"));
+            Assert.That(document.RootElement.GetProperty("overlay").TryGetProperty("topmost", out _), Is.False,
+                "Saving current overlay preferences removes the retired setting.");
             Assert.That(document.RootElement.GetProperty("futureRootValue").GetInt32(), Is.EqualTo(7));
         });
     }
@@ -123,9 +125,28 @@ public sealed class ApplicationSettingsStoreTests
         Assert.Multiple(() =>
         {
             Assert.That(loaded.OverlayPreferences,
-                Is.EqualTo(new OverlayPreferences(true, true, false, LyricsContentMode.OneLine, 1100, OverlayPreferences.DefaultHeight)));
+                Is.EqualTo(new OverlayPreferences(true, true, LyricsContentMode.OneLine, 1100, OverlayPreferences.DefaultHeight)));
             Assert.That(document.RootElement.GetProperty("overlay").GetProperty("future").GetInt32(), Is.EqualTo(1));
+            Assert.That(document.RootElement.GetProperty("overlay").TryGetProperty("topmost", out _), Is.False);
         });
+    }
+
+    [Test]
+    public void LegacyTopmostFalseIsIgnoredAndRemovedByOverlaySave()
+    {
+        Write("""{"overlay":{"left":12,"top":34,"topmost":false}}""");
+        var store = Store();
+        var result = store.Load();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Settings.OverlayPreferences, Is.EqualTo(OverlayPreferences.Default));
+            Assert.That(result.Warning, Is.Null);
+        });
+
+        store.SaveOverlayPosition(new(20, 30));
+        using var document = JsonDocument.Parse(File.ReadAllText(_settingsPath));
+        Assert.That(document.RootElement.GetProperty("overlay").TryGetProperty("topmost", out _), Is.False);
     }
 
     [Test]
@@ -246,6 +267,7 @@ public sealed class ApplicationSettingsStoreTests
                 Is.EqualTo(OverlayPreferences.Default with { ClickThrough = true }));
             Assert.That(result.Warning, Does.Contain("overlay.locked"));
             Assert.That(result.Warning, Does.Contain("overlay.width"));
+            Assert.That(result.Warning, Does.Not.Contain("overlay.topmost"));
         });
     }
 

@@ -79,6 +79,12 @@ The command adds the current playback position to the selected lyric row using t
 
 Five timestamp occurrences per lyric row is the agreed editor UI limit for this command. Existing source data with more occurrences must still be preserved losslessly even if the initial UI cannot add beyond five. Editing/replacing an existing timestamp remains a normal cell edit rather than a separate playback command. Do not split this workflow into separate **Set Current Time** and **Add Current Time** commands.
 
+## Manual timestamp input
+
+Timestamp cells keep the exact staged text while the user edits. On the normal DataGrid commit path (including Tab, Shift+Tab, Enter, Shift+Enter, and focus leaving the cell), changed valid input is normalized with the existing canonical formatter to `mm:ss.fff`. The editor accepts `0` as `00:00.000`, and `minutes:seconds[.fraction]` with one- or two-digit seconds and one to three fractional digits; fractional digits are right-padded to milliseconds. Minutes may exceed 59, while seconds must remain below 60.
+
+Empty or whitespace-only input clears the occurrence. Unsupported or invalid text is retained for the existing advisory validation flow. Plain integers other than the special `0` shortcut are not interpreted as total seconds (`72` does not mean 72 seconds). This is an editor-input grammar only; the authoritative LRC parser stays strict, and valid edits are stored/saved in canonical timestamp format.
+
 ## Editor document model
 
 The editor must not reduce an LRC file to a simple `List<(timestamp, text)>`. It needs a structured editable buffer that can preserve real LRC structure and future extensions.
@@ -152,7 +158,10 @@ Initial keyboard behaviour should follow familiar grid conventions:
 - `Shift+Enter`: move to the previous row in the same logical column
 - `Tab`: move to the next editable column/cell
 - `Shift+Tab`: move to the previous editable column/cell
+- `Delete` on a selected editable cell outside text-edit mode clears only that cell; while its text editor is active, Delete remains normal character deletion. Empty cells are no-ops, and this key does not invoke **Delete Row**.
 - arrow keys: normal row/cell navigation where the grid control permits it
+
+Timestamp occurrences use the editor's existing dense ordered collection and LRC serialization has no empty occurrence marker. Clearing a timestamp therefore removes that occurrence; later occurrences compact left in the ordered list. The selected row and logical column are retained where possible. Sparse timestamp-slot identity is not persisted by this feature.
 
 Exact command bindings remain presentation/input configuration, not editor-domain logic.
 
@@ -211,11 +220,13 @@ Editor navigation keys such as Enter/Tab are editor-local. Existing overlay visi
 
 Built-in editor validation is advisory, not permission enforcement.
 
-Validation severity should be immediately visible in the grid:
+Validation severity should be immediately visible in the owning data cell:
 
-- errors use a clear red error background
-- warnings use a clear yellow warning background
-- the grid includes an explicit line-number column so diagnostics can identify the affected line
+- malformed or invalid timestamps are Errors; out-of-order timestamps and unrecognised/unsupported bracketed text are Warnings
+- cross-row timestamp chronology is checked independently for each occurrence index (`Timestamp[1]`, `Timestamp[2]`, etc.); within each row, populated timestamps are also checked in their displayed order. Empty timestamp slots are skipped, equality is allowed, and validation never sorts or rewrites timestamps
+- `Timestamp[n]` diagnostics style only that timestamp cell; lyric-text diagnostics style only the Lyrics cell; Error styling wins if one cell has both severities
+- diagnostics that have no explicit cell target remain summary-only and do not colour an arbitrary cell or the row-number gutter
+- a neutral `DataGrid.RowHeader` displays one-based numbering of visible editor rows; hidden recognized metadata does not count, while blank visible rows do
 
 The validation area should summarize rather than render an unbounded list of messages, for example:
 
@@ -223,7 +234,7 @@ The validation area should summarize rather than render an unbounded list of mes
 Warnings: 4    Errors: 1
 ```
 
-Hovering or otherwise inspecting the summary may show diagnostic details including line number and reason. When there are no warnings or errors, the validation summary and the advisory message should disappear rather than leaving a permanent warning notice on screen.
+Hovering the bottom `Warnings: N    Errors: N` summary shows every diagnostic as `Severity: Line N - message`, using the same visible-row numbering as the gutter. Entries are ordered by visible line, Error before Warning on the same line, then stable validation order. The tooltip is absent when there are no diagnostics. Counts remain visible at zero; the advisory notice appears only while at least one diagnostic exists and explains that saving is still allowed.
 
 Validation remains non-blocking: the user may save the exact content they chose even when warnings or errors are present.
 

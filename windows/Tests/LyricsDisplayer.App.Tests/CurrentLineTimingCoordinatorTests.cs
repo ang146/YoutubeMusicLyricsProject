@@ -105,6 +105,30 @@ public sealed class CurrentLineTimingCoordinatorTests
     }
 
     [Test]
+    public void SuccessfulNegativeBakeRefreshesRuntimeLyricsAndKeepsZeroIntroAnchor()
+    {
+        const string content = "[00:00.000]\n[00:10.000]A\n[00:20.000]B\n";
+        var id = Import(content: content);
+        Assert.That(_library.SetGlobalOffset(id, -100).Succeeded, Is.True);
+        _coordinator.Apply(Playback("track-a", 1, 10_000));
+
+        var result = _coordinator.BakeTiming(_coordinator.CaptureTimingAdjustmentTarget()!);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Succeeded, Is.True, result.Error);
+            Assert.That(File.ReadAllText(LrcPath(id)), Is.EqualTo(
+                "[00:00.000]\n[00:09.900]A\n[00:19.900]B\n"));
+            Assert.That(_coordinator.GlobalOffsetMs, Is.Zero);
+            Assert.That(_coordinator.CurrentLocalLyrics!.Lines.Select(line => line.StartMs),
+                Is.EqualTo(new long[] { 0, 9_900, 19_900 }));
+            Assert.That(_coordinator.CurrentLyrics!.Payload.Lines.Select(line => line.StartMs),
+                Is.EqualTo(new long[] { 0, 9_900, 19_900 }));
+            Assert.That(_coordinator.GetTimelinePosition().CurrentLine!.Text, Is.EqualTo("A"));
+        });
+    }
+
+    [Test]
     public void NoCurrentLineDoesNotEditTheNextLine()
     {
         var id = Import();

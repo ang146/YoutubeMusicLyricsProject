@@ -1028,7 +1028,7 @@ Inserted/appended rows begin with an empty lyric cell and no timestamps. No time
 
 Editor operations are commands first. Buttons/toolbars, row context menus, and keyboard shortcuts are bindings over the same commands. Initial navigation follows grid conventions such as Enter/Shift+Enter for next/previous row in the same logical column and Tab/Shift+Tab for adjacent editable cells. Stable command IDs/scopes should leave room for later user-configurable shortcuts without coupling feature logic to key-event handlers.
 
-Validation is advisory. Errors should use clear red emphasis, warnings clear yellow emphasis, and the grid should expose a line-number column. The validation area should show compact warning/error counts with inspectable details rather than an unbounded message list, and it should disappear entirely when no diagnostics remain. The editor does not act as an automatic corrector and does not forbid Save solely because content is malformed. M10 runtime safety remains separate: a saved malformed LRC may remain on disk exactly as authored while active playback retains last-known-good runtime lyrics.
+Validation is advisory. Errors use clear red emphasis and warnings clear yellow emphasis on the actual timestamp or Lyrics cell named by diagnostic metadata. A neutral `DataGrid.RowHeader` numbers visible editor rows (including blanks, excluding hidden recognized metadata); clicking it must not select a row or change the current cell. Diagnostics without a specific cell target remain summary-only. The bottom warning/error counts expose all diagnostic messages in deterministic visible-line order, with Error before Warning on the same line, and no tooltip when there are no diagnostics. The advisory notice appears only while issues exist, and validation never blocks Save. M10 runtime safety remains separate: a saved malformed LRC may remain on disk exactly as authored while active playback retains last-known-good runtime lyrics.
 
 Dirty close/exit behavior uses `Save / Discard / Cancel`. If the authoritative file changes externally while the editor has unsaved changes, conflict handling remains intentionally simple: `Discard My Changes / Reload`, `Overwrite External Changes`, or `Cancel`; no three-way/collaborative merge is required.
 
@@ -1528,7 +1528,7 @@ Required foundation:
 * spreadsheet-style keyboard navigation
 * command-driven toolbar/context-menu/keyboard bindings
 * undo/redo and dirty-state tracking
-* advisory validation with explicit line numbers, yellow warning/red error emphasis, compact warning/error counts, and details on inspection; validation never takes away the user's ability to save
+* advisory validation with visible-row gutter numbering, cell-specific yellow warning/red error emphasis, compact warning/error counts, and one aggregate details tooltip; validation never takes away the user's ability to save
 * safe save and simple external-change conflict handling (`Reload/Discard Mine`, `Overwrite`, `Cancel`)
 * editor/application close guard with `Save / Discard / Cancel`
 * user title/artist override editing in portable sidecar metadata

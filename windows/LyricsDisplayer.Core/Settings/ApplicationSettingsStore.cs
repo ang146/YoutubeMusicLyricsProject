@@ -19,7 +19,6 @@ public enum LyricsContentMode
 public sealed record OverlayPreferences(
     bool Locked,
     bool ClickThrough,
-    bool Topmost,
     LyricsContentMode ContentMode,
     double Width,
     double Height)
@@ -30,7 +29,7 @@ public sealed record OverlayPreferences(
     public const double MinimumHeight = 120;
 
     public static OverlayPreferences Default { get; } =
-        new(false, false, true, LyricsContentMode.TwoLines, DefaultWidth, DefaultHeight);
+        new(false, false, LyricsContentMode.TwoLines, DefaultWidth, DefaultHeight);
 
     public bool IsValid =>
         Enum.IsDefined(ContentMode) && double.IsFinite(Width) &&
@@ -113,6 +112,7 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         {
             var root = ReadObjectForUpdate();
             var overlay = GetOverlayForUpdate(root);
+            overlay.Remove("topmost");
             overlay["left"] = position.Left;
             overlay["top"] = position.Top;
             AtomicFile.Replace(SettingsPath, root.ToJsonString(WriteOptions) + Environment.NewLine);
@@ -129,9 +129,9 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         {
             var root = ReadObjectForUpdate();
             var overlay = GetOverlayForUpdate(root);
+            overlay.Remove("topmost");
             overlay["locked"] = preferences.Locked;
             overlay["clickThrough"] = preferences.ClickThrough;
-            overlay["topmost"] = preferences.Topmost;
             overlay["contentMode"] = preferences.ContentMode switch
             {
                 LyricsContentMode.OneLine => "oneLine",
@@ -158,11 +158,11 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         {
             var root = ReadObjectForUpdate();
             var overlay = GetOverlayForUpdate(root);
+            overlay.Remove("topmost");
             overlay["left"] = position.Left;
             overlay["top"] = position.Top;
             overlay["locked"] = preferences.Locked;
             overlay["clickThrough"] = preferences.ClickThrough;
-            overlay["topmost"] = preferences.Topmost;
             overlay["contentMode"] = preferences.ContentMode switch
             {
                 LyricsContentMode.OneLine => "oneLine",
@@ -182,6 +182,7 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         lock (_sync)
         {
             var root = ReadObjectForUpdate();
+            if (root["overlay"] is JsonObject overlay) overlay.Remove("topmost");
             if (root["application"] is not JsonObject application)
             {
                 application = new JsonObject();
@@ -248,13 +249,12 @@ public sealed class ApplicationSettingsStore(string settingsPath) : IOverlaySett
         var defaults = OverlayPreferences.Default;
         var locked = ReadBoolean(overlay, "locked", defaults.Locked, warnings);
         var clickThrough = ReadBoolean(overlay, "clickThrough", defaults.ClickThrough, warnings);
-        var topmost = ReadBoolean(overlay, "topmost", defaults.Topmost, warnings);
         var contentMode = ReadContentMode(overlay, warnings);
         var width = ReadDimension(overlay, "width", OverlayPreferences.Default.Width,
             double.Epsilon, warnings);
         var height = ReadDimension(overlay, "height", OverlayPreferences.Default.Height,
             double.Epsilon, warnings);
-        return new(locked, clickThrough, topmost, contentMode, width, height);
+        return new(locked, clickThrough, contentMode, width, height);
     }
 
     private static bool ReadBoolean(

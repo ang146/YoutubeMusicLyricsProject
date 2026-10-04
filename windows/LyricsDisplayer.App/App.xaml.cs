@@ -1,5 +1,4 @@
 using System.IO;
-using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Library;
@@ -13,7 +12,7 @@ public partial class App : System.Windows.Application
 {
     private readonly CrashReportService _crashReports;
     private readonly FatalExceptionCoordinator _fatalExceptionCoordinator;
-    private int _fatalShutdownStarted;
+    private readonly ApplicationLifetimeState _lifetimeState;
 
     static App()
     {
@@ -22,9 +21,11 @@ public partial class App : System.Windows.Application
 
     public App()
     {
+        _lifetimeState = new ApplicationLifetimeState();
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         _crashReports = new CrashReportService(Path.Combine(localAppData, "LyricsDisplayer", "Logs", "Crash"));
-        _fatalExceptionCoordinator = new FatalExceptionCoordinator(_crashReports, WriteLog, WriteFatalLog);
+        _fatalExceptionCoordinator = new FatalExceptionCoordinator(_crashReports, WriteLog, WriteFatalLog,
+            () => { _lifetimeState.BeginFatalShutdown(); });
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
@@ -33,7 +34,7 @@ public partial class App : System.Windows.Application
     public SessionFileLogger Logger { get; private set; } = null!;
     public LyricsLibrary LyricsLibrary { get; private set; } = null!;
     public ApplicationSettingsStore SettingsStore { get; private set; } = null!;
-    public bool IsFatalShutdown => Volatile.Read(ref _fatalShutdownStarted) != 0;
+    public IApplicationLifetimeState Lifetime => _lifetimeState;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -49,7 +50,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        if (!IsFatalShutdown) Logger?.Write("Information", "Application", "LyricsDisplayer.App shut down.");
+        if (!Lifetime.IsFatalShutdown) Logger?.Write("Information", "Application", "LyricsDisplayer.App shut down.");
         LyricsLibrary?.Dispose();
         Logger?.Dispose();
         base.OnExit(e);
@@ -58,7 +59,6 @@ public partial class App : System.Windows.Application
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         e.Handled = true;
-        Interlocked.Exchange(ref _fatalShutdownStarted, 1);
         try
         {
             _fatalExceptionCoordinator.HandleDispatcherFatal(e.Exception,
@@ -77,7 +77,6 @@ public partial class App : System.Windows.Application
 
     private void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
     {
-        Interlocked.Exchange(ref _fatalShutdownStarted, 1);
         var exception = e.ExceptionObject as Exception ??
             new Exception($"AppDomain.UnhandledException received a non-Exception object of type " +
                 $"'{e.ExceptionObject?.GetType().FullName ?? "null"}'.");

@@ -5,6 +5,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
@@ -26,12 +27,15 @@ public partial class MainWindow : Window
     private GlobalHotkeyService? _globalHotkeys;
     private TrayLifecycleService? _tray;
     private ActiveLrcFileWatcher? _activeLrcWatcher;
+    private BuiltInLyricsEditorWindow? _editorWindow;
+    private EditorCommand _openBuiltInEditorCommand = null!;
     private readonly ExternalLrcOpener _externalLrcOpener;
     private string? _watchedLocalTrackId;
     private string? _watchedLrcPath;
     private string? _externalLrcStatus;
     private int _externalLrcGeneration;
     private bool _allowApplicationExit;
+    private bool _applicationExitPending;
     private string? _currentLineTimingStatusTrackId;
 
     public MainWindow()
@@ -42,6 +46,7 @@ public partial class MainWindow : Window
         _externalLrcOpener = new ExternalLrcOpener(log: logger.Write);
         _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
             app.LyricsLibrary, logger.Write);
+        _playbackState.LocalMetadataChanged += DisplayLibrary;
         _server = new NamedPipeServer(logger, _playbackState);
         _overlay = new LyricsOverlayController(
             () => new LyricsOverlayWindow(),
@@ -52,6 +57,7 @@ public partial class MainWindow : Window
         _overlay.InteractionStateChanged += OnOverlayInteractionStateChanged;
         _overlay.OpenControlPanelRequested += OpenControlPanel;
         _overlay.OpenExternalLyricsRequested += OpenCurrentLrcExternally;
+        _overlay.OpenBuiltInEditorRequested += ExecuteOpenBuiltInEditor;
         _overlay.TimingCommandRequested += OnOverlayTimingCommand;
         ShowOverlayCheckBox.Checked += OnShowOverlayChecked;
         ShowOverlayCheckBox.Unchecked += OnShowOverlayUnchecked;
@@ -59,8 +65,6 @@ public partial class MainWindow : Window
         OverlayLockedCheckBox.Unchecked += OnOverlayLockedChanged;
         OverlayClickThroughCheckBox.Checked += OnOverlayClickThroughChanged;
         OverlayClickThroughCheckBox.Unchecked += OnOverlayClickThroughChanged;
-        OverlayTopmostCheckBox.Checked += OnOverlayTopmostChanged;
-        OverlayTopmostCheckBox.Unchecked += OnOverlayTopmostChanged;
         OverlayContentModeComboBox.SelectionChanged += OnOverlayContentModeChanged;
         OverlayWidthApplyButton.Click += OnOverlayWidthApply;
         CloseControlPanelToTrayCheckBox.Checked += OnCloseToTrayChanged;
@@ -72,6 +76,14 @@ public partial class MainWindow : Window
         TimingPlus500Button.Click += (_, _) => AdjustTiming(500);
         TimingBakeButton.Click += (_, _) => BakeTiming();
         OpenLrcExternallyButton.Click += (_, _) => OpenCurrentLrcExternally();
+        _openBuiltInEditorCommand = new("application.open-built-in-editor", _ => OpenBuiltInEditor(),
+            _ => CanOpenBuiltInEditor(), EditorHotkeyScope.Application);
+        _openBuiltInEditorCommand.CanExecuteChanged += (_, _) =>
+        {
+            OpenBuiltInEditorButton.IsEnabled = _openBuiltInEditorCommand.CanExecute(null);
+            _overlay.SetBuiltInEditorAvailability(OpenBuiltInEditorButton.IsEnabled);
+        };
+        OpenBuiltInEditorButton.Command = _openBuiltInEditorCommand;
         CurrentLineMinus500Button.Click += (_, _) => AdjustCurrentLineTiming(-500);
         CurrentLineMinus100Button.Click += (_, _) => AdjustCurrentLineTiming(-100);
         CurrentLinePlus100Button.Click += (_, _) => AdjustCurrentLineTiming(100);
@@ -116,12 +128,23 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (!((App)Application.Current).IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
-                CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit))
+        var app = (App)Application.Current;
+        var hideToTray = !app.Lifetime.IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
+            CloseControlPanelToTrayCheckBox.IsChecked == true, _allowApplicationExit);
+        _applicationExitPending = app.Lifetime.IsFatalShutdown || !hideToTray;
+        if (_editorWindow is { } editor && !editor.RequestCloseFromApplication())
         {
             e.Cancel = true;
+            _applicationExitPending = false;
+            _allowApplicationExit = false;
+            return;
+        }
+        if (hideToTray)
+        {
+            e.Cancel = true;
+            _applicationExitPending = false;
             Hide();
-            ((App)Application.Current).Logger.Write("Information", "Application",
+            app.Logger.Write("Information", "Application",
                 "Control Panel hidden to the system tray.");
             return;
         }
@@ -172,6 +195,7 @@ public partial class MainWindow : Window
     {
         SynchronizeActiveLrcWatcher();
         UpdateExternalLrcAvailability();
+        _openBuiltInEditorCommand.Invalidate();
         var lyrics = _playbackState.CurrentLyrics?.Payload;
         LyricsAvailableText.Text = lyrics?.Available.ToString() ?? "Pending / unknown";
         LyricsTimedText.Text = lyrics?.Timed.ToString() ?? "Pending / unknown";
@@ -376,7 +400,6 @@ public partial class MainWindow : Window
         {
             OverlayLockedCheckBox.IsChecked = state.Locked;
             OverlayClickThroughCheckBox.IsChecked = state.ClickThrough;
-            OverlayTopmostCheckBox.IsChecked = state.Topmost;
             OverlayContentModeComboBox.SelectedIndex = (int)state.ContentMode;
             OverlayWidthTextBox.Text = state.Width.ToString("0", CultureInfo.InvariantCulture);
             OverlayPreferenceStatusText.Text = string.Empty;
@@ -397,12 +420,6 @@ public partial class MainWindow : Window
     {
         if (!_synchronizingOverlayPreferences)
             _overlay.SetClickThrough(OverlayClickThroughCheckBox.IsChecked == true);
-    }
-
-    private void OnOverlayTopmostChanged(object sender, RoutedEventArgs e)
-    {
-        if (!_synchronizingOverlayPreferences)
-            _overlay.SetTopmost(OverlayTopmostCheckBox.IsChecked == true);
     }
 
     private void OnOverlayContentModeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -531,36 +548,36 @@ public partial class MainWindow : Window
             switch (observation.Kind)
             {
                 case ActiveLrcFileObservationKind.Content:
-                {
-                    var result = _playbackState.ReloadExternalLocalLyrics(localTrackId, observation.Fingerprint!);
-                    switch (result)
                     {
-                        case ExternalLocalLyricsUpdate.Reloaded:
-                            _externalLrcStatus = "External LRC reloaded";
-                            DisplayLyrics();
-                            return;
-                        case ExternalLocalLyricsUpdate.Unchanged:
-                            if (_playbackState.IsCurrentLocalLrcUsable) _externalLrcStatus = "Watching current LRC";
-                            UpdateExternalLrcAvailability();
-                            return;
-                        case ExternalLocalLyricsUpdate.Invalid:
-                            _externalLrcStatus = "External LRC was rejected; last valid lyrics are retained.";
-                            DisplayLyrics();
-                            return;
-                        case ExternalLocalLyricsUpdate.Unavailable:
-                            _externalLrcStatus = "External LRC is temporarily unavailable; last valid lyrics are retained.";
-                            DisplayLyrics();
-                            return;
-                        case ExternalLocalLyricsUpdate.Retry:
-                            _externalLrcStatus = "Checking the latest LRC change…";
-                            _activeLrcWatcher?.CheckNow();
-                            UpdateExternalLrcAvailability();
-                            return;
-                        case ExternalLocalLyricsUpdate.Stale:
-                            return;
+                        var result = _playbackState.ReloadExternalLocalLyrics(localTrackId, observation.Fingerprint!);
+                        switch (result)
+                        {
+                            case ExternalLocalLyricsUpdate.Reloaded:
+                                _externalLrcStatus = "External LRC reloaded";
+                                DisplayLyrics();
+                                return;
+                            case ExternalLocalLyricsUpdate.Unchanged:
+                                if (_playbackState.IsCurrentLocalLrcUsable) _externalLrcStatus = "Watching current LRC";
+                                UpdateExternalLrcAvailability();
+                                return;
+                            case ExternalLocalLyricsUpdate.Invalid:
+                                _externalLrcStatus = "External LRC was rejected; last valid lyrics are retained.";
+                                DisplayLyrics();
+                                return;
+                            case ExternalLocalLyricsUpdate.Unavailable:
+                                _externalLrcStatus = "External LRC is temporarily unavailable; last valid lyrics are retained.";
+                                DisplayLyrics();
+                                return;
+                            case ExternalLocalLyricsUpdate.Retry:
+                                _externalLrcStatus = "Checking the latest LRC change…";
+                                _activeLrcWatcher?.CheckNow();
+                                UpdateExternalLrcAvailability();
+                                return;
+                            case ExternalLocalLyricsUpdate.Stale:
+                                return;
+                        }
+                        break;
                     }
-                    break;
-                }
                 case ActiveLrcFileObservationKind.Missing:
                     _playbackState.MarkExternalLocalLyricsMissing(localTrackId);
                     _externalLrcStatus = "LRC file unavailable; it will be reloaded if restored.";
@@ -624,6 +641,62 @@ public partial class MainWindow : Window
 
         _externalLrcStatus = "Opened the current LRC externally";
         UpdateExternalLrcAvailability();
+    }
+
+    private bool CanOpenBuiltInEditor()
+    {
+        if (_editorWindow is not null || _playbackState.ActiveLocalLyricsRecord is not { } record) return false;
+        return ((App)Application.Current).LyricsLibrary.LoadForEditing(record).Status ==
+               LyricsDisplayer.Core.Library.EditorAssetStatus.Ready;
+    }
+
+    private void ExecuteOpenBuiltInEditor()
+    {
+        if (_openBuiltInEditorCommand.CanExecute(null)) _openBuiltInEditorCommand.Execute(null);
+    }
+
+    private void OpenBuiltInEditor()
+    {
+        if (_editorWindow is { IsVisible: true } existing)
+        {
+            existing.Activate();
+            return;
+        }
+        if (_playbackState.ActiveLocalLyricsRecord is not { } record) return;
+        var app = (App)Application.Current;
+        var loaded = app.LyricsLibrary.LoadForEditing(record);
+        if (loaded.Status != LyricsDisplayer.Core.Library.EditorAssetStatus.Ready || loaded.Asset is null)
+        {
+            MessageBox.Show(this, loaded.Error ?? "The current local LRC is not available for editing.",
+                "Built-in Lyrics Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _openBuiltInEditorCommand.Invalidate();
+            return;
+        }
+
+        var viewModel = new BuiltInLyricsEditorViewModel(loaded.Asset, app.LyricsLibrary, _playbackState);
+        var window = new BuiltInLyricsEditorWindow(viewModel);
+        // Keep the main window hidden when opened from the overlay, but retain a stable owner
+        // relationship so ShowDialog does not disable the independent desktop overlay window.
+        window.Owner = this;
+        _editorWindow = window;
+        _openBuiltInEditorCommand.Invalidate();
+        var topmostSuppressionStarted = false;
+        try
+        {
+            _overlay.SetEditorModalTopmostSuppressed(true);
+            topmostSuppressionStarted = true;
+            window.ShowDialog();
+        }
+        finally
+        {
+            var shuttingDown = _applicationExitPending || app.Lifetime.IsFatalShutdown ||
+                               app.Dispatcher.HasShutdownStarted || app.Dispatcher.HasShutdownFinished;
+            if (topmostSuppressionStarted && !shuttingDown)
+                _overlay.SetEditorModalTopmostSuppressed(false);
+            _editorWindow = null;
+            _openBuiltInEditorCommand.Invalidate();
+            UpdateExternalLrcAvailability();
+        }
     }
 
     private void UpdateOverlayTimingAvailability() => _overlay.SetTimingAvailability(

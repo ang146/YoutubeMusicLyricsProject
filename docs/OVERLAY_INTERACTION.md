@@ -79,6 +79,8 @@ A visible Desktop Lyrics Overlay is permanently Topmost during normal operation.
 
 When the modal Built-in Lyrics Editor is open, the editor must remain visually above the Desktop Lyrics Overlay. Opening the editor therefore activates an explicit modal suppression state that temporarily lowers the overlay out of the Topmost band without making the editor permanently Topmost. Suppression remains active through cancelled close attempts and ends only after the editor actually closes. Fatal or accepted application shutdown does not perform a late Topmost restoration that could interfere with shutdown UI.
 
+When the modal Built-in Lyrics Editor is open, the editor must remain visually above the Desktop Lyrics Overlay. If the overlay is configured Always on Top, temporarily suppress only the overlay's effective topmost state while the editor is open; do not change the saved preference. Closing the editor restores the overlay's effective topmost state from that preference. The editor itself should not become a permanently Topmost window merely to outrank the overlay.
+
 The fixed global shortcuts are:
 
 | Shortcut | Action |

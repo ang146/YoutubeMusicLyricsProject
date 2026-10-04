@@ -120,6 +120,8 @@
                     <WrapPanel Margin="0,0,0,8">
                         <Button x:Name="OpenLrcExternallyButton" Content="Open LRC Externally"
                                 Padding="10,4" Margin="0,0,10,0" IsEnabled="False" />
+                        <Button x:Name="OpenBuiltInEditorButton" Content="Open Built-in Editor"
+                                Padding="10,4" Margin="0,0,10,0" IsEnabled="False" />
                         <TextBlock x:Name="ExternalLrcStatusText" VerticalAlignment="Center"
                                    Text="No current local timed LRC" TextWrapping="Wrap" />
                     </WrapPanel>
@@ -157,8 +159,7 @@
                     <TextBlock Text="Overlay Preferences" FontSize="18" FontWeight="Bold" Margin="0,0,0,8" />
                     <WrapPanel Margin="0,0,0,8">
                         <CheckBox x:Name="OverlayLockedCheckBox" Content="Lock position" Margin="0,0,18,0" />
-                        <CheckBox x:Name="OverlayClickThroughCheckBox" Content="Click through" Margin="0,0,18,0" />
-                        <CheckBox x:Name="OverlayTopmostCheckBox" Content="Always on top" />
+                        <CheckBox x:Name="OverlayClickThroughCheckBox" Content="Click through" />
                     </WrapPanel>
                     <WrapPanel VerticalAlignment="Center" Margin="0,0,0,8">
                         <TextBlock Text="Display" VerticalAlignment="Center" Margin="0,0,8,0" />

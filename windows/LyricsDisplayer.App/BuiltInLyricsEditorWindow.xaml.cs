@@ -13,6 +13,7 @@ using WpfBinding = System.Windows.Data.Binding;
 using WpfControl = System.Windows.Controls.Control;
 using WpfDataGridCell = System.Windows.Controls.DataGridCell;
 using WpfMessageBox = System.Windows.MessageBox;
+using WpfTextBox = System.Windows.Controls.TextBox;
 using WpfTextBoxBase = System.Windows.Controls.Primitives.TextBoxBase;
 
 namespace LyricsDisplayer;
@@ -223,17 +224,30 @@ public partial class BuiltInLyricsEditorWindow : Window
 
     private void OnCellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
     {
-        if (e.Row.Item is not EditorRowViewModel row) return;
+        if (e.EditAction != DataGridEditAction.Commit || e.Row.Item is not EditorRowViewModel row) return;
         if (_committingGridEdits)
         {
             return;
         }
+        NormalizeCommittedTimestampEditor(e);
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
-            if (!_viewModel.Rows.Any(current => ReferenceEquals(current, row)))
+            if (!_viewModel.Rows.Any(current => ReferenceEquals(current, row)) || IsCurrentGridCellEditing())
                 return;
-            _viewModel.CommitRowEdit(row);
+            _viewModel.CommitStagedEdits();
         }));
+    }
+
+    private void NormalizeCommittedTimestampEditor(DataGridCellEditEndingEventArgs e)
+    {
+        if (e.EditingElement is not WpfTextBox textBox ||
+            !_logicalGridColumns.TryGetValue(e.Column, out var logicalColumn) ||
+            logicalColumn.Column != EditorColumn.Timestamp)
+            return;
+
+        var normalized = EditorTimestampInputParser.NormalizeCommittedValue(textBox.Text);
+        if (!string.Equals(textBox.Text, normalized, StringComparison.Ordinal))
+            textBox.Text = normalized;
     }
 
     private void OnBeginningEdit(object? sender, DataGridBeginningEditEventArgs e)
@@ -351,7 +365,8 @@ public partial class BuiltInLyricsEditorWindow : Window
     private bool IsCurrentGridCellEditing()
     {
         if (Keyboard.FocusedElement is DependencyObject focusedElement &&
-            FindVisualAncestor<WpfTextBoxBase>(focusedElement) is not null)
+            FindVisualAncestor<WpfTextBoxBase>(focusedElement) is { } textEditor &&
+            FindVisualAncestor<WpfDataGridCell>(textEditor)?.IsEditing == true)
             return true;
 
         if (LyricsGrid.CurrentCell.Item is not EditorRowViewModel row ||

@@ -532,6 +532,185 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     [Test]
+    public void TimestampInputStaysRawWhileStagedThenNormalizesAtCommitAndUsesOneUndoStep()
+    {
+        using var fixture = CreateViewModel("[00:30.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+
+        foreach (var partialInput in new[] { "1", "1:", "1:1", "1:12" })
+        {
+            row.Timestamps[0] = partialInput;
+            Assert.That(row.Timestamps[0], Is.EqualTo(partialInput),
+                "Timestamp text is left exactly as typed until the row edit is committed.");
+        }
+
+        viewModel.CommitRowEdit(row);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo("01:12.000"));
+            Assert.That(viewModel.IsDirty, Is.True);
+            Assert.That(viewModel.CanUndo, Is.True);
+        });
+
+        viewModel.UndoCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo("00:30.000"));
+            Assert.That(viewModel.IsDirty, Is.False);
+            Assert.That(viewModel.CanUndo, Is.False,
+                "Normalization and the shorthand edit are one history entry, not separate entries.");
+            Assert.That(viewModel.CanRedo, Is.True);
+        });
+
+        viewModel.RedoCommand.Execute(null);
+        Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo("01:12.000"));
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    [TestCase(3)]
+    [TestCase(4)]
+    public void CommitRowEditNormalizesShorthandInEveryTimestampOccurrence(int timestampIndex)
+    {
+        using var fixture = CreateViewModel(
+            "[00:01.000][00:02.000][00:03.000][00:04.000][00:05.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        row.Timestamps[timestampIndex] = "1:12.34";
+
+        viewModel.CommitRowEdit(row);
+
+        Assert.That(viewModel.Rows.Single().Timestamps[timestampIndex], Is.EqualTo("01:12.340"));
+    }
+
+    [Test]
+    public void TimestampInputEquivalentToExistingValueDoesNotCreateDirtyStateOrHistory()
+    {
+        using var fixture = CreateViewModel("[01:12.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        row.Timestamps[0] = "1:12";
+
+        viewModel.CommitRowEdit(row);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo("01:12.000"));
+            Assert.That(viewModel.IsDirty, Is.False);
+            Assert.That(viewModel.CanUndo, Is.False);
+        });
+    }
+
+    [TestCase("1:60")]
+    [TestCase("72")]
+    public void InvalidTimestampInputRemainsVisibleAndAdvisoryAfterCommit(string invalidInput)
+    {
+        using var fixture = CreateViewModel("[00:30.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        row.Timestamps[0] = invalidInput;
+
+        viewModel.CommitRowEdit(row);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo(invalidInput));
+            Assert.That(viewModel.ErrorCount, Is.EqualTo(1));
+            Assert.That(viewModel.Rows.Single().TimestampDiagnosticSeverities[0],
+                Is.EqualTo(EditorValidationSeverity.Error));
+            Assert.That(viewModel.ValidationSummaryToolTip, Does.Contain($"Timestamp '{invalidInput}' is invalid."));
+            Assert.That(viewModel.SaveCommand.CanExecute(null), Is.True,
+                "Invalid timestamps remain advisory and do not block Save.");
+        });
+    }
+
+    [Test]
+    public void CommittingWhitespaceTimestampClearsTheOccurrenceInsteadOfCreatingZero()
+    {
+        using var fixture = CreateViewModel("[00:30.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        row.Timestamps[0] = "   ";
+
+        viewModel.CommitRowEdit(row);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps[0], Is.Empty);
+            Assert.That(viewModel.Rows.Single().LyricsText, Is.EqualTo("Line"));
+            Assert.That(viewModel.IsDirty, Is.True);
+            Assert.That(viewModel.ErrorCount, Is.Zero);
+        });
+    }
+
+    [Test]
+    public void CommittedShorthandSavesAndReloadsInCanonicalLrcFormat()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:30.000]Hello\n", 1_000);
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        row.Timestamps[0] = "1:12";
+
+        viewModel.CommitRowEdit(row);
+        viewModel.SaveCommand.Execute(EditorSaveAction.Save);
+
+        var saved = fixture.Library.LoadForEditing(viewModel.EditorTrack).Asset!;
+        Assert.That(saved.LrcContent, Is.EqualTo("[01:12.000]Hello\n"));
+        using var reopened = new BuiltInLyricsEditorViewModel(saved, fixture.Library, fixture.Playback);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reopened.Rows.Single().Timestamps[0], Is.EqualTo("01:12.000"));
+            Assert.That(reopened.Rows.Single().LyricsText, Is.EqualTo("Hello"));
+            Assert.That(reopened.IsDirty, Is.False);
+        });
+    }
+
+    [Test]
+    public void ShorthandInDynamicTimestampColumnNormalizesAndExpandsTheProjection()
+    {
+        using var fixture = CreateViewModel("[00:01.000]Line\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(2));
+        var selection = new EditorSelection(row.EditorLineId, EditorColumn.Timestamp, 1);
+        viewModel.SelectCell(selection.SelectedRowId, selection.SelectedColumn, selection.SelectedTimestampIndex);
+        row.Timestamps[1] = "2:30";
+
+        viewModel.CommitRowEdit(row);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(3),
+                Is.EqualTo(new[] { "00:01.000", "02:30.000", "" }));
+            Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(3));
+            Assert.That(viewModel.Selection, Is.EqualTo(selection));
+        });
+    }
+
+    [Test]
+    public void CommittedT2ShorthandRetainsIndependentLaneValidation()
+    {
+        using var fixture = CreateViewModel(
+            "[01:10.000][02:10.000]First\n[01:20.000][02:20.000]Second\n");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows[1];
+        row.Timestamps[1] = "2:00";
+
+        viewModel.CommitStagedEdits();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[1].Timestamps[1], Is.EqualTo("02:00.000"));
+            Assert.That(viewModel.WarningCount, Is.EqualTo(1));
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[0], Is.Null);
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[1],
+                Is.EqualTo(EditorValidationSeverity.Warning));
+        });
+    }
+
+    [Test]
     public void ClearCellCommandClearsSelectedTimestampAndUndoRedoRestoresIt()
     {
         using var fixture = CreateViewModel("[01:00.000][02:00.000][03:00.000]Line\n");

@@ -24,6 +24,26 @@ public sealed class EditorGridNavigationTests
     }
 
     [Test]
+    public void ReadOnlyLineIndicatorIsSkippedByTabAndEnterUsesFirstEditableColumn()
+    {
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        var rows = new[] { first, second };
+        // The read-only Line DataGrid column has no EditorGridColumn mapping, so it is
+        // intentionally absent from the editable navigation projection.
+        var editableColumns = new[] { Timestamp1, Timestamp2, Lyrics };
+
+        AssertLineMove(rows, editableColumns, first, EditorGridNavigationKey.Tab, backwards: false,
+            new(first, EditorColumn.Timestamp, 0));
+        AssertLineMove(rows, editableColumns, second, EditorGridNavigationKey.Tab, backwards: true,
+            new(first, EditorColumn.Lyrics));
+        AssertLineMove(rows, editableColumns, first, EditorGridNavigationKey.Enter, backwards: false,
+            new(second, EditorColumn.Timestamp, 0));
+        AssertLineMove(rows, editableColumns, second, EditorGridNavigationKey.Enter, backwards: true,
+            new(first, EditorColumn.Timestamp, 0));
+    }
+
+    [Test]
     public void ShiftTabMovesBackAcrossLyricsAndTimestampColumns()
     {
         var row = Guid.NewGuid();
@@ -192,5 +212,14 @@ public sealed class EditorGridNavigationTests
     {
         var moved = EditorGridNavigation.TryMove(rows, columns, current, key, backwards, out _);
         Assert.That(moved, Is.False);
+    }
+
+    private static void AssertLineMove(IReadOnlyList<Guid> rows, IReadOnlyList<EditorGridColumn> columns,
+        Guid currentRow, EditorGridNavigationKey key, bool backwards, EditorSelection expected)
+    {
+        var moved = EditorGridNavigation.TryMoveFromLineNumber(rows, columns, currentRow, key, backwards,
+            out var destination);
+        Assert.That(moved, Is.True);
+        Assert.That(destination, Is.EqualTo(expected));
     }
 }

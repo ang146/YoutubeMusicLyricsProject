@@ -213,9 +213,9 @@ Built-in editor validation is advisory, not permission enforcement.
 
 Validation severity should be immediately visible in the grid:
 
-- errors use a clear red error background
-- warnings use a clear yellow warning background
-- the grid includes an explicit line-number column so diagnostics can identify the affected line
+- malformed or invalid timestamps are Errors; out-of-order timestamps and unrecognised/unsupported bracketed text are Warnings
+- the compact Line cell uses a `W` marker with an amber treatment or an `E` marker with a stronger red treatment; Error wins when a row has both
+- the Line column shows the one-based physical LRC line number, including hidden recognized-metadata lines and blank physical rows, so it agrees with diagnostic source locations
 
 The validation area should summarize rather than render an unbounded list of messages, for example:
 
@@ -223,7 +223,7 @@ The validation area should summarize rather than render an unbounded list of mes
 Warnings: 4    Errors: 1
 ```
 
-Hovering or otherwise inspecting the summary may show diagnostic details including line number and reason. When there are no warnings or errors, the validation summary and the advisory message should disappear rather than leaving a permanent warning notice on screen.
+Hovering a diagnostic Line cell shows every severity, physical line number, and message for that row. The compact `Warnings: N    Errors: N` counts remain visible at zero; the advisory notice appears only while at least one diagnostic exists and explains that saving is still allowed.
 
 Validation remains non-blocking: the user may save the exact content they chose even when warnings or errors are present.
 

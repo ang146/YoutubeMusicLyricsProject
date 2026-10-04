@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using LyricsDisplayer.Core.Library;
 
@@ -8,8 +9,24 @@ namespace LyricsDisplayer;
 public sealed class EditorRowViewModel : INotifyPropertyChanged
 {
     private string _lyricsText;
+    private int _physicalLineNumber;
+    private IReadOnlyList<EditorValidationDiagnostic> _diagnostics = [];
     public Guid EditorLineId { get; }
     public ObservableCollection<string> Timestamps { get; }
+    public int PhysicalLineNumber => _physicalLineNumber;
+    public string LineDisplay => RowDiagnosticSeverity switch
+    {
+        EditorValidationSeverity.Warning => $"{_physicalLineNumber.ToString(CultureInfo.InvariantCulture)} W",
+        EditorValidationSeverity.Error => $"{_physicalLineNumber.ToString(CultureInfo.InvariantCulture)} E",
+        _ => _physicalLineNumber.ToString(CultureInfo.InvariantCulture)
+    };
+    public IReadOnlyList<EditorValidationDiagnostic> Diagnostics => _diagnostics;
+    public EditorValidationSeverity? RowDiagnosticSeverity =>
+        _diagnostics.Any(item => item.Severity == EditorValidationSeverity.Error)
+            ? EditorValidationSeverity.Error
+            : _diagnostics.Any() ? EditorValidationSeverity.Warning : null;
+    public string? DiagnosticDetails => _diagnostics.Count == 0 ? null : string.Join(Environment.NewLine,
+        _diagnostics.Select(item => $"{item.Severity} - Line {item.PhysicalLine}\n{item.Message}"));
     public string LyricsText
     {
         get => _lyricsText;
@@ -22,12 +39,26 @@ public sealed class EditorRowViewModel : INotifyPropertyChanged
     }
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public EditorRowViewModel(EditorLyricRow row, int timestampColumnCount)
+    public EditorRowViewModel(EditorLyricRow row, int timestampColumnCount, int physicalLineNumber)
     {
         EditorLineId = row.Id;
+        _physicalLineNumber = physicalLineNumber;
         _lyricsText = row.LyricsText;
         Timestamps = new ObservableCollection<string>(Enumerable.Range(0, timestampColumnCount)
             .Select(index => index < row.Timestamps.Count ? row.Timestamps[index].Value : string.Empty));
+    }
+
+    internal void UpdateDiagnosticPresentation(int physicalLineNumber,
+        IReadOnlyList<EditorValidationDiagnostic> diagnostics)
+    {
+        var lineNumberChanged = _physicalLineNumber != physicalLineNumber;
+        _physicalLineNumber = physicalLineNumber;
+        _diagnostics = diagnostics;
+        if (lineNumberChanged) PropertyChanged?.Invoke(this, new(nameof(PhysicalLineNumber)));
+        PropertyChanged?.Invoke(this, new(nameof(LineDisplay)));
+        PropertyChanged?.Invoke(this, new(nameof(Diagnostics)));
+        PropertyChanged?.Invoke(this, new(nameof(RowDiagnosticSeverity)));
+        PropertyChanged?.Invoke(this, new(nameof(DiagnosticDetails)));
     }
 }
 
@@ -46,6 +77,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     private long _playbackPosition;
     private bool _playbackMatches;
     private bool _disposed;
+    private IReadOnlyList<EditorValidationDiagnostic> _diagnostics = [];
 
     public ObservableCollection<EditorRowViewModel> Rows { get; } = [];
     public IReadOnlyList<EditorPhysicalLine> PreservedEntries => _buffer.Document.PhysicalLines
@@ -74,7 +106,10 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     public int TimestampColumnCount => Math.Max(1,
         _buffer.Document.Rows.Select(row => row.Timestamps.Count).DefaultIfEmpty(0).Max() + 1);
     public EditorSelection Selection => _selection;
-    public IReadOnlyList<EditorValidationDiagnostic> Diagnostics => _buffer.Document.Validate();
+    public IReadOnlyList<EditorValidationDiagnostic> Diagnostics => _diagnostics;
+    public int WarningCount => _diagnostics.Count(item => item.Severity == EditorValidationSeverity.Warning);
+    public int ErrorCount => _diagnostics.Count(item => item.Severity == EditorValidationSeverity.Error);
+    public bool HasValidationDiagnostics => _diagnostics.Count > 0;
 
     public EditorCommand SaveCommand { get; }
     public EditorCommand UndoCommand { get; }
@@ -208,12 +243,10 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     private void NotifyAfterRowCommit()
     {
-        OnPropertyChanged(nameof(Diagnostics));
+        RefreshValidationProjection();
         OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
-        if (_buffer.Document.Validate().Count > 0)
-            Status = "Validation warnings are advisory; Save remains available.";
         InvalidateCommands();
     }
 
@@ -400,9 +433,10 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         var selectedId = keepSelection ? _selection.SelectedRowId : null;
         var columns = TimestampColumnCount;
         Rows.Clear();
-        foreach (var row in _buffer.Document.Rows)
+        for (var index = 0; index < _buffer.Document.PhysicalLines.Count; index++)
         {
-            var viewRow = new EditorRowViewModel(row, columns);
+            if (_buffer.Document.PhysicalLines[index].LyricRow is not { } row) continue;
+            var viewRow = new EditorRowViewModel(row, columns, index + 1);
             viewRow.PropertyChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(IsDirty));
@@ -415,13 +449,13 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             };
             Rows.Add(viewRow);
         }
+        RefreshValidationProjection();
         TitleOverride = _buffer.Metadata.Title ?? string.Empty;
         ArtistOverride = _buffer.Metadata.Artist ?? string.Empty;
         if (selectedId is { } id && Rows.Any(row => row.EditorLineId == id)) _selection = _selection with { SelectedRowId = id };
         else if (!keepSelection || _selection.SelectedRowId is not null) _selection = new(null, EditorColumn.Lyrics);
         OnPropertyChanged(nameof(PreservedEntries));
         OnPropertyChanged(nameof(TimestampColumnCount));
-        OnPropertyChanged(nameof(Diagnostics));
         OnPropertyChanged(nameof(IsDirty));
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
@@ -429,6 +463,29 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         OnPropertyChanged(nameof(EffectiveArtist));
         OnPropertyChanged(nameof(Selection));
         InvalidateCommands();
+    }
+
+    private void RefreshValidationProjection()
+    {
+        _diagnostics = _buffer.Document.Validate().ToArray();
+        OnPropertyChanged(nameof(Diagnostics));
+        OnPropertyChanged(nameof(WarningCount));
+        OnPropertyChanged(nameof(ErrorCount));
+        OnPropertyChanged(nameof(HasValidationDiagnostics));
+
+        var lineNumbers = new Dictionary<Guid, int>();
+        for (var index = 0; index < _buffer.Document.PhysicalLines.Count; index++)
+        {
+            if (_buffer.Document.PhysicalLines[index].LyricRow is { } row)
+                lineNumbers[row.Id] = index + 1;
+        }
+
+        foreach (var row in Rows)
+        {
+            var rowDiagnostics = _diagnostics.Where(item => item.RowId == row.EditorLineId).ToArray();
+            if (lineNumbers.TryGetValue(row.EditorLineId, out var physicalLineNumber))
+                row.UpdateDiagnosticPresentation(physicalLineNumber, rowDiagnostics);
+        }
     }
 
     private void InvalidateCommands()

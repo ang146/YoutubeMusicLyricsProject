@@ -103,6 +103,27 @@ public static class EditorGridNavigation
         return true;
     }
 
+    public static bool TryMoveFromLineNumber(IReadOnlyList<Guid> orderedRowIds,
+        IReadOnlyList<EditorGridColumn> editableColumns, Guid currentRowId,
+        EditorGridNavigationKey key, bool backwards, out EditorSelection destination)
+    {
+        ArgumentNullException.ThrowIfNull(orderedRowIds);
+        ArgumentNullException.ThrowIfNull(editableColumns);
+        destination = new(null, EditorColumn.Lyrics);
+        if (editableColumns.Count == 0 || IndexOf(orderedRowIds, currentRowId) < 0)
+            return false;
+
+        var firstColumn = editableColumns[0];
+        var firstCell = new EditorSelection(currentRowId, firstColumn.Column, firstColumn.TimestampIndex);
+        if (key == EditorGridNavigationKey.Tab && !backwards)
+        {
+            destination = firstCell;
+            return true;
+        }
+
+        return TryMove(orderedRowIds, editableColumns, firstCell, key, backwards, out destination);
+    }
+
     private static EditorSelection ToSelection(Guid rowId, EditorGridColumn column) =>
         new(rowId, column.Column, column.TimestampIndex);
 

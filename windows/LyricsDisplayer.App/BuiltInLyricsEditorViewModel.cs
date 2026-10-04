@@ -116,6 +116,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     public EditorCommand InsertRowBelowCommand { get; }
     public EditorCommand AppendRowCommand { get; }
     public EditorCommand DeleteRowCommand { get; }
+    public EditorCommand ClearCellCommand { get; }
     public EditorCommand SetTimestampFromPlaybackCommand { get; }
     public EditorCommand CommitMetadataCommand { get; }
     public EditorCommand ClearTitleOverrideCommand { get; }
@@ -156,6 +157,8 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             SelectRow(inserted);
         }, _ => true);
         DeleteRowCommand = new("editor.row.delete", _ => DeleteSelected(), _ => SelectedRowIdInDocument is not null);
+        ClearCellCommand = new("editor.cell.clear", ClearCell,
+            parameter => CanClearCell(parameter as EditorSelection ?? Selection));
         SetTimestampFromPlaybackCommand = new("editor.timestamp.from-playback", _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
         CommitMetadataCommand = new("editor.metadata.commit", _ => CommitMetadata());
         ClearTitleOverrideCommand = new("editor.metadata.clear-title", _ =>
@@ -379,6 +382,47 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         RefreshFromBuffer(keepSelection: false);
     }
 
+    private bool CanClearCell(EditorSelection selection)
+    {
+        if (selection.SelectedRowId is not { } rowId || FindDocumentRow(rowId) is null) return false;
+        var row = Rows.FirstOrDefault(item => item.EditorLineId == rowId);
+        if (row is null) return false;
+
+        return selection.SelectedColumn switch
+        {
+            EditorColumn.Timestamp => selection.SelectedTimestampIndex is { } index &&
+                index >= 0 && index < row.Timestamps.Count && !string.IsNullOrEmpty(row.Timestamps[index]),
+            EditorColumn.Lyrics => !string.IsNullOrEmpty(row.LyricsText),
+            _ => false
+        };
+    }
+
+    private void ClearCell(object? parameter)
+    {
+        var selection = parameter as EditorSelection ?? Selection;
+        if (!CanClearCell(selection)) return;
+
+        CommitStagedEdits();
+        if (!CanClearCell(selection) || selection.SelectedRowId is not { } rowId) return;
+
+        var changed = selection.SelectedColumn switch
+        {
+            EditorColumn.Timestamp when selection.SelectedTimestampIndex is { } index =>
+                _buffer.SetTimestamp(rowId, index, string.Empty),
+            EditorColumn.Lyrics => ClearLyrics(rowId),
+            _ => false
+        };
+        if (changed) RefreshFromBuffer(keepSelection: true);
+    }
+
+    private bool ClearLyrics(Guid rowId)
+    {
+        var row = FindDocumentRow(rowId);
+        if (row is null || row.LyricsText.Length == 0) return false;
+        _buffer.SetLyrics(rowId, string.Empty);
+        return true;
+    }
+
     private void SetTimestampFromPlayback()
     {
         RefreshPlayback();
@@ -467,11 +511,13 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             {
                 OnPropertyChanged(nameof(IsDirty));
                 SaveCommand.Invalidate();
+                ClearCellCommand.Invalidate();
             };
             viewRow.Timestamps.CollectionChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(IsDirty));
                 SaveCommand.Invalidate();
+                ClearCellCommand.Invalidate();
                 SetTimestampFromPlaybackCommand.Invalidate();
             };
             Rows.Add(viewRow);
@@ -518,7 +564,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     {
         SaveCommand.Invalidate(); UndoCommand.Invalidate(); RedoCommand.Invalidate();
         InsertRowAboveCommand.Invalidate(); InsertRowBelowCommand.Invalidate(); AppendRowCommand.Invalidate();
-        DeleteRowCommand.Invalidate(); SetTimestampFromPlaybackCommand.Invalidate();
+        DeleteRowCommand.Invalidate(); ClearCellCommand.Invalidate(); SetTimestampFromPlaybackCommand.Invalidate();
     }
 
     private bool HasStagedRowEdits()

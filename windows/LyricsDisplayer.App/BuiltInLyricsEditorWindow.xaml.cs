@@ -13,6 +13,7 @@ using WpfBinding = System.Windows.Data.Binding;
 using WpfControl = System.Windows.Controls.Control;
 using WpfDataGridCell = System.Windows.Controls.DataGridCell;
 using WpfMessageBox = System.Windows.MessageBox;
+using WpfTextBoxBase = System.Windows.Controls.Primitives.TextBoxBase;
 
 namespace LyricsDisplayer;
 
@@ -287,6 +288,22 @@ public partial class BuiltInLyricsEditorWindow : Window
 
     private void OnGridPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (e.Key == Key.Delete && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            if (IsCurrentGridCellEditing() || !TryCaptureSelectedEditableCell(out var selectedCell))
+                return;
+
+            // This is a real data-cell decision. Handle even an already-empty cell so the
+            // DataGrid cannot interpret Delete as a row operation; text editors were excluded above.
+            e.Handled = true;
+            if (!_viewModel.ClearCellCommand.CanExecute(selectedCell)) return;
+
+            CommitGridEdits();
+            if (_viewModel.ClearCellCommand.CanExecute(selectedCell))
+                _viewModel.ClearCellCommand.Execute(selectedCell);
+            return;
+        }
+
         if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
             if (e.Key == Key.S)
@@ -329,6 +346,39 @@ public partial class BuiltInLyricsEditorWindow : Window
         CommitGridEdits();
         MoveGridCell(current, key == Key.Enter ? EditorGridNavigationKey.Enter : EditorGridNavigationKey.Tab,
             backwards);
+    }
+
+    private bool IsCurrentGridCellEditing()
+    {
+        if (Keyboard.FocusedElement is DependencyObject focusedElement &&
+            FindVisualAncestor<WpfTextBoxBase>(focusedElement) is not null)
+            return true;
+
+        if (LyricsGrid.CurrentCell.Item is not EditorRowViewModel row ||
+            LyricsGrid.CurrentCell.Column is not { } column ||
+            LyricsGrid.ItemContainerGenerator.ContainerFromItem(row) is not DataGridRow gridRow)
+            return false;
+
+        var cellContent = column.GetCellContent(gridRow);
+        return cellContent is not null &&
+            FindVisualAncestor<WpfDataGridCell>(cellContent)?.IsEditing == true;
+    }
+
+    private bool TryCaptureSelectedEditableCell(out EditorSelection selection)
+    {
+        selection = new(null, EditorColumn.Lyrics);
+        if (!LyricsGrid.CurrentCell.IsValid || LyricsGrid.SelectedCells.Count != 1) return false;
+        var current = LyricsGrid.CurrentCell;
+        var selected = LyricsGrid.SelectedCells[0];
+        if (!ReferenceEquals(current.Item, selected.Item) || !ReferenceEquals(current.Column, selected.Column) ||
+            selected.Item is not EditorRowViewModel row ||
+            !_viewModel.Rows.Any(candidate => ReferenceEquals(candidate, row)) ||
+            selected.Column is not { Visibility: Visibility.Visible, IsReadOnly: false } column ||
+            !_logicalGridColumns.TryGetValue(column, out var logicalColumn))
+            return false;
+
+        selection = new(row.EditorLineId, logicalColumn.Column, logicalColumn.TimestampIndex);
+        return true;
     }
 
     private bool TryCaptureNavigationCell(out EditorSelection selection)

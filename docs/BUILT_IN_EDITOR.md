@@ -152,7 +152,10 @@ Initial keyboard behaviour should follow familiar grid conventions:
 - `Shift+Enter`: move to the previous row in the same logical column
 - `Tab`: move to the next editable column/cell
 - `Shift+Tab`: move to the previous editable column/cell
+- `Delete` on a selected editable cell outside text-edit mode clears only that cell; while its text editor is active, Delete remains normal character deletion. Empty cells are no-ops, and this key does not invoke **Delete Row**.
 - arrow keys: normal row/cell navigation where the grid control permits it
+
+Timestamp occurrences use the editor's existing dense ordered collection and LRC serialization has no empty occurrence marker. Clearing a timestamp therefore removes that occurrence; later occurrences compact left in the ordered list. The selected row and logical column are retained where possible. Sparse timestamp-slot identity is not persisted by this feature.
 
 Exact command bindings remain presentation/input configuration, not editor-domain logic.
 

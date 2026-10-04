@@ -98,12 +98,13 @@ public sealed record EditorDocument(
     public IReadOnlyList<EditorValidationDiagnostic> Validate()
     {
         var diagnostics = new List<EditorValidationDiagnostic>();
-        long? previous = null;
+        var previousByTimestampLane = new Dictionary<int, long>();
         for (var lineIndex = 0; lineIndex < PhysicalLines.Count; lineIndex++)
         {
             var line = PhysicalLines[lineIndex];
             if (line.LyricRow is not { } row) continue;
             var physicalLine = lineIndex + 1;
+            long? previousInRow = null;
 
             if ((row.Timestamps.Count == 0 || line.ValidateRawText) &&
                 EditorDocumentCodec.GetUntimedTextDiagnostic(row.LyricsText) is { } textDiagnostic)
@@ -113,16 +114,24 @@ public sealed record EditorDocument(
             for (var index = 0; index < row.Timestamps.Count; index++)
             {
                 var timestamp = row.Timestamps[index];
+                if (string.IsNullOrWhiteSpace(timestamp.Value)) continue;
                 if (!EditorDocumentCodec.TryParseTimestamp(timestamp.Value, out var value))
                 {
                     diagnostics.Add(new(row.Id, physicalLine, index, EditorValidationSeverity.Error,
                         $"Timestamp '{timestamp.Value}' is invalid.", EditorColumn.Timestamp));
                     continue;
                 }
-                if (previous is not null && value < previous.Value)
+
+                if (previousByTimestampLane.TryGetValue(index, out var previousInLane) && value < previousInLane)
                     diagnostics.Add(new(row.Id, physicalLine, index, EditorValidationSeverity.Warning,
-                        "Timestamp is earlier than the preceding document timestamp.", EditorColumn.Timestamp));
-                previous = value;
+                        "Timestamp is earlier than the preceding populated timestamp in the same occurrence lane.",
+                        EditorColumn.Timestamp));
+                if (previousInRow is { } precedingInRow && value < precedingInRow)
+                    diagnostics.Add(new(row.Id, physicalLine, index, EditorValidationSeverity.Warning,
+                        "Timestamp is earlier than a preceding timestamp in the same lyric row.", EditorColumn.Timestamp));
+
+                previousByTimestampLane[index] = value;
+                previousInRow = value;
             }
         }
         return diagnostics;

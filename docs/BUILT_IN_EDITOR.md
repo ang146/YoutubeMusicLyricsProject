@@ -214,6 +214,7 @@ Built-in editor validation is advisory, not permission enforcement.
 Validation severity should be immediately visible in the owning data cell:
 
 - malformed or invalid timestamps are Errors; out-of-order timestamps and unrecognised/unsupported bracketed text are Warnings
+- cross-row timestamp chronology is checked independently for each occurrence index (`Timestamp[1]`, `Timestamp[2]`, etc.); within each row, populated timestamps are also checked in their displayed order. Empty timestamp slots are skipped, equality is allowed, and validation never sorts or rewrites timestamps
 - `Timestamp[n]` diagnostics style only that timestamp cell; lyric-text diagnostics style only the Lyrics cell; Error styling wins if one cell has both severities
 - diagnostics that have no explicit cell target remain summary-only and do not colour an arbitrary cell or the row-number gutter
 - a neutral `DataGrid.RowHeader` displays one-based numbering of visible editor rows; hidden recognized metadata does not count, while blank visible rows do

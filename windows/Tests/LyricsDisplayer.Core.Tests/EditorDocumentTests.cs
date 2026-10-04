@@ -221,6 +221,98 @@ public sealed class EditorDocumentTests
     }
 
     [Test]
+    public void MultiTimestampChronologyIsValidatedIndependentlyForEachOccurrenceLane()
+    {
+        var validInterleavedLanes = EditorDocumentCodec.Load(
+            "[00:10.000][00:50.000]A\n[00:20.000][01:00.000]B");
+        var firstLaneRegression = EditorDocumentCodec.Load(
+            "[00:10.000][00:50.000]A\n[00:05.000][01:00.000]B");
+        var secondLaneRegression = EditorDocumentCodec.Load(
+            "[00:10.000][00:50.000]A\n[00:20.000][00:40.000]B");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(validInterleavedLanes.Validate(), Is.Empty,
+                "A later timestamp in one lane may be greater than a timestamp in another lane.");
+        });
+        AssertLaneWarning(firstLaneRegression, rowIndex: 1, timestampIndex: 0);
+        AssertLaneWarning(secondLaneRegression, rowIndex: 1, timestampIndex: 1);
+    }
+
+    [Test]
+    public void SparseTimestampLanesSkipMissingCellsAndRetainPriorPopulatedValues()
+    {
+        var document = CreateSparseDocument(
+            ["00:30.000", "00:40.000", "00:45.000"],
+            [],
+            ["", "", ""],
+            ["00:20.000", "00:30.000", "00:50.000"]);
+
+        var diagnostics = document.Validate();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostics, Has.Count.EqualTo(2));
+            Assert.That(diagnostics.All(item => item.Severity == EditorValidationSeverity.Warning), Is.True);
+            Assert.That(diagnostics.All(item => item.RowId == document.Rows[3].Id), Is.True);
+            Assert.That(diagnostics.Select(item => item.TimestampIndex), Is.EqualTo(new int?[] { 0, 1 }));
+            Assert.That(diagnostics.All(item => item.TargetColumn == EditorColumn.Timestamp), Is.True);
+            Assert.That(diagnostics.All(item => item.Message.Contains("same occurrence lane")), Is.True);
+        });
+    }
+
+    [Test]
+    public void WithinRowOrderingIsWarnedIndependentlyAndEqualTimestampsAreAllowed()
+    {
+        var withinRowRegression = EditorDocumentCodec.Load("[00:20.000][00:10.000]A");
+        var sparseWithinRowRegression = CreateSparseDocument(["00:20.000", "", "00:10.000"]);
+        var equalTimestamps = EditorDocumentCodec.Load(
+            "[00:10.000][00:10.000]A\n[00:10.000][00:10.000]B");
+        var threeValidLanes = EditorDocumentCodec.Load(
+            "[00:10.000][00:20.000][00:30.000]A\n[00:15.000][00:25.000][00:35.000]B");
+        var thirdLaneRegression = EditorDocumentCodec.Load(
+            "[00:10.000][00:20.000][00:30.000]A\n[00:15.000][00:25.000][00:29.000]B");
+
+        Assert.Multiple(() =>
+        {
+            var rowDiagnostic = withinRowRegression.Validate().Single();
+            Assert.That(rowDiagnostic.TimestampIndex, Is.EqualTo(1));
+            Assert.That(rowDiagnostic.Message, Does.Contain("same lyric row"));
+            var sparseRowDiagnostic = sparseWithinRowRegression.Validate().Single();
+            Assert.That(sparseRowDiagnostic.TimestampIndex, Is.EqualTo(2),
+                "A missing occurrence does not reset the preceding populated timestamp in the row.");
+            Assert.That(sparseRowDiagnostic.Message, Does.Contain("same lyric row"));
+            Assert.That(equalTimestamps.Validate(), Is.Empty,
+                "Equality is allowed within a row and between rows in the same lane.");
+            Assert.That(threeValidLanes.Validate(), Is.Empty);
+        });
+        AssertLaneWarning(thirdLaneRegression, rowIndex: 1, timestampIndex: 2);
+    }
+
+    private static void AssertLaneWarning(EditorDocument document, int rowIndex, int timestampIndex)
+    {
+        var diagnostic = document.Validate().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostic.RowId, Is.EqualTo(document.Rows[rowIndex].Id));
+            Assert.That(diagnostic.TimestampIndex, Is.EqualTo(timestampIndex));
+            Assert.That(diagnostic.TargetColumn, Is.EqualTo(EditorColumn.Timestamp));
+            Assert.That(diagnostic.Message, Does.Contain("same occurrence lane"));
+        });
+    }
+
+    private static EditorDocument CreateSparseDocument(params string[][] timestampRows)
+    {
+        var lines = timestampRows.Select((values, index) =>
+        {
+            var row = new EditorLyricRow(Guid.NewGuid(), $"Row {index + 1}",
+                values.Select(value => new EditorTimestamp(Guid.NewGuid(), value)).ToArray());
+            return new EditorPhysicalLine(Guid.NewGuid(), EditorEntryKind.Lyric, string.Empty, "\n", row);
+        }).ToArray();
+        return new EditorDocument(lines, string.Empty, null, "\n");
+    }
+
+    [Test]
     public void ClearingTimestampOccurrencesDoesNotDuplicateOrReorderRemainingOccurrences()
     {
         var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("[00:10.000][00:20.000][00:30.000]A\n"),

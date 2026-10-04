@@ -39,10 +39,13 @@
         <Grid Grid.Row="1" Background="#FFFAFAFB">
             <ListBox x:Name="LyricsListBox" ItemsSource="{Binding Lines}"
                      Background="Transparent" BorderThickness="0"
+                     PreviewMouseWheel="OnLyricsPreviewMouseWheel"
+                     PreviewKeyDown="OnLyricsPreviewKeyDown"
                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      ScrollViewer.CanContentScroll="True"
                      VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.ScrollUnit="Pixel"
                      VirtualizingPanel.VirtualizationMode="Recycling">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">

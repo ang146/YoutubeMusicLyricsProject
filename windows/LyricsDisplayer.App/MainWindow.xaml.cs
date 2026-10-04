@@ -1,7 +1,10 @@
 using System.ComponentModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
@@ -16,8 +19,13 @@ public partial class MainWindow : Window
     private readonly PlaybackStateCoordinator _playbackState;
     private readonly NamedPipeServer _server;
     private readonly DispatcherTimer _positionRefreshTimer;
+    private readonly DispatcherTimer _manualScrollResumeTimer;
     private readonly LyricsOverlayController _overlay;
     private readonly MainLyricsWindowViewModel _viewModel;
+    private readonly MainLyricsAutoFollowPolicy _autoFollowPolicy = new();
+    private PlaybackTrackIdentity? _autoFollowTrackIdentity;
+    private ScrollViewer? _lyricsScrollViewer;
+    private DispatcherOperation? _pendingAutoCenterOperation;
     private Task? _serverTask;
     private GlobalHotkeyService? _globalHotkeys;
     private TrayLifecycleService? _tray;
@@ -31,6 +39,9 @@ public partial class MainWindow : Window
     private bool _allowApplicationExit;
     private bool _applicationExitPending;
     private readonly bool _hideToTrayOnClose;
+    private bool _isProgrammaticScroll;
+
+    private readonly record struct PlaybackTrackIdentity(string Source, string SourceTrackId);
 
     public MainWindow()
     {
@@ -66,15 +77,22 @@ public partial class MainWindow : Window
             Interval = TimeSpan.FromMilliseconds(33)
         };
         _positionRefreshTimer.Tick += (_, _) => RefreshLocalPosition();
+        _manualScrollResumeTimer = new DispatcherTimer(DispatcherPriority.Normal)
+        {
+            Interval = MainLyricsAutoFollowPolicy.ManualScrollResumeDelay
+        };
+        _manualScrollResumeTimer.Tick += OnManualScrollResumeTimerTick;
         Loaded += OnLoaded;
         Activated += OnActivated;
         Closing += OnClosing;
+        SizeChanged += OnMainWindowSizeChanged;
         _hideToTrayOnClose = app.SettingsStore.LoadCloseControlPanelToTray();
         DisplayLyrics();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        _lyricsScrollViewer ??= FindVisualChild<ScrollViewer>(LyricsListBox);
         if (_globalHotkeys is not null) return;
         _serverTask = RunServerSafelyAsync();
         _positionRefreshTimer.Start();
@@ -90,6 +108,7 @@ public partial class MainWindow : Window
         _tray = new TrayLifecycleService(new WindowsTrayIcon(), OpenLyricsWindow,
             ToggleOverlayFromTray, ExitApplication);
         _tray.Start(_overlay.IsVisible);
+        QueueCurrentLineAutoCenter();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -109,12 +128,16 @@ public partial class MainWindow : Window
         {
             e.Cancel = true;
             _applicationExitPending = false;
+            ResetAutoFollowForHiddenWindow();
             Hide();
             app.Logger.Write("Information", "Application",
                 "Main Lyrics Window hidden to the system tray.");
             return;
         }
         _positionRefreshTimer.Stop();
+        StopManualScrollResumeTimer();
+        CancelPendingAutoCenter();
+        _autoFollowPolicy.Reset();
         _activeLrcWatcher?.Dispose();
         _activeLrcWatcher = null;
         _externalLrcGeneration++;
@@ -149,6 +172,17 @@ public partial class MainWindow : Window
     private void RefreshLocalPosition()
     {
         UpdateOverlayTimingAvailability();
+        var playback = _playbackState.Current;
+        PlaybackTrackIdentity? trackIdentity = playback is null
+            ? null
+            : new PlaybackTrackIdentity(playback.Envelope.Source, playback.Payload.Track.SourceTrackId);
+        var trackChanged = _autoFollowTrackIdentity != trackIdentity;
+        if (trackChanged)
+        {
+            _autoFollowTrackIdentity = trackIdentity;
+            ResetAutoFollowSuspension();
+        }
+
         var timeline = _playbackState.HasClockState
             ? _playbackState.GetTimelinePosition()
             : LyricsDisplayer.Core.Timeline.LyricsTimeline.Empty.Evaluate(0);
@@ -158,6 +192,7 @@ public partial class MainWindow : Window
             _playbackState.IsCurrentLocalLrcMissing);
         _overlay.Update(_playbackState.HasClockState ? lyrics : null, timeline,
             _playbackState.IsCurrentLocalLrcMissing, timelineLines);
+        if (trackChanged) QueueCurrentLineAutoCenter();
     }
 
     private void AdjustCurrentLineTiming(long deltaMs)
@@ -205,13 +240,8 @@ public partial class MainWindow : Window
 
     private void OnCurrentLineChanged(MainLyricsLineViewModel? line)
     {
-        if (line is null) return;
-        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
-        {
-            if (_shutdown.IsCancellationRequested || !IsLoaded || !IsVisible ||
-                !ReferenceEquals(_viewModel.CurrentLine, line)) return;
-            LyricsListBox.ScrollIntoView(line);
-        }));
+        if (_autoFollowPolicy.ShouldCenterCurrentLine(line is not null) && line is not null)
+            QueueAutoCenter(line);
     }
 
     private void OpenLyricsWindow()
@@ -219,7 +249,136 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Show();
         Activate();
-        if (_viewModel.CurrentLine is { } currentLine) OnCurrentLineChanged(currentLine);
+        ResetAutoFollowSuspension();
+        QueueCurrentLineAutoCenter();
+    }
+
+    private void OnLyricsPreviewMouseWheel(object sender, MouseWheelEventArgs e) =>
+        SuspendAutoFollowForManualScroll();
+
+    private void OnLyricsPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End or Key.Space)
+            SuspendAutoFollowForManualScroll();
+    }
+
+    private void SuspendAutoFollowForManualScroll()
+    {
+        if (_shutdown.IsCancellationRequested || !IsLoaded || !IsVisible ||
+            !_autoFollowPolicy.NotifyManualScroll(DateTimeOffset.UtcNow, _isProgrammaticScroll)) return;
+
+        CancelPendingAutoCenter();
+        _manualScrollResumeTimer.Stop();
+        _manualScrollResumeTimer.Interval = MainLyricsAutoFollowPolicy.ManualScrollResumeDelay;
+        _manualScrollResumeTimer.Start();
+    }
+
+    private void OnManualScrollResumeTimerTick(object? sender, EventArgs e)
+    {
+        _manualScrollResumeTimer.Stop();
+        var now = DateTimeOffset.UtcNow;
+        if (!_autoFollowPolicy.TryResume(now))
+        {
+            if (_autoFollowPolicy.GetRemainingResumeDelay(now) is { } remaining && remaining > TimeSpan.Zero)
+            {
+                _manualScrollResumeTimer.Interval = remaining;
+                _manualScrollResumeTimer.Start();
+            }
+            return;
+        }
+
+        // Read CurrentLine now, not the line that happened to be current when scrolling began.
+        QueueCurrentLineAutoCenter();
+    }
+
+    private void OnMainWindowSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (_autoFollowPolicy.ShouldCenterCurrentLine(_viewModel.CurrentLine is not null))
+            QueueCurrentLineAutoCenter();
+    }
+
+    private void QueueCurrentLineAutoCenter()
+    {
+        if (_viewModel.CurrentLine is { } currentLine) QueueAutoCenter(currentLine);
+    }
+
+    private void QueueAutoCenter(MainLyricsLineViewModel line)
+    {
+        if (_shutdown.IsCancellationRequested || !IsLoaded || !IsVisible ||
+            !_autoFollowPolicy.ShouldCenterCurrentLine(hasCurrentLine: true)) return;
+
+        CancelPendingAutoCenter();
+        if (LyricsListBox.ItemContainerGenerator.ContainerFromItem(line) is null)
+        {
+            // ScrollIntoView is used only to realize a virtualized container. The final position
+            // is explicitly centered after WPF has completed this layout pass.
+            _isProgrammaticScroll = true;
+            try { LyricsListBox.ScrollIntoView(line); }
+            finally { _isProgrammaticScroll = false; }
+        }
+
+        _pendingAutoCenterOperation = Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            _pendingAutoCenterOperation = null;
+            CenterCurrentLine(line);
+        }));
+    }
+
+    private void CenterCurrentLine(MainLyricsLineViewModel line)
+    {
+        if (_shutdown.IsCancellationRequested || !IsLoaded || !IsVisible ||
+            !_autoFollowPolicy.ShouldCenterCurrentLine(hasCurrentLine: true) ||
+            !ReferenceEquals(_viewModel.CurrentLine, line)) return;
+
+        var container = LyricsListBox.ItemContainerGenerator.ContainerFromItem(line) as FrameworkElement;
+        var scrollViewer = _lyricsScrollViewer ??= FindVisualChild<ScrollViewer>(LyricsListBox);
+        if (container is null || scrollViewer is null || container.ActualHeight <= 0 ||
+            scrollViewer.ViewportHeight <= 0) return;
+
+        var centerY = container.TransformToAncestor(scrollViewer)
+            .Transform(new System.Windows.Point(0, container.ActualHeight / 2)).Y;
+        var desiredOffset = scrollViewer.VerticalOffset + centerY - scrollViewer.ViewportHeight / 2;
+        desiredOffset = Math.Clamp(desiredOffset, 0, scrollViewer.ScrollableHeight);
+
+        _isProgrammaticScroll = true;
+        try { scrollViewer.ScrollToVerticalOffset(desiredOffset); }
+        finally { _isProgrammaticScroll = false; }
+    }
+
+    private void ResetAutoFollowForHiddenWindow()
+    {
+        ResetAutoFollowSuspension();
+    }
+
+    private void ResetAutoFollowSuspension()
+    {
+        _manualScrollResumeTimer.Stop();
+        _autoFollowPolicy.Reset();
+        CancelPendingAutoCenter();
+    }
+
+    private void StopManualScrollResumeTimer()
+    {
+        _manualScrollResumeTimer.Stop();
+        _manualScrollResumeTimer.Tick -= OnManualScrollResumeTimerTick;
+    }
+
+    private void CancelPendingAutoCenter()
+    {
+        _pendingAutoCenterOperation?.Abort();
+        _pendingAutoCenterOperation = null;
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is T match) return match;
+            if (FindVisualChild<T>(child) is { } descendant) return descendant;
+        }
+
+        return null;
     }
 
     private void OnOverlayTimingCommand(OverlayCommand command)

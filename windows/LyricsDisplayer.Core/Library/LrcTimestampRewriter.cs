@@ -40,24 +40,49 @@ public static partial class LrcTimestampRewriter
     {
         ArgumentNullException.ThrowIfNull(content);
         var replacements = new List<(int Index, int Length, string Value)>();
-        foreach (Match match in TimestampRegex().Matches(content))
+        for (var lineStart = 0; lineStart < content.Length;)
         {
-            if (!TryParse(match, out var timestampMs, out var overflow))
+            var lineEnd = content.IndexOfAny(['\r', '\n'], lineStart);
+            if (lineEnd < 0) lineEnd = content.Length;
+            var line = content[lineStart..lineEnd];
+            var matches = TimestampRegex().Matches(line);
+            if (matches.Count > 0)
             {
-                if (overflow) return new(false, Error: TimestampOverflowError);
-                continue;
+                var lastTimestamp = matches[^1];
+                var lyricsText = line[(lastTimestamp.Index + lastTimestamp.Length)..];
+                var isZeroTimeAnchor = LrcLineSemantics.IsZeroTimeIntroOrBreakAnchor(lyricsText);
+
+                foreach (Match match in matches)
+                {
+                    if (!TryParse(match, out var timestampMs, out var overflow))
+                    {
+                        if (overflow) return new(false, Error: TimestampOverflowError);
+                        continue;
+                    }
+                    long adjusted;
+                    try
+                    {
+                        adjusted = checked(timestampMs + deltaMs);
+                    }
+                    catch (OverflowException)
+                    {
+                        return new(false, Error: TimestampOverflowError);
+                    }
+                    if (adjusted < 0)
+                    {
+                        if (deltaMs < 0 && timestampMs == 0 && isZeroTimeAnchor)
+                            adjusted = 0;
+                        else
+                            return new(false, Error: NegativeTimestampError);
+                    }
+                    replacements.Add((lineStart + match.Index, match.Length, Format(adjusted)));
+                }
             }
-            long adjusted;
-            try
-            {
-                adjusted = checked(timestampMs + deltaMs);
-            }
-            catch (OverflowException)
-            {
-                return new(false, Error: TimestampOverflowError);
-            }
-            if (adjusted < 0) return new(false, Error: NegativeTimestampError);
-            replacements.Add((match.Index, match.Length, Format(adjusted)));
+
+            if (lineEnd == content.Length) break;
+            lineStart = lineEnd + 1;
+            if (content[lineEnd] == '\r' && lineStart < content.Length && content[lineStart] == '\n')
+                lineStart++;
         }
 
         if (replacements.Count == 0)

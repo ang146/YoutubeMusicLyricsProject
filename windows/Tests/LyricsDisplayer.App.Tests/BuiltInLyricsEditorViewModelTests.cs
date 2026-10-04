@@ -8,7 +8,7 @@ namespace LyricsDisplayer.App.Tests;
 public sealed class BuiltInLyricsEditorViewModelTests
 {
     [Test]
-    public void ValidDocumentShowsZeroCountsAndPhysicalLineNumbersIncludingHiddenMetadataAndBlankRows()
+    public void ValidDocumentShowsZeroCountsAndVisibleLineNumbersIncludingBlankRows()
     {
         using var fixture = CreateViewModel("[ti:Song]\nFirst\n\n[00:01.000]Last");
         var viewModel = fixture.ViewModel;
@@ -18,15 +18,70 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.WarningCount, Is.Zero);
             Assert.That(viewModel.ErrorCount, Is.Zero);
             Assert.That(viewModel.HasValidationDiagnostics, Is.False);
-            Assert.That(viewModel.Rows.Select(row => row.PhysicalLineNumber), Is.EqualTo(new[] { 2, 3, 4 }));
-            Assert.That(viewModel.Rows.Select(row => row.LineDisplay), Is.EqualTo(new[] { "2", "3", "4" }));
-            Assert.That(viewModel.Rows[1].RowDiagnosticSeverity, Is.Null,
+            Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3 }));
+            Assert.That(viewModel.ValidationSummaryToolTip, Is.Null);
+            Assert.That(viewModel.Rows[1].LyricsDiagnosticSeverity, Is.Null,
                 "A blank physical row is valid content and receives no diagnostic styling.");
         });
     }
 
     [Test]
-    public void DocumentAggregateCountsTwoWarningsAndOneErrorAndProjectsThemToPhysicalRows()
+    public void VisibleLineNumbersRenumberAfterInsertDeleteUndoRedoAndAppend()
+    {
+        using var fixture = CreateViewModel("[ti:Song]\nFirst\n\nLast");
+        var viewModel = fixture.ViewModel;
+        Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3 }));
+
+        viewModel.SelectCell(viewModel.Rows[1].EditorLineId, EditorColumn.Lyrics);
+        viewModel.InsertRowAboveCommand.Execute(null);
+        Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3, 4 }));
+
+        viewModel.DeleteRowCommand.Execute(null);
+        Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3 }));
+
+        viewModel.UndoCommand.Execute(null);
+        Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3, 4 }));
+        viewModel.RedoCommand.Execute(null);
+        Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3 }));
+
+        viewModel.AppendRowCommand.Execute(null);
+        Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3, 4 }));
+    }
+
+    [Test]
+    public void CellOwnershipAndSummaryKeepRowLevelDiagnosticsOutOfCellStyling()
+    {
+        var rowId = Guid.NewGuid();
+        var diagnostics = new EditorValidationDiagnostic[]
+        {
+            new(rowId, 8, 0, EditorValidationSeverity.Warning, "Timestamp warning", EditorColumn.Timestamp),
+            new(rowId, 8, 0, EditorValidationSeverity.Error, "Timestamp error", EditorColumn.Timestamp),
+            new(rowId, 8, null, EditorValidationSeverity.Warning, "Lyrics warning", EditorColumn.Lyrics),
+            new(rowId, 8, null, EditorValidationSeverity.Error, "Row-level diagnostic")
+        };
+        var visibleLineNumbers = new Dictionary<Guid, int> { [rowId] = 3 };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(EditorValidationPresentation.GetCellSeverity(diagnostics, EditorColumn.Timestamp, 0),
+                Is.EqualTo(EditorValidationSeverity.Error), "Error treatment wins for one cell.");
+            Assert.That(EditorValidationPresentation.GetCellSeverity(diagnostics, EditorColumn.Lyrics),
+                Is.EqualTo(EditorValidationSeverity.Warning));
+            Assert.That(EditorValidationPresentation.BuildSummaryTooltip(diagnostics, visibleLineNumbers),
+                Is.EqualTo(string.Join(Environment.NewLine,
+                    "Error: Line 3 - Timestamp error",
+                    "Error: Line 3 - Row-level diagnostic",
+                    "Warning: Line 3 - Timestamp warning",
+                    "Warning: Line 3 - Lyrics warning")),
+                "All diagnostics remain listed, with Error before Warning on the same visible line.");
+            Assert.That(EditorValidationPresentation.GetCellSeverity(
+                    new[] { diagnostics[^1] }, EditorColumn.Lyrics), Is.Null,
+                "A row-level diagnostic is not assigned an arbitrary cell.");
+        });
+    }
+
+    [Test]
+    public void DocumentAggregateCountsDiagnosticsAndProjectsThemToVisibleCellsAndSummary()
     {
         using var fixture = CreateViewModel(
             "[ti:Song]\n[00:30.000]First\n[x-custom:keep]\n\n[00:20.000]Second\n[00:xx.000]Broken");
@@ -37,10 +92,15 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.WarningCount, Is.EqualTo(2));
             Assert.That(viewModel.ErrorCount, Is.EqualTo(1));
             Assert.That(viewModel.HasValidationDiagnostics, Is.True);
-            Assert.That(viewModel.Rows.Select(row => row.PhysicalLineNumber), Is.EqualTo(new[] { 2, 3, 4, 5, 6 }));
-            Assert.That(viewModel.Rows.Select(row => row.LineDisplay), Is.EqualTo(new[] { "2", "3 W", "4", "5 W", "6 E" }));
-            Assert.That(viewModel.Rows[1].DiagnosticDetails, Does.Contain("Warning - Line 3"));
-            Assert.That(viewModel.Rows[4].DiagnosticDetails, Does.Contain("Error - Line 6"));
+            Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3, 4, 5 }));
+            Assert.That(viewModel.Rows[1].LyricsDiagnosticSeverity, Is.EqualTo(EditorValidationSeverity.Warning));
+            Assert.That(viewModel.Rows[3].TimestampDiagnosticSeverities[0], Is.EqualTo(EditorValidationSeverity.Warning));
+            Assert.That(viewModel.Rows[4].LyricsDiagnosticSeverity, Is.EqualTo(EditorValidationSeverity.Error));
+            Assert.That(viewModel.ValidationSummaryToolTip!.Split(Environment.NewLine), Has.Length.EqualTo(3));
+            Assert.That(viewModel.ValidationSummaryToolTip, Is.EqualTo(string.Join(Environment.NewLine,
+                "Warning: Line 2 - Unrecognised tag remains visible as lyric text.",
+                "Warning: Line 4 - Timestamp is earlier than the preceding document timestamp.",
+                "Error: Line 5 - Malformed timestamp syntax remains visible as untimed text.")));
         });
     }
 
@@ -60,13 +120,13 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.ErrorCount, Is.Zero);
             Assert.That(viewModel.WarningCount, Is.Zero);
             Assert.That(viewModel.HasValidationDiagnostics, Is.False);
-            Assert.That(viewModel.Rows.Single().RowDiagnosticSeverity, Is.Null);
-            Assert.That(viewModel.Rows.Single().DiagnosticDetails, Is.Null);
+            Assert.That(viewModel.Rows.Single().LyricsDiagnosticSeverity, Is.Null);
+            Assert.That(viewModel.ValidationSummaryToolTip, Is.Null);
         });
     }
 
     [Test]
-    public void WarningAndErrorCountsAndRowDetailsUpdateLiveWithErrorWinningVisually()
+    public void WarningAndErrorCountsAndCellSeverityUpdateLiveWithErrorWinningVisually()
     {
         using var fixture = CreateViewModel("[00:30.000]First\n[00:20.000]Second");
         var viewModel = fixture.ViewModel;
@@ -83,12 +143,13 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.Rows[1], Is.Not.SameAs(secondRow),
                 "Adding a dynamic timestamp column rebuilds the row projection without stale diagnostics.");
             Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(3));
-            Assert.That(viewModel.Rows[1].RowDiagnosticSeverity, Is.EqualTo(EditorValidationSeverity.Error));
-            Assert.That(viewModel.Rows[1].LineDisplay, Is.EqualTo("2 E"));
-            Assert.That(viewModel.Rows[1].DiagnosticDetails, Does.Contain("Warning - Line 2"));
-            Assert.That(viewModel.Rows[1].DiagnosticDetails, Does.Contain("Error - Line 2"));
-            Assert.That(viewModel.Rows[1].DiagnosticDetails, Does.Contain("earlier than the preceding document timestamp"));
-            Assert.That(viewModel.Rows[1].DiagnosticDetails, Does.Contain("not-a-time"));
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[0], Is.EqualTo(EditorValidationSeverity.Warning));
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[1], Is.EqualTo(EditorValidationSeverity.Error));
+            Assert.That(viewModel.Rows[1].LyricsDiagnosticSeverity, Is.Null);
+            Assert.That(viewModel.ValidationSummaryToolTip!.Split(Environment.NewLine), Has.Length.EqualTo(2));
+            Assert.That(viewModel.ValidationSummaryToolTip, Does.StartWith("Error: Line 2 - Timestamp 'not-a-time' is invalid."));
+            Assert.That(viewModel.ValidationSummaryToolTip, Does.Contain(
+                "Warning: Line 2 - Timestamp is earlier than the preceding document timestamp."));
             Assert.That(viewModel.SaveCommand.CanExecute(null), Is.True,
                 "Validation errors do not gate Save for a dirty document.");
         });
@@ -99,8 +160,8 @@ public sealed class BuiltInLyricsEditorViewModelTests
         {
             Assert.That(viewModel.WarningCount, Is.EqualTo(1));
             Assert.That(viewModel.ErrorCount, Is.Zero);
-            Assert.That(viewModel.Rows[1].RowDiagnosticSeverity, Is.EqualTo(EditorValidationSeverity.Warning));
-            Assert.That(viewModel.Rows[1].LineDisplay, Is.EqualTo("2 W"));
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[0], Is.EqualTo(EditorValidationSeverity.Warning));
+            Assert.That(viewModel.ValidationSummaryToolTip, Does.StartWith("Warning: Line 2 -"));
             Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(2));
         });
 
@@ -111,8 +172,8 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.WarningCount, Is.Zero);
             Assert.That(viewModel.ErrorCount, Is.Zero);
             Assert.That(viewModel.HasValidationDiagnostics, Is.False);
-            Assert.That(viewModel.Rows[1].RowDiagnosticSeverity, Is.Null);
-            Assert.That(viewModel.Rows[1].DiagnosticDetails, Is.Null);
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities.All(severity => severity is null), Is.True);
+            Assert.That(viewModel.ValidationSummaryToolTip, Is.Null);
         });
     }
 
@@ -131,14 +192,14 @@ public sealed class BuiltInLyricsEditorViewModelTests
             {
                 Assert.That(viewModel.ErrorCount, Is.Zero);
                 Assert.That(viewModel.HasValidationDiagnostics, Is.False);
-                Assert.That(viewModel.Rows[0].RowDiagnosticSeverity, Is.Null);
+                Assert.That(viewModel.Rows[0].TimestampDiagnosticSeverities[0], Is.Null);
             });
 
             viewModel.RedoCommand.Execute(null);
             Assert.Multiple(() =>
             {
                 Assert.That(viewModel.ErrorCount, Is.EqualTo(1));
-                Assert.That(viewModel.Rows[0].RowDiagnosticSeverity, Is.EqualTo(EditorValidationSeverity.Error));
+                Assert.That(viewModel.Rows[0].TimestampDiagnosticSeverities[0], Is.EqualTo(EditorValidationSeverity.Error));
             });
         }
 
@@ -162,8 +223,8 @@ public sealed class BuiltInLyricsEditorViewModelTests
             {
                 Assert.That(viewModel.WarningCount, Is.EqualTo(1));
                 Assert.That(viewModel.Rows[0].EditorLineId, Is.EqualTo(diagnosticRowId));
-                Assert.That(viewModel.Rows[0].PhysicalLineNumber, Is.EqualTo(1));
-                Assert.That(viewModel.Rows[0].RowDiagnosticSeverity, Is.EqualTo(EditorValidationSeverity.Warning));
+                Assert.That(viewModel.Rows[0].VisibleLineNumber, Is.EqualTo(1));
+                Assert.That(viewModel.Rows[0].LyricsDiagnosticSeverity, Is.EqualTo(EditorValidationSeverity.Warning));
             });
         }
     }
@@ -570,9 +631,9 @@ public sealed class BuiltInLyricsEditorViewModelTests
                 Assert.That(viewModel.WarningCount, Is.EqualTo(2));
                 Assert.That(viewModel.ErrorCount, Is.Zero);
                 Assert.That(viewModel.HasValidationDiagnostics, Is.True);
-                Assert.That(viewModel.Rows.Select(row => row.PhysicalLineNumber), Is.EqualTo(new[] { 2, 3, 4 }));
-                Assert.That(viewModel.Rows[1].LineDisplay, Is.EqualTo("3 W"));
-                Assert.That(viewModel.Rows[2].LineDisplay, Is.EqualTo("4 W"));
+                Assert.That(viewModel.Rows.Select(row => row.VisibleLineNumber), Is.EqualTo(new[] { 1, 2, 3 }));
+                Assert.That(viewModel.ValidationSummaryToolTip, Does.Contain("Warning: Line 2 - Unrecognised tag"));
+                Assert.That(viewModel.ValidationSummaryToolTip, Does.Contain("Warning: Line 3 - Timestamp is earlier"));
             });
         }
         finally

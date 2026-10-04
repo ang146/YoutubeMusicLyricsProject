@@ -53,7 +53,8 @@ public sealed record EditorValidationDiagnostic(
     int? PhysicalLine,
     int? TimestampIndex,
     EditorValidationSeverity Severity,
-    string Message);
+    string Message,
+    EditorColumn? TargetColumn = null);
 
 public enum EditorAssetStatus
 {
@@ -106,7 +107,8 @@ public sealed record EditorDocument(
 
             if ((row.Timestamps.Count == 0 || line.ValidateRawText) &&
                 EditorDocumentCodec.GetUntimedTextDiagnostic(row.LyricsText) is { } textDiagnostic)
-                diagnostics.Add(new(row.Id, physicalLine, null, textDiagnostic.Severity, textDiagnostic.Message));
+                diagnostics.Add(new(row.Id, physicalLine, null, textDiagnostic.Severity, textDiagnostic.Message,
+                    EditorColumn.Lyrics));
 
             for (var index = 0; index < row.Timestamps.Count; index++)
             {
@@ -114,12 +116,12 @@ public sealed record EditorDocument(
                 if (!EditorDocumentCodec.TryParseTimestamp(timestamp.Value, out var value))
                 {
                     diagnostics.Add(new(row.Id, physicalLine, index, EditorValidationSeverity.Error,
-                        $"Timestamp '{timestamp.Value}' is invalid."));
+                        $"Timestamp '{timestamp.Value}' is invalid.", EditorColumn.Timestamp));
                     continue;
                 }
                 if (previous is not null && value < previous.Value)
                     diagnostics.Add(new(row.Id, physicalLine, index, EditorValidationSeverity.Warning,
-                        "Timestamp is earlier than the preceding document timestamp."));
+                        "Timestamp is earlier than the preceding document timestamp.", EditorColumn.Timestamp));
                 previous = value;
             }
         }

@@ -31,7 +31,7 @@ public sealed class EditorDocumentTests
     }
 
     [Test]
-    public void ValidationSeverityCountsAndLocationsUseOneBasedPhysicalLrcLines()
+    public void ValidationDiagnosticsRetainPhysicalSourceLinesAndExplicitCellOwnership()
     {
         var document = EditorDocumentCodec.Load(
             "[ti:Song]\n[00:30.000]First\n[x-custom:keep]\n\n[00:20.000]Second\n[00:xx.000]Broken");
@@ -42,6 +42,8 @@ public sealed class EditorDocumentTests
             Assert.That(diagnostics.Count(item => item.Severity == EditorValidationSeverity.Warning), Is.EqualTo(2));
             Assert.That(diagnostics.Count(item => item.Severity == EditorValidationSeverity.Error), Is.EqualTo(1));
             Assert.That(diagnostics.Select(item => item.PhysicalLine), Is.EqualTo(new int?[] { 3, 5, 6 }));
+            Assert.That(diagnostics.Select(item => item.TargetColumn), Is.EqualTo(new EditorColumn?[]
+                { EditorColumn.Lyrics, EditorColumn.Timestamp, EditorColumn.Lyrics }));
             Assert.That(document.Rows.Select(row => row.LyricsText),
                 Is.EqualTo(new[] { "First", "[x-custom:keep]", "", "Second", "[00:xx.000]Broken" }));
             Assert.That(diagnostics.All(item => item.Message.Contains("Physical line", StringComparison.OrdinalIgnoreCase)),

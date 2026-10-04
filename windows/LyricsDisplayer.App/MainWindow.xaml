@@ -21,11 +21,17 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <StackPanel VerticalAlignment="Center">
-                <TextBlock Text="{Binding EffectiveTitle}" FontSize="24" FontWeight="SemiBold" />
-                <TextBlock Text="{Binding EffectiveArtist}" FontSize="13" Foreground="#FF6B7280"
+            <Grid Grid.Column="0" VerticalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="{Binding EffectiveTitle}" FontSize="24" FontWeight="SemiBold"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Row="1" Text="{Binding EffectiveArtist}" FontSize="13" Foreground="#FF6B7280"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                            Visibility="{Binding HasEffectiveArtist, Converter={StaticResource BooleanToVisibilityConverter}}" />
-            </StackPanel>
+            </Grid>
             <WrapPanel Grid.Column="1" VerticalAlignment="Center">
                 <Button Content="Open Built-in Editor" Command="{Binding OpenBuiltInEditorCommand}"
                         Padding="12,7" Margin="0,0,8,0" />

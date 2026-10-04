@@ -41,7 +41,7 @@
                      Background="Transparent" BorderThickness="0"
                      PreviewMouseWheel="OnLyricsPreviewMouseWheel"
                      PreviewKeyDown="OnLyricsPreviewKeyDown"
-                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.VerticalScrollBarVisibility="Hidden"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      ScrollViewer.CanContentScroll="True"
                      VirtualizingPanel.IsVirtualizing="True"

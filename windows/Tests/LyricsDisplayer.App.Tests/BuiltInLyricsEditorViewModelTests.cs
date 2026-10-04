@@ -99,7 +99,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.ValidationSummaryToolTip!.Split(Environment.NewLine), Has.Length.EqualTo(3));
             Assert.That(viewModel.ValidationSummaryToolTip, Is.EqualTo(string.Join(Environment.NewLine,
                 "Warning: Line 2 - Unrecognised tag remains visible as lyric text.",
-                "Warning: Line 4 - Timestamp is earlier than the preceding document timestamp.",
+                "Warning: Line 4 - Timestamp is earlier than the preceding populated timestamp in the same occurrence lane.",
                 "Error: Line 5 - Malformed timestamp syntax remains visible as untimed text.")));
         });
     }
@@ -149,7 +149,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.ValidationSummaryToolTip!.Split(Environment.NewLine), Has.Length.EqualTo(2));
             Assert.That(viewModel.ValidationSummaryToolTip, Does.StartWith("Error: Line 2 - Timestamp 'not-a-time' is invalid."));
             Assert.That(viewModel.ValidationSummaryToolTip, Does.Contain(
-                "Warning: Line 2 - Timestamp is earlier than the preceding document timestamp."));
+                "Warning: Line 2 - Timestamp is earlier than the preceding populated timestamp in the same occurrence lane."));
             Assert.That(viewModel.SaveCommand.CanExecute(null), Is.True,
                 "Validation errors do not gate Save for a dirty document.");
         });
@@ -174,6 +174,47 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(viewModel.HasValidationDiagnostics, Is.False);
             Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities.All(severity => severity is null), Is.True);
             Assert.That(viewModel.ValidationSummaryToolTip, Is.Null);
+        });
+    }
+
+    [Test]
+    public void MultiTimestampLaneWarningTargetsItsCellAndTracksUndoRedoWithoutBlockingSave()
+    {
+        using var fixture = CreateViewModel(
+            "[01:10.000][02:10.000]First\n[01:20.000][02:20.000]Second");
+        var viewModel = fixture.ViewModel;
+        var secondRow = viewModel.Rows[1];
+        secondRow.Timestamps[1] = "02:00.000";
+        viewModel.CommitStagedEdits();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.WarningCount, Is.EqualTo(1));
+            Assert.That(viewModel.ErrorCount, Is.Zero);
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[0], Is.Null);
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[1], Is.EqualTo(EditorValidationSeverity.Warning));
+            Assert.That(viewModel.Rows[1].LyricsDiagnosticSeverity, Is.Null);
+            Assert.That(viewModel.ValidationSummaryToolTip, Is.EqualTo(
+                "Warning: Line 2 - Timestamp is earlier than the preceding populated timestamp in the same occurrence lane."));
+            Assert.That(viewModel.SaveCommand.CanExecute(null), Is.True,
+                "An out-of-order timestamp remains advisory and does not block Save.");
+        });
+
+        viewModel.UndoCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.WarningCount, Is.Zero);
+            Assert.That(viewModel.HasValidationDiagnostics, Is.False);
+            Assert.That(viewModel.Rows[1].Timestamps[1], Is.EqualTo("02:20.000"));
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[1], Is.Null);
+        });
+
+        viewModel.RedoCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.WarningCount, Is.EqualTo(1));
+            Assert.That(viewModel.Rows[1].Timestamps[1], Is.EqualTo("02:00.000"));
+            Assert.That(viewModel.Rows[1].TimestampDiagnosticSeverities[1], Is.EqualTo(EditorValidationSeverity.Warning));
         });
     }
 

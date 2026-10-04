@@ -4,13 +4,25 @@ This document collects agreed future directions that should not be silently fold
 
 ## Current milestone status
 
-Milestones 1–10 are complete through transport, YouTube Music integration, local-first storage, timeline/overlay, timing adjustment, overlay interaction, and external/untimed local editing.
+Milestones 1–11 are complete through transport, YouTube Music integration, local-first storage, timeline/overlay, timing adjustment, overlay interaction, external/untimed local editing, and the manually accepted Built-in Lyrics Editor Foundation. The editor architecture and accepted M11 contract are documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
-Milestone 11 — Built-in Lyrics Editor Foundation is currently implemented and under manual acceptance/refinement. The editor architecture and current acceptance contract are documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+The post-M11 roadmap has expanded because the intended product now has clearer desktop surfaces, provider/search workflows, richer authoring tools, renderer customization, media controls, and additional playback-source goals. The current planning map is:
+
+```text
+M12  Application UI Foundation + Desktop Surface Restructure
+M13  Lyrics Search + Provider Framework
+M14  Editor Productivity + Semantic Breaks
+M15  Renderer + Appearance + Karaoke Presentation
+M16  Media Controller
+M17  Playback Source + Browser Expansion
+M18  Distribution + Product Polish
+```
+
+This numbering is planning guidance, not a promise that later expansion milestones can never split again. M12–M16 form the current core-product path; M17–M18 are later expansion/release work.
 
 ## Desktop surface and Settings restructuring
 
-After the M11 editor foundation is stabilized, the existing diagnostic/control-panel `MainWindow` should be restructured into clearer user-facing surfaces rather than continuing to accumulate unrelated controls.
+Milestone 12 performs the restructuring now that the M11 editor foundation is accepted. The existing diagnostic/control-panel `MainWindow` should become clearer user-facing surfaces rather than continuing to accumulate unrelated controls. Before/while doing this, introduce a small reusable ViewModel foundation (`INotifyPropertyChanged`, `SetProperty`, dependent-property notification and selective command invalidation) and migrate incrementally; do not create a global property-bag/god ViewModel or require a wholesale rewrite.
 
 Target surface model:
 
@@ -65,13 +77,33 @@ The Main Lyrics Window and Desktop Lyrics Overlay should use shared application 
 Potential editor commands/features include:
 
 - richer add/remove/reorder management for existing timestamp occurrences beyond the M11 row-level playback-time command
-- explicit `♪` break insertion, removal, and retiming
+- explicit break insertion, removal, and retiming
+- **Fill Timestamp Pattern Down** for repeated sections such as choruses
 - bulk timing shift/transform tools
 - multi-row selection and bulk operations
 - import/export helpers
-- improved timestamp formatting/input helpers
 - richer search/replace
 - user-selected script conversion of editor text
+
+### Fill Timestamp Pattern Down
+
+When one timestamp lane already describes a repeated section and the user has anchored the first cell of another lane, the remaining target cells can reuse the reference lane's relative spacing:
+
+```text
+target[row] = target[anchor] + (reference[row] - reference[anchor])
+```
+
+The first implementation should remain explicit and predictable:
+
+- operate only on the contiguous range selected/dragged by the user; do not auto-detect chorus boundaries
+- fill blank target cells only by default; preserve existing user-authored target timestamps
+- skip rows whose reference-lane timestamp is missing rather than failing unrelated rows
+- allow the same mechanism to work between any applicable timestamp lanes rather than hard-coding only T1 → T2
+- preserve exact millisecond deltas
+- record one command/Undo unit for the whole fill
+- refresh validation after the fill
+
+The core/domain command should not depend on an Excel-style mouse gesture. A context-menu/command UX may ship first, while a later cell fill-handle drag UI calls the same command.
 
 ### Traditional / Simplified Chinese conversion in the editor
 
@@ -119,15 +151,47 @@ Examples:
 
 Context menus and other command surfaces should display the current binding where useful. The hotkey editor/settings UI is deferred until after M11 foundation.
 
+## User-configurable semantic break markers
+
+Blank/whitespace lyric text is intrinsically semantic-empty. The default explicit break marker is:
+
+```text
+♪
+```
+
+A later Settings preference should allow the user to define additional explicit marker strings such as `♫`, `[Music]`, or `間奏`. The initial matching rule should remain deliberately simple and safe:
+
+```text
+trim surrounding whitespace
++ exact ordinal match
+```
+
+Do not begin with regex or wildcard matching. A user-defined marker changes how existing lyrics are interpreted at runtime; it does not rewrite the authoritative LRC. Removing a custom marker similarly changes classification without mutating lyric text.
+
+The semantic rule is shared application logic rather than a Renderer-only or Bake-only preference. Conceptually:
+
+```text
+Preferences effective marker set
+        ↓
+shared break-marker classifier
+        ├─ negative-Bake zero-anchor protection
+        ├─ renderer break semantics
+        └─ preparation / pre-show cue logic
+```
+
+Core semantics should not reach upward to read Settings directly. Blank/whitespace remains intrinsic, while Settings supplies the effective explicit-marker set to a pure classifier/helper. The current default set contains `♪`.
+
+Physical blank LRC rows and timed semantic break markers remain distinct concepts: a physical blank is document structure, while `[timestamp]♪` (or another configured explicit marker) is a timed semantic break.
+
 ## Karaoke and explicit breaks
 
-The canonical portable break marker remains:
+The preferred/default portable break marker remains:
 
 ```lrc
 [timestamp]♪
 ```
 
-Breaks are explicit; elapsed gap length alone must never create one.
+User-configured semantic markers may classify other exact lyric strings as breaks without rewriting the file. Breaks are explicit; elapsed gap length alone must never create one.
 
 Future work may include:
 
@@ -178,9 +242,7 @@ Playback display should reuse the existing Lyrics Displayer playback model. Tran
 
 ## Additional lyrics providers and manual search
 
-Milestone 12 remains the provider/search expansion milestone. Potential sources include LRCLib, community lyrics services, and provider-specific adapters for services whose native formats are not ordinary LRC.
-
-Playback source and lyrics provider are separate concepts:
+Milestone 13 is the provider/search expansion milestone. Playback source and lyrics provider are separate concepts:
 
 ```text
 Where music is playing
@@ -188,44 +250,38 @@ Where music is playing
 Where lyrics came from
 ```
 
-For example, YouTube Music may remain the playback source while the chosen lyrics are imported from LRCLib, another community/provider adapter, or a configured custom HTTP source. Provider-specific formats must normalize into a Lyrics Displayer canonical lyrics model before reaching editor/timeline/renderer code. The canonical model should be able to distinguish at least untimed, line-timed, and future word-timed capability without forcing provider-specific QRC/YRC/TTML/LRC syntax into presentation code.
+Provider-specific formats normalize into a Lyrics Displayer canonical lyrics model before reaching editor/timeline/renderer code. The canonical model should distinguish at least Untimed, LineTimed, and future WordTimed capability. A provider boundary should expose stable identity, capabilities, search/fetch, cancellation and normalization responsibilities; provider configuration should support enable/disable, priority/order, bounded timeouts, and provider-specific settings without letting one failing provider stall unrelated work.
 
-A provider abstraction should expose stable identity, capabilities, search, fetch, and normalization responsibilities. Conceptually:
+### YouTube Music candidate resolution
 
-```text
-ILyricsProvider
-├─ Provider identity
-├─ Capabilities
-├─ SearchAsync(...)
-├─ FetchLyricsAsync(...)
-└─ Normalize(...)
-```
+The first practical search/resolution path should exploit the existing YouTube/YouTube-Music identity:
 
-Provider configuration should eventually support enable/disable, priority/order, provider-specific settings, and bounded timeouts. One provider failing or timing out must not prevent results from other enabled providers.
+1. If playback already supplies a known YouTube `videoId`, probe that candidate directly first where applicable.
+2. If direct resolution fails or a manual metadata search is requested, search using effective or one-off title/artist values and keep a bounded initial pool of roughly 5–10 YouTube Music candidates.
+3. Candidate discovery is not the same as a visible Lyrics Search result. Probe lyric availability lazily/sequentially, initially around one candidate per second.
+4. Only candidates whose lyric fetch succeeds are appended to the visible results. Candidates with no lyrics are silently skipped.
+5. Do not invent a match/confidence percentage. Use the provider/search ranking and useful metadata directly.
+6. Do not expand indefinitely just to fill a result list. If the bounded candidate pool yields no usable lyrics, show **No lyrics found**.
+7. Changing track/query or choosing **Use This Lyrics** cancels remaining probes; stale results from an older search generation are ignored.
 
-Search should fan out to enabled providers in parallel and support cancellation when the user changes the query. Results may appear progressively as providers return. Search results should initially be lightweight metadata rather than eagerly downloading every lyric payload. Selecting a result lazily fetches that result for preview, and fetched previews may be cached by provider/result identity.
-
-Conceptually:
+Visible results should focus on:
 
 ```text
-Search enabled providers
-        ↓
-metadata results
-        ↓ select one result
-lazy FetchLyrics
-        ↓
+Title
+Artist
+Album (optional)
+Duration
+Lyrics Source
+Timed / Untimed
 Preview
-        ↓ explicit user action
 Use This Lyrics
-        ↓
-normalize + import local authoritative copy
 ```
 
-Preview must not mutate the local library. Importing/replacing local lyrics is an explicit user action, and replacing an existing authoritative local LRC requires clear confirmation. After import, the local copy remains authoritative and must never be silently overwritten by later provider fetches.
+Preview must not mutate the local library. **Use This Lyrics** is the explicit import point and cancels remaining unnecessary probe work. Replacing an existing authoritative local LRC requires clear confirmation. Once imported and associated with a stable local track, the local copy is authoritative and later provider fetches must never silently overwrite user edits.
 
-Manual search should default to effective metadata but allow one-off search text without forcing persistent metadata changes. User title/artist overrides may optionally be saved when explicitly requested.
+Other built-in providers may include LRCLib and community/provider-native adapters. Cross-provider discovery may run providers independently/progressively, but a provider is free to use its own bounded candidate-probing strategy such as the YouTube Music flow above.
 
-Custom sources should begin as declarative HTTP integrations for supported response shapes such as raw LRC or mapped JSON fields. Do not execute arbitrary user-provided scripts merely to support custom providers. More complex authenticated/encrypted/provider-native formats belong in built-in provider adapters.
+Manual search should default to effective metadata while allowing one-off query edits without forcing permanent metadata changes; saving `UserTitle`/`UserArtist` remains explicit. Custom sources should begin as declarative HTTP integrations for supported raw-LRC/mapped-JSON shapes. Do not execute arbitrary user-provided scripts merely to support custom providers.
 
 ## Original imported lyrics snapshot and reset
 
@@ -281,7 +337,24 @@ Installer/distribution work should keep browser-extension installation/confirmat
 
 ## Additional playback sources
 
-Future playback-source adapters may be added only after the source-independent app/core boundaries remain stable. New adapters should feed the existing playback/lyrics protocol rather than adding provider-specific logic directly to WPF presentation code.
+Milestone 17 expands playback sources only after source-independent app/core boundaries and the M13 lyrics-resolution/provider pipeline are stable. Playback source remains independent from lyrics provider.
+
+Likely adapters include:
+
+- ordinary YouTube tabs in Firefox; reuse the video's `videoId` for a direct YouTube Music lyric probe where possible, then fall back to the normal metadata search/resolution flow
+- Chromium-hosted YouTube/YouTube Music through shared source logic plus a thin browser-runtime adapter
+- Spotify as a playback source only, not a lyrics provider; track title/artist/album/duration/IDs feed the existing local association and provider-search pipeline
+- other local/Windows media sources where a stable enough identity can be established
+
+Persistent association should remain conceptually source-neutral:
+
+```text
+Playback-source track identity
+↔ LocalTrackId
+↔ imported/resolved lyrics associations
+```
+
+New adapters should feed the existing playback/application model rather than adding source-specific logic directly to WPF presentation code.
 
 ## Feature-boundary rules
 

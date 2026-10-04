@@ -47,7 +47,16 @@ LyricsDisplayer/
 │
 ├─ docs/
 │  ├─ ARCHITECTURE.md
-│  └─ PROTOCOL.md
+│  ├─ PROTOCOL.md
+│  ├─ YOUTUBE_MUSIC_LYRICS.md
+│  ├─ LOCAL_LYRICS_LIBRARY.md
+│  ├─ LYRICS_TIMELINE.md
+│  ├─ DESKTOP_LYRICS_OVERLAY.md
+│  ├─ LYRICS_TIMING_ADJUSTMENT.md
+│  ├─ OVERLAY_INTERACTION.md
+│  ├─ EXTERNAL_EDITING.md
+│  ├─ BUILT_IN_EDITOR.md
+│  └─ FUTURE_FEATURES.md
 │
 ├─ scripts/
 │  ├─ install-native-host.ps1
@@ -173,7 +182,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 10, the application retains its diagnostic/control-panel UI and adds a separate desktop overlay while owning local-first lyrics persistence, its machine-local SQLite index, current/next-line timeline evaluation, timing adjustment, overlay interaction preferences, and safe active-LRC external editing/reload, including local persistence of valid untimed provider lyrics for later authoring. Storage, indexing, timeline selection, overlay presentation mapping, interaction state, settings parsing, geometry validation, and file-change coordination live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), and [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md). The next editor architecture is specified in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md), while deferred cross-cutting features are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
+Through Milestone 11, the application still retains its legacy diagnostic/control-panel MainWindow but now owns the complete local-first authoring path: local persistence and SQLite indexing, timeline/overlay presentation, timing adjustment and safe bake, overlay interaction, external LRC reload, and an accepted built-in editor with structured LRC round-tripping, metadata overrides, multi-timestamp authoring, advisory validation, undo/redo, flexible timestamp input, and command-based cell/row editing. Storage, indexing, timeline selection, editor state, overlay presentation mapping, interaction state, settings parsing, geometry validation, and file-change coordination live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md), and [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). Deferred cross-cutting features and the revised post-M11 roadmap are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
 
 ### User-Facing Window Roles
 
@@ -834,11 +843,13 @@ A timestamp gap by itself must never be interpreted as an instrumental/vocal bre
 
 Breaks require explicit notation.
 
-The preferred portable representation is a normal timed LRC line using the canonical marker:
+The preferred portable representation is a normal timed LRC line using the default explicit marker:
 
 ```lrc
 [00:13.000]♪
 ```
+
+Blank/whitespace lyric text is intrinsically semantic-empty. `♪` is the current default explicit marker. A later preference may let the user define additional trim-and-exact-match marker strings; those preferences classify existing lyric text at runtime and do not rewrite the authoritative LRC. Shared classification should be reused by Bake safety, break-aware rendering, and preparation-cue logic instead of giving each feature its own hard-coded marker list.
 
 This line semantically means:
 
@@ -1510,112 +1521,146 @@ See [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md) for behavior, limitations, and SM
 
 ## Milestone 11 — Built-in Lyrics Editor Foundation
 
-Add the expandable built-in editor foundation described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+Implemented and manually accepted. See [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
-Required foundation:
+The accepted foundation includes:
 
 * modal, single-track editor dialog pinned to one `LocalTrackId`
-* modal editor remains visually above the Desktop Lyrics Overlay; the overlay's permanent Topmost invariant is temporarily suppressed for the editor lifetime and restored after actual editor close (but not during fatal/accepted shutdown)
-* one shared `OpenBuiltInEditorCommand`, invokable from the current MainWindow and overlay context menu; the future Main Lyrics Window and Media Controller reuse the same command
-* structured round-trippable `EditorDocument` that preserves LRC structure and existing multi-timestamp data
-* stable row identity and explicit row/cell/timestamp selection
-* complete separation between playback current line and editor selection
-* lyric-text and timestamp editing
-* zero/multiple-timestamp-capable row model
-* Insert Above / Insert Below / Append / Delete row commands, with new rows receiving no inferred timestamp
-* user-created empty lyric rows survive Save -> Close -> Reopen and are not silently collapsed during `EditorDocument` reconstruction
-* one row-oriented Set Current Playback Time command that reads `PlaybackClock` only when playback track identity matches the editor track and appends into the first free timestamp slot up to five UI-managed occurrences
-* spreadsheet-style keyboard navigation
-* command-driven toolbar/context-menu/keyboard bindings
-* undo/redo and dirty-state tracking
-* advisory validation with visible-row gutter numbering, cell-specific yellow warning/red error emphasis, compact warning/error counts, and one aggregate details tooltip; validation never takes away the user's ability to save
-* safe save and simple external-change conflict handling (`Reload/Discard Mine`, `Overwrite`, `Cancel`)
-* editor/application close guard with `Save / Discard / Cancel`
-* user title/artist override editing in portable sidecar metadata
+* modal editor above the normally-Topmost Desktop Lyrics Overlay through temporary overlay suppression
+* one shared `OpenBuiltInEditorCommand` used by MainWindow and overlay entry points
+* structured round-trippable `EditorDocument` preserving recognized metadata, unknown content, blank physical rows, and existing multi-timestamp lines
+* stable row identity and explicit row/cell/timestamp selection independent of playback current line
+* lyric-text and timestamp editing, Insert Above / Insert Below / Append / Delete Row, and command-based Delete-cell clearing with Undo/Redo
+* Set Current Playback Time appending into the first free timestamp occurrence up to five UI-managed occurrences
+* commit-time flexible timestamp input (`0`, `0:1`, `1:2`, `1:12.3`, etc.) with canonical `mm:ss.fff` normalization; unsupported plain integers and malformed input remain advisory-invalid rather than guessed
+* spreadsheet-style Enter/Shift+Enter and Tab/Shift+Tab navigation, including dynamic timestamp columns
+* independent per-occurrence timestamp-lane validation plus within-row timestamp ordering, with cell-specific diagnostics and visible row-number gutter
+* safe save, dirty-state tracking, external-file conflict handling, and editor/application `Save / Discard / Cancel` close guards
+* portable `UserTitle` / `UserArtist` override editing
+* negative Bake protection for exact-zero intro/break anchors: `00:00.000` on blank/whitespace lyric text or the current default explicit break marker remains zero, while ordinary negative results still reject the whole bake
 
-Playback may change tracks while the editor remains open; it must not close, switch, prompt, or mutate the editor session. The modal dialog blocks duplicate Control Panel editing sessions while playback, NativeHost communication, and the desktop overlay continue normally.
-
-The current implementation lives in `BuiltInLyricsEditorWindow`/`BuiltInLyricsEditorViewModel` and the WPF-independent `EditorDocument`/`EditorDocumentBuffer`. The Control Panel and overlay route through the same application-scoped open command. Safe editor saves use `LyricsLibrary` and content-hash guarded writes; they update editor baselines and leave runtime reload to the existing M10 watcher. Only recognized metadata lines are hidden; all other physical lines, including blank, unknown, and malformed content, project to visible rows with advisory diagnostics where applicable. Manual acceptance remains pending; automated build/test success alone does not mark this milestone accepted. See [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md) for current implementation notes and known initial-UI limits.
-
-The primary end-to-end acceptance workflow is an untimed local LRC: open it in the built-in editor, select rows, assign timestamps from the current playback position, save, and allow the existing M10 reload path to transition the same local record into timed overlay presentation without restart.
-
-Advanced editor commands are deliberately deferred so they can be added on top of the command/document foundation.
+The milestone was exercised with real authoring of multiple songs, including converting untimed lyrics into timed/multi-timestamp local LRC content and round-tripping through the existing M10 reload path into synchronized overlay playback. No blocking M11 issue is currently known. Advanced editor productivity commands remain additive later milestones rather than reasons to keep M11 open.
 
 ---
 
-## Milestone 12 — Additional Lyrics Providers and Search
+## Milestone 12 — Application UI Foundation and Desktop Surface Restructure
 
-Add a provider/search layer without coupling provider-native formats to the editor, timeline, or renderer. Playback source and lyrics provider are independent: YouTube Music may be the playback source while lyrics are searched/imported from LRCLib, another provider adapter, or a configured custom HTTP source.
+This is the next milestone. It turns the current developer-oriented MainWindow into the intended product surface before more feature-heavy windows are added.
 
-Provider-specific LRC/QRC/YRC/TTML/JSON/etc. formats normalize into a canonical Lyrics Displayer lyrics model before entering application presentation/editing code. The canonical capability model should distinguish at least:
+Primary work:
 
-```text
-Untimed
-LineTimed
-WordTimed   // future-capable where source supports it
-```
+* introduce a small reusable ViewModel foundation (`INotifyPropertyChanged`, `SetProperty`, dependent-property notification, selective command invalidation) and migrate incrementally rather than creating a god ViewModel or rewriting the entire app at once
+* evolve the current MainWindow/Control Panel into the normal non-Topmost **Main Lyrics Window**
+* make the Main Lyrics Window a full-document lyrics-reading surface rather than a diagnostics dashboard; it has no One/Two/All selector
+* introduce the dedicated **Settings** window with left-side section navigation and one independent page at a time
+* move developer/transport/library/raw-data/log/crash-report information into **Settings > Debug**
+* keep the Desktop Lyrics Overlay as the permanently-Topmost ambient surface with its existing OneLine/TwoLines/contextual-AllLyrics modes
+* move remaining timing-authoring controls out of MainWindow/overlay presentation and into the Built-in Lyrics Editor while preserving M8 semantics
+* consolidate shared application commands/context-menu actions across lyrics surfaces
+* establish placeholders/settings boundaries for later Media Controller, renderer appearance, semantic break markers, and provider configuration without implementing those later features prematurely
 
-Introduce a provider boundary conceptually similar to:
-
-```text
-ILyricsProvider
-├─ provider identity
-├─ capabilities
-├─ SearchAsync(...)
-├─ FetchLyricsAsync(...)
-└─ Normalize(...)
-```
-
-Provider registry/configuration should support enable/disable, ordering/priority, provider-specific settings, and bounded timeouts. Search fans out to enabled providers in parallel, isolates provider failures, supports cancellation, and may progressively append results as providers respond.
-
-Search and lyric payload fetch are separate operations. Search should return lightweight metadata results; selecting a result lazily fetches only that result for preview. Preview does not mutate local authority. The final **Use This Lyrics** action explicitly imports/normalizes the chosen document into the local-first library. Replacing an existing authoritative local LRC requires clear confirmation.
-
-Provider searches should use effective track metadata by default:
-
-```text
-EffectiveTitle  = UserTitle  ?? SourceTitle
-EffectiveArtist = UserArtist ?? SourceArtist
-```
-
-The manual search workflow should allow the user to:
-
-* review and edit one-off title/artist search values
-* run searches across enabled providers
-* see provider identity and timing capability in results where available
-* select a result and lazily fetch/preview its lyrics
-* retry/cancel searches without stale results overwriting the current query
-* optionally persist entered title/artist values as metadata overrides
-* explicitly import/replace the selected lyrics
-* associate the local result with the current stable track identity
-
-Once imported and associated, the local copy is authoritative. Later provider fetches must never silently overwrite user edits.
-
-Custom sources should initially be declarative HTTP configurations for supported forms such as raw LRC or mapped JSON result/lyrics fields. Do not execute arbitrary user scripts as a generic provider mechanism. Complex authenticated, encrypted, or provider-native formats belong in built-in adapters.
-
-A future original-source snapshot may preserve the immutable first-import baseline separately from the editable authoritative LRC so an explicit **Reset Lyrics to Original** operation can be implemented safely; normal editing/provider refreshes must not silently redefine that snapshot.
+M12 is primarily an application-structure and user-surface milestone. It should reduce accumulated MainWindow coupling before Lyrics Search, Media Controller, and richer renderer work add more state.
 
 ---
 
-## Milestone 13 — Polish
+## Milestone 13 — Lyrics Search and Provider Framework
 
-Potential work includes:
+Add the provider/search layer without coupling provider-native formats to the editor, timeline, or renderer. Playback source and lyrics provider remain independent.
 
-* karaoke-style animation
-* explicit-break-aware karaoke rendering
-* upcoming-lyric pre-display during explicit breaks
-* preparation/count-in cues for sufficiently long explicit breaks
-* advanced visual preferences
-* display-only Original / Traditional / Simplified lyric conversion
-* additional content modes and renderer customization
-* configurable long-line behaviour such as wrap or horizontal pan
-* horizontal-pan lead/tail hold timing
+The milestone introduces a canonical provider boundary (`ILyricsProvider` or equivalent), capability/normalization model, provider registry/configuration, cancellation/stale-result protection, preview, and explicit **Use This Lyrics** import into the local-first library. Provider-native LRC/QRC/YRC/TTML/JSON/etc. formats normalize before reaching application presentation/editing code.
+
+The first practical resolver/search flow should support the current YouTube/YouTube-Music identity well:
+
+* if the playback source already has a known YouTube `videoId`, probe that candidate directly first where applicable
+* otherwise/default fallback search uses effective title/artist metadata and retrieves a bounded candidate pool, initially about 5–10 YouTube Music candidates
+* candidate discovery and lyric availability are separate stages
+* probe lyric availability lazily and progressively rather than eagerly fetching every candidate at once; roughly one candidate per second is an acceptable initial pacing
+* only candidates whose lyric fetch succeeds appear in the visible Lyrics Search results
+* silently skip candidates with no lyrics
+* do not display match/confidence percentages
+* do not keep expanding unrelated search candidates merely to fill a result list; if the bounded candidate pool yields nothing, show **No lyrics found**
+* changing query/track or choosing **Use This Lyrics** cancels remaining probes and stale results are ignored
+
+Visible results should focus on useful metadata: Title, Artist, optional Album, Duration, Lyrics Source, Timed/Untimed, Preview, and **Use This Lyrics**. Import/replacement is explicit; preview never mutates local authority. Later provider refreshes must never silently overwrite the imported/editable local copy.
+
+Potential built-in providers include YouTube Music resolution/search, LRCLib, and other community/provider-native adapters. Declarative custom HTTP sources may be supported for bounded known response shapes; arbitrary user scripts are not a generic provider mechanism.
+
+An immutable original-import snapshot is a desirable safety feature for this provider/import stage so later user editing does not destroy the first imported baseline; resetting to it remains an explicit destructive command.
+
+---
+
+## Milestone 14 — Editor Productivity and Semantic Breaks
+
+Build higher-level authoring tools on the accepted M11 command/document foundation. Likely work includes:
+
+* configurable semantic break/blank markers: blank/whitespace remains intrinsic; the default explicit marker is `♪`; users may add/remove exact trim-matched marker strings without modifying the LRC
+* one shared runtime break classifier used by negative-Bake zero-anchor protection, renderer break semantics, and future preparation cues
+* **Fill Timestamp Pattern Down** / timing-lane propagation for repeated choruses: given a populated target anchor and a reference timestamp lane, fill selected blank target cells with `targetAnchor + (referenceRow - referenceAnchor)`
+* Fill Timestamp Pattern affects only the user-selected contiguous range, skips rows lacking a reference timestamp, preserves existing populated target cells by default, keeps millisecond precision, and is one Undo/Redo unit
+* richer add/remove/reorder management for timestamp occurrences
+* explicit break insertion/removal/retiming commands
+* multi-row/bulk timing operations and other proven authoring helpers
+* optional destructive Traditional/Simplified conversion of editor lyric text as an explicit undoable buffer command
+
+Excel-style drag-handle UI for pattern filling is desirable but should be layered over the same domain command; a simpler command/context-menu implementation may come first. No automatic chorus detection or AI timing inference is required.
+
+---
+
+## Milestone 15 — Renderer, Appearance and Karaoke Presentation
+
+Expand presentation after the main surface/settings foundation is stable:
+
+* shared lyrics presentation where practical between Main Lyrics Window and Desktop Lyrics Overlay, while preserving their different window/content-mode roles
+* appearance preferences such as font, size/weight, role colours, opacity, alignment, outline/shadow, spacing, and background opacity
+* display-only Original / Traditional / Simplified conversion
+* configurable long-line wrapping or horizontal panning with lead/tail holds
+* semantic-break-aware rendering and upcoming/preparation cues; elapsed gap length alone never creates a break
+* karaoke layouts/animation, including progressive sung/unsung presentation when the canonical lyrics capability provides suitable timing
+
+Content mode, layout style, appearance, and karaoke animation remain separate dimensions.
+
+---
+
+## Milestone 16 — Media Controller
+
+Add the independent Media Controller surface described earlier:
+
+* independent show/hide lifecycle and optional docking beside the overlay
+* title/artist, elapsed/duration, playing/paused state
+* Previous / Play-Pause / Next and seek where the matched source supports it
+* shared **Open Built-in Editor** and other application commands rather than controller-owned duplicates
+* provider-independent `MediaControlService` with conservative Windows media-session matching; ambiguous/no strong match disables transport controls rather than controlling the wrong player
+
+The existing Lyrics Displayer playback model remains the preferred display-state source. Media Controller does not redefine playback-source identity.
+
+---
+
+## Milestone 17 — Playback Source and Browser Expansion
+
+Add additional playback-source adapters only after the source-independent app boundaries and provider/search system are stable. Candidate work includes:
+
+* ordinary YouTube tabs in Firefox, reusing a known YouTube `videoId` for direct YouTube Music lyric probing before metadata fallback search
+* Chromium runtime support (Chrome/Edge/Brave) using shared playback/source logic with thin browser-specific adapters
+* Spotify account/API integration as a playback source only, not a lyrics provider; its metadata/IDs feed the same local association and lyrics-resolution pipeline
+* other Windows/local-player/GSMTC adapters where reliable identity can be established
+* persistent source associations such as playback-source track ID ↔ `LocalTrackId` ↔ resolved lyrics-source identity
+
+Playback-source expansion must not place source-specific code in WPF renderer/editor logic.
+
+---
+
+## Milestone 18 — Distribution and Product Polish
+
+Prepare a user-facing release rather than a development checkout:
+
+* installer and reliable Native Messaging Host registration
+* signed/distributed browser extension flow where required
+* optional auto-launch preference
 * user-configurable hotkeys built on stable command IDs/scopes
-* optional Media Controller and safe matched-session transport controls
-* installer / extension distribution / optional auto-launch
-* provider management
-* Chromium browser-extension support using shared source logic plus a thin runtime adapter
-* additional playback-source adapters
+* provider-management polish and diagnostics
+* final accessibility/keyboard/error-state/UI consistency work
+* release packaging, upgrade/uninstall behavior, and remaining product-level cleanup
 
-Editor-specific additions such as explicit-break authoring, richer multi-timestamp management, destructive buffer script conversion, and bulk timing tools are tracked separately from the M11 foundation. See [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
+M18 is a release/polish milestone, not a dumping ground for architectural features that should have been completed earlier.
 
-Karaoke rendering must not infer breaks solely from elapsed gap length. Explicit break notation remains authoritative.
+The milestone map is intentionally revisable. M12–M16 describe the current core-product path; M17–M18 are later expansion/release work and may be split if one area becomes large enough to deserve its own milestone.

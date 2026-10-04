@@ -8,6 +8,58 @@ Milestones 1–10 are complete through transport, YouTube Music integration, loc
 
 Milestone 11 — Built-in Lyrics Editor Foundation is currently implemented and under manual acceptance/refinement. The editor architecture and current acceptance contract are documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
+## Desktop surface and Settings restructuring
+
+After the M11 editor foundation is stabilized, the existing diagnostic/control-panel `MainWindow` should be restructured into clearer user-facing surfaces rather than continuing to accumulate unrelated controls.
+
+Target surface model:
+
+```text
+Main Lyrics Window
+├─ normal focusable non-Topmost window
+├─ full-document All Lyrics renderer only
+├─ no One/Two/All content-mode selector
+├─ shared lyrics context menu
+├─ Settings / Built-in Editor / Media Controller actions
+└─ compact transport-status footer
+
+Desktop Lyrics Overlay
+├─ permanently Topmost whenever visible
+├─ temporary Topmost suppression while modal editor is open
+├─ OneLine / TwoLines / bounded contextual AllLyrics
+├─ click-through / lock / drag / resize
+└─ shared lyrics context menu
+
+Media Controller
+├─ independent show/hide window
+├─ title / artist / playback state
+├─ transport + progress
+└─ optional docking beside the overlay
+
+Built-in Lyrics Editor
+├─ lyrics/timestamp authoring
+├─ metadata overrides
+└─ all timing-adjustment UI
+
+Settings
+├─ General
+├─ Lyrics Overlay
+├─ Lyrics Window
+├─ Media Controller
+├─ Editor
+└─ Debug
+```
+
+The Main Lyrics Window's All Lyrics presentation is not the overlay's current `AllLyrics` content mode. The main window is intended to expose the complete lyrics document for reading; the overlay `AllLyrics` mode remains a geometry-bounded contextual subset around the current timeline occurrence.
+
+Settings navigation should use a persistent left sidebar with one independent section page displayed on the right. It should not be implemented as one long vertically connected settings document where sidebar selection merely scrolls to anchors.
+
+Developer-oriented information should leave the Main Lyrics Window. The Debug settings page is the intended home for transport/source diagnostics, `LocalTrackId`, library/index paths, raw playback/lyrics/sidecar JSON, provider diagnostics, **Open Logs**, and **Open Crash Reports**. Ordinary track title/artist, playback position/state, and media transport belong to the Media Controller instead.
+
+All timing-adjustment controls should converge on the Built-in Lyrics Editor: global offset adjustment/reset, Bake, current-line/exact-occurrence timing edits, and playback-assisted timestamp authoring. Existing MainWindow/overlay timing controls are transitional UI and should be removed when this restructuring is implemented; the established M8 persistence and safety semantics remain authoritative.
+
+The Main Lyrics Window and Desktop Lyrics Overlay should use shared application commands for common lyrics actions and should converge on the same right-click lyrics menu where an action applies to both. Overlay-only interaction settings such as content mode, click-through, lock, drag/resize behaviour remain surface-specific.
+
 ## Editor expansion after M11 foundation
 
 Potential editor commands/features include:
@@ -106,7 +158,7 @@ Content mode, layout style, appearance, and karaoke animation remain separate co
 
 ## Media Controller
 
-A future optional Media Controller may sit alongside the overlay Lyrics View and be shown/hidden or docked left/right.
+A future optional Media Controller is an independent window that may be shown/hidden separately and optionally dock beside the Desktop Lyrics Overlay on the left or right.
 
 Potential display/actions:
 
@@ -120,7 +172,7 @@ Seekable progress
 Open Built-in Editor
 ```
 
-`Open Built-in Editor` is the same application command used by the Control Panel and overlay context menu; the Media Controller must not implement a separate editor-opening path.
+`Open Built-in Editor` is the same application command used by the current MainWindow/future Main Lyrics Window and overlay context menu; the Media Controller must not implement a separate editor-opening path.
 
 Playback display should reuse the existing Lyrics Displayer playback model. Transport commands should use a provider-independent `MediaControlService` and fail safe when Windows media-session matching is ambiguous. Do not assume `GetCurrentSession()` is the tracked YouTube Music session.
 

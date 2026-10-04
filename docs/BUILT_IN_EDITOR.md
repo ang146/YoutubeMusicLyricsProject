@@ -8,7 +8,7 @@ The editor is not a playback surface and playback is not allowed to mutate edito
 
 The M11 implementation adds a WPF modal dialog, a shared application-scoped `EditorCommand` for Control Panel and overlay entry points, and a WPF-independent editor document/buffer in `LyricsDisplayer.Core`. The document stores ordered physical lines with their original line endings; unchanged entries serialize from their original text, while edited/new lyric rows serialize from structured text and timestamp occurrences. Recognized metadata lines remain hidden but preserved. Every other physical line—including blank lines and unknown or malformed content—is an editor row; unknown or malformed content carries advisory diagnostics where applicable and remains unchanged unless edited.
 
-The editor loads the current authoritative disk LRC (not the runtime last-known-good snapshot), and uses `LyricsLibrary` content hashes plus guarded atomic replacement for saves. A clean editor reloads external changes; dirty conflicts retain the buffer and offer reload, overwrite, or cancel. LRC and portable sidecar files are watched while the dialog is open, and save still performs a content-identity check if notifications are missed. The application close path asks the dialog to resolve its dirty state before shutdown. The dialog is owned by the Control Panel even when that window is hidden, so opening from the overlay does not show the Control Panel; the overlay itself is not made the modal owner. The overlay remains Topmost by default, with only an explicit editor-modal suppression state temporarily lowering it. Legacy `overlay.topmost` settings are ignored and removed the next time settings are saved. Suppression is released only after `ShowDialog()` returns, so a cancelled close attempt leaves the editor above the overlay. On fatal or accepted application shutdown it remains suppressed until overlay teardown, avoiding a late Z-order raise during exit.
+The editor loads the current authoritative disk LRC (not the runtime last-known-good snapshot), and uses `LyricsLibrary` content hashes plus guarded atomic replacement for saves. A clean editor reloads external changes; dirty conflicts retain the buffer and offer reload, overwrite, or cancel. LRC and portable sidecar files are watched while the dialog is open, and save still performs a content-identity check if notifications are missed. The application close path asks the dialog to resolve its dirty state before shutdown. The dialog is owned by the Control Panel even when that window is hidden, so opening from the overlay does not show the Control Panel; the overlay itself is not made the modal owner. The overlay is Topmost whenever visible during normal operation, with only an explicit editor-modal suppression state temporarily lowering it. Legacy `overlay.topmost` settings are ignored and removed the next time settings are saved. Suppression is released only after `ShowDialog()` returns, so a cancelled close attempt leaves the editor above the overlay. On fatal or accepted application shutdown it remains suppressed until overlay teardown, avoiding a late Z-order raise during exit.
 
 Validation is advisory: malformed timestamp text remains visible/editable, is listed in diagnostics, and does not disable Save. The initial grid exposes every existing timestamp occurrence plus one empty occurrence column; it does not yet provide dedicated add/remove/reorder occurrence commands. Runtime reload remains the existing M10 watcher’s responsibility. Automated tests and builds are not a substitute for the manual acceptance checklist below; this milestone is ready for manual review, not marked fully accepted.
 
@@ -18,7 +18,7 @@ Opening the editor is an application command, not Control Panel-specific UI logi
 
 Initial/future entry points include:
 
-- Control Panel
+- current MainWindow / future Main Lyrics Window
 - Desktop Lyrics Overlay context menu
 - future Media Controller surface
 - other explicit application surfaces added later
@@ -33,7 +33,7 @@ Built-in Editor Dialog
 
 Each surface binds to the same command and command-state rules. No surface owns editor business logic.
 
-Only one built-in editor dialog is active at a time. It is modal relative to the Control Panel/application owner window so a forgotten background editor cannot silently coexist with another editing session. Playback, NativeHost communication, the overlay, and the playback clock continue while the dialog is open.
+Only one built-in editor dialog is active at a time. It is modal relative to the application's ordinary MainWindow/owner window so a forgotten background editor cannot silently coexist with another editing session. Playback, NativeHost communication, the overlay, and the playback clock continue while the dialog is open.
 
 ## Fixed editor track
 
@@ -308,6 +308,19 @@ EffectiveArtist = UserArtist ?? SourceArtist
 
 The editor must not create a second metadata authority by silently writing these overrides into LRC `[ti:]` / `[ar:]` tags. A future explicit export operation may choose to do that, but it is not M11 behaviour.
 
+## Timing-adjustment UI ownership
+
+The M8 timing engine remains independent of editor presentation, but the agreed target desktop UI places all user-facing timing authoring inside the Built-in Lyrics Editor rather than the ordinary Main Lyrics Window or Desktop Lyrics Overlay. This includes:
+
+```text
+GlobalOffsetMs -0.5 / -0.1 / Reset / +0.1 / +0.5
+Bake into LRC
+Current-line / exact-occurrence timing adjustment
+playback-assisted timestamp assignment
+```
+
+The existing M8/M9 MainWindow and overlay quick-action controls are legacy surfaces until this relocation is implemented; moving the UI must reuse the existing safe timing coordinator/storage semantics rather than inventing a second timing model. Playback current line remains distinct from editor selection, so any current-playback timing action must make its target identity explicit and must not silently retarget the editor selection.
+
 ## Modal lifecycle
 
 The built-in editor is a modal editing workspace, not another permanent application window.
@@ -317,7 +330,7 @@ While open:
 - playback and `PlaybackClock` continue
 - NativeHost/browser communication continues
 - the desktop overlay continues updating normally
-- the Control Panel cannot open another editor instance
+- the current MainWindow/future Main Lyrics Window cannot open another editor instance
 - the editor remains pinned to its own track even if playback changes
 - the editor dialog must remain visually above the normally Topmost Desktop Lyrics Overlay
 

@@ -17,7 +17,7 @@ TimelinePositionMs = PlaybackPositionMs - GlobalOffsetMs
 
 `PlaybackClock` continues to expose the real media position. Only the input to `LyricsTimeline` is adjusted, so pause, resume, playback-rate changes, and forward/backward seeks retain their existing clock behavior. The desktop overlay receives the resulting current/next timeline state and contains no offset arithmetic of its own.
 
-The Control Panel exposes `-0.5s`, `-0.1s`, `Reset`, `+0.1s`, `+0.5s`, and `Bake into LRC`. Button changes use checked integer arithmetic, apply immediately, and perform one sidecar save per successful click. The displayed value uses signed seconds with millisecond precision, such as `+0.500s` or `-1.200s`.
+The Milestone 8 implementation exposes `-0.5s`, `-0.1s`, `Reset`, `+0.1s`, `+0.5s`, and `Bake into LRC` in the current MainWindow/Control Panel. The agreed target desktop UI relocates all of these authoring controls into the Built-in Lyrics Editor; the ordinary Main Lyrics Window and Desktop Lyrics Overlay should not own timing-adjustment UI after that restructuring. Button changes use checked integer arithmetic, apply immediately, and perform one sidecar save per successful click. The displayed value uses signed seconds with millisecond precision, such as `+0.500s` or `-1.200s`.
 
 The controls are available only when the current track has an authoritative local timed lyrics document. They remain disabled for pending, unavailable, untimed, or runtime-only lyrics, and those states do not create timing records.
 
@@ -56,7 +56,7 @@ After a successful bake, the local LRC is parsed again and the current timeline 
 
 ## Current Line adjustment
 
-The Control Panel's Current Line section shows the current M6 timeline index (displayed one-based), original LRC start timestamp, and lyric text. Its `-0.5s`, `-0.1s`, `+0.1s`, and `+0.5s` buttons are explicit destructive edits: each changes only that selected timestamp token in the local LRC and persists immediately. They do not require Bake or an additional confirmation. There is no arbitrary line selection or text editor.
+The current Milestone 8 MainWindow's Current Line section shows the current M6 timeline index (displayed one-based), original LRC start timestamp, and lyric text. In the target desktop UI this capability moves into the Built-in Lyrics Editor together with the global-offset controls and Bake. Its `-0.5s`, `-0.1s`, `+0.1s`, and `+0.5s` buttons are explicit destructive edits: each changes only that selected timestamp token in the local LRC and persists immediately. They do not require Bake or an additional confirmation. There is no arbitrary line selection or text editor.
 
 The two mechanisms remain independent:
 
@@ -95,4 +95,4 @@ The pre-replacement hash check is best-effort write safety, not a filesystem com
 
 ## Deliberate scope limits
 
-Milestone 8 does not add timing state to SQLite, alter Firefox or NativeHost messages, or change `PlaybackClock`. Milestone 9 exposes quick current-line and global timing actions in the overlay context menu by routing them to these existing coordinator operations; Bake remains Control-Panel-only. Break rendering, preparation cues, karaoke progress, and word/character timing remain later work.
+Milestone 8 does not add timing state to SQLite, alter Firefox or NativeHost messages, or change `PlaybackClock`. Milestone 9 currently exposes quick current-line and global timing actions in the overlay context menu by routing them to these existing coordinator operations, while Bake remains on the current MainWindow. The agreed desktop-surface redesign removes those presentation shortcuts and consolidates all timing-adjustment UI in the Built-in Lyrics Editor without changing the underlying coordinator, persistence, target-identity, or safety rules. Break rendering, preparation cues, karaoke progress, and word/character timing remain later work.

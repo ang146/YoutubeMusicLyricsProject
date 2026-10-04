@@ -137,7 +137,7 @@ Do not try to make YouTube Music Windows' current/priority media session; find a
 
 ## Current limitations
 
-All Lyrics is a contextual viewport estimated using wrapped text dimensions; WPF fallback fonts can differ slightly from the estimator. The fixed hotkeys are not user-configurable. The renderer still uses one centered stacked layout and static role/distance emphasis. Tray close-to-hide is optional and off by default. Milestone 10 adds external opening and active-LRC watching, but no built-in lyrics editor, appearance editor, karaoke layout/animation, break rendering, media controls, provider search, or general plugin framework is included.
+All Lyrics is a contextual viewport estimated using wrapped text dimensions; WPF fallback fonts can differ slightly from the estimator. The fixed hotkeys are not user-configurable. The renderer still uses one centered stacked layout and static role/distance emphasis. Tray close-to-hide is optional and off by default. Milestone 11 now provides the built-in lyrics editor, but appearance editing, karaoke layout/animation, semantic-break rendering/preparation cues, media controls, provider search, and a general plugin framework remain later work.
 
 ## Target desktop-surface relationship
 

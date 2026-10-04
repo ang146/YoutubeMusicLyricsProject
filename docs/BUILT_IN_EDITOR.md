@@ -4,13 +4,15 @@ Milestone 11 introduces a built-in, single-track lyrics editing workspace. The e
 
 The editor is not a playback surface and playback is not allowed to mutate editor state. It may read current playback position only when the user invokes an explicit editor command such as **Set Current Playback Time**.
 
-## Current implementation notes (manual acceptance pending)
+## Current implementation notes (accepted M11 foundation)
 
 The M11 implementation adds a WPF modal dialog, a shared application-scoped `EditorCommand` for Control Panel and overlay entry points, and a WPF-independent editor document/buffer in `LyricsDisplayer.Core`. The document stores ordered physical lines with their original line endings; unchanged entries serialize from their original text, while edited/new lyric rows serialize from structured text and timestamp occurrences. Recognized metadata lines remain hidden but preserved. Every other physical line—including blank lines and unknown or malformed content—is an editor row; unknown or malformed content carries advisory diagnostics where applicable and remains unchanged unless edited.
 
 The editor loads the current authoritative disk LRC (not the runtime last-known-good snapshot), and uses `LyricsLibrary` content hashes plus guarded atomic replacement for saves. A clean editor reloads external changes; dirty conflicts retain the buffer and offer reload, overwrite, or cancel. LRC and portable sidecar files are watched while the dialog is open, and save still performs a content-identity check if notifications are missed. The application close path asks the dialog to resolve its dirty state before shutdown. The dialog is owned by the Control Panel even when that window is hidden, so opening from the overlay does not show the Control Panel; the overlay itself is not made the modal owner. The overlay is Topmost whenever visible during normal operation, with only an explicit editor-modal suppression state temporarily lowering it. Legacy `overlay.topmost` settings are ignored and removed the next time settings are saved. Suppression is released only after `ShowDialog()` returns, so a cancelled close attempt leaves the editor above the overlay. On fatal or accepted application shutdown it remains suppressed until overlay teardown, avoiding a late Z-order raise during exit.
 
-Validation is advisory: malformed timestamp text remains visible/editable, is listed in diagnostics, and does not disable Save. The initial grid exposes every existing timestamp occurrence plus one empty occurrence column; it does not yet provide dedicated add/remove/reorder occurrence commands. Runtime reload remains the existing M10 watcher’s responsibility. Automated tests and builds are not a substitute for the manual acceptance checklist below; this milestone is ready for manual review, not marked fully accepted.
+Validation is advisory: malformed timestamp text remains visible/editable, is listed in diagnostics, and does not disable Save. Cross-row chronology is validated independently per timestamp occurrence lane, while within-row occurrences are checked in displayed order. The grid exposes existing timestamp occurrences plus a spare editable occurrence column up to the current five-occurrence authoring limit; dedicated add/remove/reorder occurrence commands remain future work. Selected-cell Delete clears only that logical value through the editor command/Undo system, and timestamp edits normalize only when edit mode commits. Runtime reload remains the existing M10 watcher’s responsibility.
+
+M11 is manually accepted. Real authoring was exercised across multiple songs, including creating timestamps for previously untimed lyrics, repeated multi-timestamp sections, metadata overrides, Delete/Undo/Redo, flexible timestamp input, save/reopen, and transition through M10 reload into timed overlay presentation. No blocking M11 issue is currently known.
 
 ## Entry points and shared command
 
@@ -200,6 +202,18 @@ Redo
 ```
 
 Future commands may add/remove additional timestamp occurrences, insert explicit break markers, convert script, or perform bulk timing operations without changing the command-binding architecture.
+
+## Future timestamp-pattern filling
+
+Repeated sections such as choruses often reuse the same relative timing pattern. A later editor command may propagate a reference timestamp lane into another lane once the target lane has an anchor. For a selected range:
+
+```text
+target[row] = target[anchor] + (reference[row] - reference[anchor])
+```
+
+Example: a complete `Timestamp 1` chorus plus the first `Timestamp 2` occurrence provides enough information to fill the remaining blank `Timestamp 2` cells with the same relative spacing. The operation should be explicit and bounded by the user's selected range; it must not infer where a chorus begins/ends. Missing reference timestamps are skipped, existing populated target cells are preserved by default, millisecond offsets are exact, and the whole fill is one Undo/Redo command.
+
+The domain operation should exist independently of presentation. A command/context-menu implementation may come first; an Excel-style fill handle that drags down the grid can later invoke the same command. No automatic chorus detection or AI timing inference is required.
 
 ## Future custom hotkeys
 

@@ -5,7 +5,7 @@ using LyricsDisplayer.Core.Library;
 
 namespace LyricsDisplayer;
 
-public sealed class EditorRowViewModel : INotifyPropertyChanged
+public sealed class EditorRowViewModel : ViewModelBase
 {
     private string _lyricsText;
     private int _visibleLineNumber;
@@ -20,14 +20,8 @@ public sealed class EditorRowViewModel : INotifyPropertyChanged
     public string LyricsText
     {
         get => _lyricsText;
-        set
-        {
-            if (_lyricsText == value) return;
-            _lyricsText = value;
-            PropertyChanged?.Invoke(this, new(nameof(LyricsText)));
-        }
+        set => SetProperty(ref _lyricsText, value);
     }
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     public EditorRowViewModel(EditorLyricRow row, int timestampColumnCount, int visibleLineNumber)
     {
@@ -46,9 +40,9 @@ public sealed class EditorRowViewModel : INotifyPropertyChanged
         var lineNumberChanged = _visibleLineNumber != visibleLineNumber;
         _visibleLineNumber = visibleLineNumber;
         _diagnostics = diagnostics;
-        if (lineNumberChanged) PropertyChanged?.Invoke(this, new(nameof(VisibleLineNumber)));
-        PropertyChanged?.Invoke(this, new(nameof(Diagnostics)));
-        PropertyChanged?.Invoke(this, new(nameof(LyricsDiagnosticSeverity)));
+        if (lineNumberChanged) OnPropertyChanged(nameof(VisibleLineNumber));
+        OnPropertyChanged(nameof(Diagnostics));
+        OnPropertyChanged(nameof(LyricsDiagnosticSeverity));
         for (var index = 0; index < TimestampDiagnosticSeverities.Count; index++)
         {
             var severity = EditorValidationPresentation.GetCellSeverity(_diagnostics,

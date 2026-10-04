@@ -6,20 +6,65 @@ This document collects agreed future directions that should not be silently fold
 
 Milestones 1–10 are complete through transport, YouTube Music integration, local-first storage, timeline/overlay, timing adjustment, overlay interaction, and external/untimed local editing.
 
-The next implementation milestone is:
+Milestone 11 — Built-in Lyrics Editor Foundation is currently implemented and under manual acceptance/refinement. The editor architecture and current acceptance contract are documented in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+
+## Desktop surface and Settings restructuring
+
+After the M11 editor foundation is stabilized, the existing diagnostic/control-panel `MainWindow` should be restructured into clearer user-facing surfaces rather than continuing to accumulate unrelated controls.
+
+Target surface model:
 
 ```text
-Milestone 11 — Built-in Lyrics Editor Foundation
+Main Lyrics Window
+├─ normal focusable non-Topmost window
+├─ full-document All Lyrics renderer only
+├─ no One/Two/All content-mode selector
+├─ shared lyrics context menu
+├─ Settings / Built-in Editor / Media Controller actions
+└─ compact transport-status footer
+
+Desktop Lyrics Overlay
+├─ permanently Topmost whenever visible
+├─ temporary Topmost suppression while modal editor is open
+├─ OneLine / TwoLines / bounded contextual AllLyrics
+├─ click-through / lock / drag / resize
+└─ shared lyrics context menu
+
+Media Controller
+├─ independent show/hide window
+├─ title / artist / playback state
+├─ transport + progress
+└─ optional docking beside the overlay
+
+Built-in Lyrics Editor
+├─ lyrics/timestamp authoring
+├─ metadata overrides
+└─ all timing-adjustment UI
+
+Settings
+├─ General
+├─ Lyrics Overlay
+├─ Lyrics Window
+├─ Media Controller
+├─ Editor
+└─ Debug
 ```
 
-See [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+The Main Lyrics Window's All Lyrics presentation is not the overlay's current `AllLyrics` content mode. The main window is intended to expose the complete lyrics document for reading; the overlay `AllLyrics` mode remains a geometry-bounded contextual subset around the current timeline occurrence.
+
+Settings navigation should use a persistent left sidebar with one independent section page displayed on the right. It should not be implemented as one long vertically connected settings document where sidebar selection merely scrolls to anchors.
+
+Developer-oriented information should leave the Main Lyrics Window. The Debug settings page is the intended home for transport/source diagnostics, `LocalTrackId`, library/index paths, raw playback/lyrics/sidecar JSON, provider diagnostics, **Open Logs**, and **Open Crash Reports**. Ordinary track title/artist, playback position/state, and media transport belong to the Media Controller instead.
+
+All timing-adjustment controls should converge on the Built-in Lyrics Editor: global offset adjustment/reset, Bake, current-line/exact-occurrence timing edits, and playback-assisted timestamp authoring. Existing MainWindow/overlay timing controls are transitional UI and should be removed when this restructuring is implemented; the established M8 persistence and safety semantics remain authoritative.
+
+The Main Lyrics Window and Desktop Lyrics Overlay should use shared application commands for common lyrics actions and should converge on the same right-click lyrics menu where an action applies to both. Overlay-only interaction settings such as content mode, click-through, lock, drag/resize behaviour remain surface-specific.
 
 ## Editor expansion after M11 foundation
 
 Potential editor commands/features include:
 
-- add the current playback time as an additional timestamp occurrence
-- add/remove/reorder timestamp occurrences on a multi-timestamp lyric row
+- richer add/remove/reorder management for existing timestamp occurrences beyond the M11 row-level playback-time command
 - explicit `♪` break insertion, removal, and retiming
 - bulk timing shift/transform tools
 - multi-row selection and bulk operations
@@ -70,7 +115,7 @@ Editor
 Examples:
 
 - global/application: show/hide overlay, toggle click-through
-- editor: next/previous row, insert row, Set Current Time, save, undo/redo
+- editor: next/previous row, insert row, Set Current Playback Time, save, undo/redo
 
 Context menus and other command surfaces should display the current binding where useful. The hotkey editor/settings UI is deferred until after M11 foundation.
 
@@ -113,7 +158,7 @@ Content mode, layout style, appearance, and karaoke animation remain separate co
 
 ## Media Controller
 
-A future optional Media Controller may sit alongside the overlay Lyrics View and be shown/hidden or docked left/right.
+A future optional Media Controller is an independent window that may be shown/hidden separately and optionally dock beside the Desktop Lyrics Overlay on the left or right.
 
 Potential display/actions:
 
@@ -127,15 +172,82 @@ Seekable progress
 Open Built-in Editor
 ```
 
-`Open Built-in Editor` is the same application command used by the Control Panel and overlay context menu; the Media Controller must not implement a separate editor-opening path.
+`Open Built-in Editor` is the same application command used by the current MainWindow/future Main Lyrics Window and overlay context menu; the Media Controller must not implement a separate editor-opening path.
 
 Playback display should reuse the existing Lyrics Displayer playback model. Transport commands should use a provider-independent `MediaControlService` and fail safe when Windows media-session matching is ambiguous. Do not assume `GetCurrentSession()` is the tracked YouTube Music session.
 
 ## Additional lyrics providers and manual search
 
-Milestone 12 remains the provider/search expansion milestone. Potential sources include LRCLib and community lyrics services.
+Milestone 12 remains the provider/search expansion milestone. Potential sources include LRCLib, community lyrics services, and provider-specific adapters for services whose native formats are not ordinary LRC.
 
-Remote services remain importers into the local-first library. Manual search should use effective metadata and may optionally save user title/artist overrides. Once imported and associated, the local copy remains authoritative.
+Playback source and lyrics provider are separate concepts:
+
+```text
+Where music is playing
+!=
+Where lyrics came from
+```
+
+For example, YouTube Music may remain the playback source while the chosen lyrics are imported from LRCLib, another community/provider adapter, or a configured custom HTTP source. Provider-specific formats must normalize into a Lyrics Displayer canonical lyrics model before reaching editor/timeline/renderer code. The canonical model should be able to distinguish at least untimed, line-timed, and future word-timed capability without forcing provider-specific QRC/YRC/TTML/LRC syntax into presentation code.
+
+A provider abstraction should expose stable identity, capabilities, search, fetch, and normalization responsibilities. Conceptually:
+
+```text
+ILyricsProvider
+├─ Provider identity
+├─ Capabilities
+├─ SearchAsync(...)
+├─ FetchLyricsAsync(...)
+└─ Normalize(...)
+```
+
+Provider configuration should eventually support enable/disable, priority/order, provider-specific settings, and bounded timeouts. One provider failing or timing out must not prevent results from other enabled providers.
+
+Search should fan out to enabled providers in parallel and support cancellation when the user changes the query. Results may appear progressively as providers return. Search results should initially be lightweight metadata rather than eagerly downloading every lyric payload. Selecting a result lazily fetches that result for preview, and fetched previews may be cached by provider/result identity.
+
+Conceptually:
+
+```text
+Search enabled providers
+        ↓
+metadata results
+        ↓ select one result
+lazy FetchLyrics
+        ↓
+Preview
+        ↓ explicit user action
+Use This Lyrics
+        ↓
+normalize + import local authoritative copy
+```
+
+Preview must not mutate the local library. Importing/replacing local lyrics is an explicit user action, and replacing an existing authoritative local LRC requires clear confirmation. After import, the local copy remains authoritative and must never be silently overwritten by later provider fetches.
+
+Manual search should default to effective metadata but allow one-off search text without forcing persistent metadata changes. User title/artist overrides may optionally be saved when explicitly requested.
+
+Custom sources should begin as declarative HTTP integrations for supported response shapes such as raw LRC or mapped JSON fields. Do not execute arbitrary user-provided scripts merely to support custom providers. More complex authenticated/encrypted/provider-native formats belong in built-in provider adapters.
+
+## Original imported lyrics snapshot and reset
+
+A future safety/authoring feature should preserve an immutable snapshot of the lyrics as originally imported/materialised from a provider or other source, separate from the editable authoritative local LRC.
+
+Conceptually:
+
+```text
+Imported Source Snapshot   // immutable baseline
+        +
+Editable Authoritative Local LRC
+```
+
+Normal editing operations must not mutate the original snapshot. This includes built-in editor saves, external editor saves, Current Line Adjustment, Bake, future script conversion, bulk timing tools, and other local modifications.
+
+A future explicit command may provide:
+
+```text
+Reset Lyrics to Original...
+```
+
+Reset is destructive to the editable authoritative LRC and therefore requires clear confirmation. Provider re-fetches must not silently redefine what "Original" means. Replacing/re-importing the source snapshot should itself be an explicit user action. The exact portable storage representation for this snapshot is intentionally deferred until the feature is implemented.
 
 ## Additional browser platforms
 
@@ -178,6 +290,9 @@ Future work should preserve these boundaries:
 ```text
 Lyrics source data
 ≠ local authoritative user data
+
+Playback source
+≠ lyrics provider
 
 Playback current line
 ≠ editor selection

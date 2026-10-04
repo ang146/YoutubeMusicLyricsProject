@@ -42,9 +42,15 @@ public sealed class LyricsOverlayController
     private ILyricsOverlayView? _view;
     private LyricsOverlayPresentationState _presentation = LyricsOverlayPresentationState.Empty;
     private LyricsSnapshotPayload? _lyrics;
-    private IReadOnlyList<LyricsLine>? _sourceLines;
-    private IReadOnlyList<LyricsLine>? _normalizedLines;
+    private IReadOnlyList<LyricsLine> _timelineOrderedLines = Array.Empty<LyricsLine>();
     private LyricsTimelinePosition _timeline = LyricsTimeline.Empty.Evaluate(0);
+    private LyricsPresentationState _sharedPresentation = LyricsPresentationState.Pending;
+    private LyricsSnapshotPayload? _mappedLyrics;
+    private IReadOnlyList<LyricsLine>? _mappedTimelineOrderedLines;
+    private int? _mappedCurrentIndex;
+    private int? _mappedNextIndex;
+    private bool _mappedLocalFileMissing;
+    private bool _hasMappedPresentation;
     private OverlayInteractionState _interaction;
     private bool _currentLineTimingEnabled;
     private bool _globalTimingEnabled;
@@ -82,15 +88,12 @@ public sealed class LyricsOverlayController
     public OverlayInteractionState Interaction => _interaction;
     public bool EffectiveTopmost => !_editorModalTopmostSuppressed;
 
-    public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline, bool localFileMissing = false)
+    public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline,
+        bool localFileMissing = false, IReadOnlyList<LyricsLine>? timelineOrderedLines = null)
     {
-        if (!ReferenceEquals(_sourceLines, lyrics?.Lines))
-        {
-            _sourceLines = lyrics?.Lines;
-            _normalizedLines = _sourceLines is null ? null : LyricsOverlayPresentationState.NormalizeLines(_sourceLines);
-        }
         _lyrics = lyrics;
         _timeline = timeline;
+        _timelineOrderedLines = timelineOrderedLines ?? lyrics?.Lines ?? Array.Empty<LyricsLine>();
         _localFileMissing = localFileMissing;
         var next = CreatePresentation(lyrics, timeline);
         if (_presentation.EquivalentTo(next)) return;
@@ -404,17 +407,36 @@ public sealed class LyricsOverlayController
     private LyricsOverlayPresentationState CreatePresentation(
         LyricsSnapshotPayload? lyrics,
         LyricsTimelinePosition timeline) =>
-        LyricsOverlayPresentationState.FromLyrics(lyrics, timeline, _interaction.ContentMode,
+        LyricsOverlayPresentationState.FromPresentation(GetSharedPresentation(lyrics, timeline), _interaction.ContentMode,
             _view?.OverlayWidth ?? _interaction.Width,
-            _view?.OverlayHeight ?? _interaction.Height,
-            _normalizedLines,
-            _localFileMissing);
+            _view?.OverlayHeight ?? _interaction.Height);
+
+    private LyricsPresentationState GetSharedPresentation(
+        LyricsSnapshotPayload? lyrics,
+        LyricsTimelinePosition timeline)
+    {
+        if (_hasMappedPresentation && ReferenceEquals(_mappedLyrics, lyrics) &&
+            ReferenceEquals(_mappedTimelineOrderedLines, _timelineOrderedLines) &&
+            _mappedCurrentIndex == timeline.CurrentIndex && _mappedNextIndex == timeline.NextIndex &&
+            _mappedLocalFileMissing == _localFileMissing)
+            return _sharedPresentation;
+
+        _sharedPresentation = LyricsPresentationMapper.FromResolvedTimeline(
+            lyrics, timeline, _timelineOrderedLines, _localFileMissing);
+        _mappedLyrics = lyrics;
+        _mappedTimelineOrderedLines = _timelineOrderedLines;
+        _mappedCurrentIndex = timeline.CurrentIndex;
+        _mappedNextIndex = timeline.NextIndex;
+        _mappedLocalFileMissing = _localFileMissing;
+        _hasMappedPresentation = true;
+        return _sharedPresentation;
+    }
 
     private void OnViewSizeChanged(double width, double height)
     {
         if (_view is null || _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
-        var next = LyricsOverlayPresentationState.FromLyrics(_lyrics, _timeline, _interaction.ContentMode,
-            width, height, _normalizedLines, _localFileMissing);
+        var next = LyricsOverlayPresentationState.FromPresentation(
+            GetSharedPresentation(_lyrics, _timeline), _interaction.ContentMode, width, height);
         if (_presentation.EquivalentTo(next)) return;
         _presentation = next;
         _view?.SetLyrics(next);

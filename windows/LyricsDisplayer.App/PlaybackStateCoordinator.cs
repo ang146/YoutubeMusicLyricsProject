@@ -41,6 +41,8 @@ public sealed class PlaybackStateCoordinator
 
     public bool HasClockState => _playbackClock.HasState;
 
+    public IReadOnlyList<LyricsLine> GetTimelineOrderedLines() => _lyricsTimeline.OrderedLines;
+
     public long GlobalOffsetMs => CurrentLocalLyrics?.GlobalOffsetMs ?? 0;
 
     public bool CanAdjustTiming => IsCurrentLocalLrcUsable && CurrentLocalLyrics!.IsTimed && _library is not null;

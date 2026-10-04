@@ -10,7 +10,8 @@ public sealed class LyricsOverlayPresentationTests
     [Test]
     public void CurrentAndNextMapToPrimaryAndSecondary()
     {
-        var state = LyricsOverlayPresentationState.FromLyrics(TimedLyrics(), Position(Line("A"), Line("B")));
+        var state = LyricsOverlayPresentationState.FromLyrics(
+            LyricsWith([Line("A"), Line("B")]), Position(Line("A"), Line("B")));
         Assert.Multiple(() =>
         {
             Assert.That(state.PrimaryText, Is.EqualTo("A"));
@@ -21,7 +22,8 @@ public sealed class LyricsOverlayPresentationTests
     [Test]
     public void BeforeFirstLineLeavesPrimaryEmpty()
     {
-        var state = LyricsOverlayPresentationState.FromLyrics(TimedLyrics(), Position(null, Line("第一行 ♪")));
+        var state = LyricsOverlayPresentationState.FromLyrics(
+            LyricsWith([Line("第一行 ♪")]), Position(null, Line("第一行 ♪")));
         Assert.Multiple(() =>
         {
             Assert.That(state.PrimaryText, Is.Empty);
@@ -32,7 +34,8 @@ public sealed class LyricsOverlayPresentationTests
     [Test]
     public void FinalLineLeavesSecondaryEmpty()
     {
-        var state = LyricsOverlayPresentationState.FromLyrics(TimedLyrics(), Position(Line("最後一行"), null));
+        var state = LyricsOverlayPresentationState.FromLyrics(
+            LyricsWith([Line("最後一行")]), Position(Line("最後一行"), null));
         Assert.Multiple(() =>
         {
             Assert.That(state.PrimaryText, Is.EqualTo("最後一行"));
@@ -83,7 +86,8 @@ public sealed class LyricsOverlayPresentationTests
     public void TimedPresentationContainsNoPriorStatusText()
     {
         var unavailable = LyricsOverlayPresentationState.FromLyrics(Lyrics(false, false), EmptyTimeline());
-        var timed = LyricsOverlayPresentationState.FromLyrics(TimedLyrics(), Position(Line("A"), Line("B")));
+        var timed = LyricsOverlayPresentationState.FromLyrics(
+            LyricsWith([Line("A"), Line("B")]), Position(Line("A"), Line("B")));
 
         Assert.Multiple(() =>
         {
@@ -99,7 +103,7 @@ public sealed class LyricsOverlayPresentationTests
     public void OneLineModeUsesUpcomingLineBeforeFirstTimestamp()
     {
         var state = LyricsOverlayPresentationState.FromLyrics(
-            TimedLyrics(), Position(null, Line("First")), LyricsContentMode.OneLine);
+            LyricsWith([Line("First")]), Position(null, Line("First")), LyricsContentMode.OneLine);
         Assert.Multiple(() =>
         {
             Assert.That(state.PrimaryText, Is.EqualTo("First"));
@@ -180,7 +184,7 @@ public sealed class LyricsOverlayPresentationTests
     public void AllLyricsCapacityPrefersUpcomingThenAlternatesPast(int capacity, int[] expectedIndexes)
     {
         var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
-        var window = LyricsContextWindow.Select(lines, 3, 4, 1200, HeightForCapacity(capacity));
+        var window = LyricsContextWindow.Select(Shared(lines, 3, 4), 1200, HeightForCapacity(capacity));
 
         Assert.That(window.Select(line => line.Index), Is.EqualTo(expectedIndexes));
         Assert.That(window.Single(line => line.Role == LyricLineRole.Current).Text, Is.EqualTo("D"));
@@ -192,7 +196,7 @@ public sealed class LyricsOverlayPresentationTests
     public void PrioritySequenceIsCurrentThenAlternatingUpcomingAndPreviousOccurrences()
     {
         var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
-        var priority = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+        var priority = LyricsContextWindow.BuildPrioritySequence(Shared(lines, 3, 4));
 
         Assert.That(priority.Select(line => (line.Index, line.Role)), Is.EqualTo(new[]
         {
@@ -210,7 +214,7 @@ public sealed class LyricsOverlayPresentationTests
     public void FittingStopsAtFirstNonFittingPriorityCandidate()
     {
         var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
-        var priority = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+        var priority = LyricsContextWindow.BuildPrioritySequence(Shared(lines, 3, 4));
         var heights = new Dictionary<int, double>
         {
             [3] = 20, // Current
@@ -228,7 +232,7 @@ public sealed class LyricsOverlayPresentationTests
     public void TallPreviousStopsPrefixBeforeUpcomingTwo()
     {
         var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
-        var priority = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+        var priority = LyricsContextWindow.BuildPrioritySequence(Shared(lines, 3, 4));
         var heights = new Dictionary<int, double>
         {
             [3] = 20, // Current
@@ -250,7 +254,7 @@ public sealed class LyricsOverlayPresentationTests
             Line("previous"), Line("current"),
             Line(new string('漢', 36)), Line("short next")
         };
-        var window = LyricsContextWindow.Select(lines, 1, 2, overlayWidth: 160, overlayHeight: 150);
+        var window = LyricsContextWindow.Select(Shared(lines, 1, 2), overlayWidth: 160, overlayHeight: 150);
 
         Assert.That(window.Select(line => line.Index), Is.EqualTo(new[] { 1 }));
     }
@@ -263,8 +267,8 @@ public sealed class LyricsOverlayPresentationTests
             Line("previous"), Line("current"),
             Line(new string('漢', 36)), Line("short next")
         };
-        var narrow = LyricsContextWindow.Select(lines, 1, 2, overlayWidth: 160, overlayHeight: 220);
-        var wide = LyricsContextWindow.Select(lines, 1, 2, overlayWidth: 1200, overlayHeight: 220);
+        var narrow = LyricsContextWindow.Select(Shared(lines, 1, 2), overlayWidth: 160, overlayHeight: 220);
+        var wide = LyricsContextWindow.Select(Shared(lines, 1, 2), overlayWidth: 1200, overlayHeight: 220);
 
         Assert.Multiple(() =>
         {
@@ -277,7 +281,7 @@ public sealed class LyricsOverlayPresentationTests
     public void AllLyricsAtBeginningUsesUpcomingContextWithoutPastPlaceholders()
     {
         var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
-        var window = LyricsContextWindow.Select(lines, 0, 1, 1200, HeightForCapacity(4));
+        var window = LyricsContextWindow.Select(Shared(lines, 0, 1), 1200, HeightForCapacity(4));
 
         Assert.That(window.Select(line => line.Index), Is.EqualTo(new[] { 0, 1, 2, 3 }));
         Assert.That(window[0].Role, Is.EqualTo(LyricLineRole.Current));
@@ -288,7 +292,7 @@ public sealed class LyricsOverlayPresentationTests
     public void BeforeFirstTimestampSelectsUpcomingOccurrencesInOrder()
     {
         var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
-        var priority = LyricsContextWindow.BuildPrioritySequence(lines, null, 0);
+        var priority = LyricsContextWindow.BuildPrioritySequence(Shared(lines, null, 0));
 
         Assert.That(priority.Select(line => (line.Index, line.Role)), Is.EqualTo(new[]
         {
@@ -301,7 +305,7 @@ public sealed class LyricsOverlayPresentationTests
     public void AllLyricsAtFinalLineFillsCapacityWithPastContext()
     {
         var lines = "ABCDE".Select(character => Line(character.ToString())).ToArray();
-        var window = LyricsContextWindow.Select(lines, 4, null, 1200, HeightForCapacity(4));
+        var window = LyricsContextWindow.Select(Shared(lines, 4, null), 1200, HeightForCapacity(4));
 
         Assert.That(window.Select(line => line.Index), Is.EqualTo(new[] { 1, 2, 3, 4 }));
         Assert.That(window[^1].Role, Is.EqualTo(LyricLineRole.Current));
@@ -312,7 +316,7 @@ public sealed class LyricsOverlayPresentationTests
     public void ResizingOnlyShrinksOrGrowsAtTheEndOfThePriorityPrefix()
     {
         var lines = "ABCDEFG".Select(character => Line(character.ToString())).ToArray();
-        var sequence = LyricsContextWindow.BuildPrioritySequence(lines, 3, 4);
+        var sequence = LyricsContextWindow.BuildPrioritySequence(Shared(lines, 3, 4));
         var capacities = new[] { 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6 };
         var expectedIndexes = new Dictionary<int, int[]>
         {
@@ -339,8 +343,8 @@ public sealed class LyricsOverlayPresentationTests
             .Select(index => new LyricsLine(index * 1000, index * 1000 + 999,
                 $"line {index} with a deliberately long lyric phrase that wraps when the window is narrow"))
             .ToArray();
-        var narrow = LyricsContextWindow.Select(lines, 10, 11, 420, 420);
-        var wide = LyricsContextWindow.Select(lines, 10, 11, 1200, 420);
+        var narrow = LyricsContextWindow.Select(Shared(lines, 10, 11), 420, 420);
+        var wide = LyricsContextWindow.Select(Shared(lines, 10, 11), 1200, 420);
         Assert.That(wide.Count, Is.GreaterThanOrEqualTo(narrow.Count));
     }
 
@@ -358,6 +362,34 @@ public sealed class LyricsOverlayPresentationTests
             Assert.That(timeline.CurrentIndex, Is.EqualTo(1));
             Assert.That(state.AllLines.Single(line => line.Role == LyricLineRole.Current).Index, Is.EqualTo(1));
             Assert.That(state.AllLines.Single(line => line.Index == 0).Role, Is.EqualTo(LyricLineRole.Past));
+        });
+    }
+
+    [Test]
+    public void AllLyricsSelectsByTimelinePriorityThenRendersInDocumentOrder()
+    {
+        var documentLines = new[]
+        {
+            new LyricsLine(2_000, 2_500, "previous"),
+            new LyricsLine(3_000, 3_500, "current"),
+            new LyricsLine(4_000, 4_500, "next"),
+            new LyricsLine(1_000, 1_500, "far previous"),
+            new LyricsLine(5_000, 5_500, "far next")
+        };
+        var timeline = new LyricsTimeline(documentLines);
+        var state = LyricsOverlayPresentationState.FromLyrics(LyricsWith(documentLines),
+            timeline.Evaluate(3_000), LyricsContentMode.AllLyrics, 1200, HeightForCapacity(3),
+            timelineOrderedLines: timeline.OrderedLines);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.AllLines.Select(line => line.Text),
+                Is.EqualTo(new[] { "previous", "current", "next" }));
+            Assert.That(state.AllLines.Select(line => line.Role), Is.EqualTo(new[]
+            {
+                LyricLineRole.Past, LyricLineRole.Current, LyricLineRole.Upcoming
+            }));
+            Assert.That(state.AllLines.Select(line => line.Index), Is.EqualTo(new[] { 0, 1, 2 }));
         });
     }
 
@@ -400,15 +432,15 @@ public sealed class LyricsOverlayPresentationTests
     [Test]
     public void CurrentHasModestSizeIncreaseAndHighestOpacity()
     {
-        var current = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Current, 0);
-        var past = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 1);
-        var upcoming = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 1);
-        var distantPast = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 100);
-        var distantUpcoming = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 100);
+        var current = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Current, 0);
+        var past = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Past, 1);
+        var upcoming = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 1);
+        var distantPast = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Past, 100);
+        var distantUpcoming = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 100);
         Assert.Multiple(() =>
         {
-            Assert.That(LyricsPresentationDefaults.BaseContextFontSize * current.Scale,
-                Is.GreaterThan(LyricsPresentationDefaults.BaseContextFontSize));
+            Assert.That(LyricsOverlayAppearanceDefaults.BaseContextFontSize * current.Scale,
+                Is.GreaterThan(LyricsOverlayAppearanceDefaults.BaseContextFontSize));
             Assert.That(current.Scale, Is.InRange(1.05, 1.08));
             Assert.That(current.Opacity, Is.GreaterThanOrEqualTo(past.Opacity));
             Assert.That(current.Opacity, Is.GreaterThanOrEqualTo(upcoming.Opacity));
@@ -420,12 +452,12 @@ public sealed class LyricsOverlayPresentationTests
     [Test]
     public void UpcomingIsStrongerThanPastAtEqualDistanceAndDistanceFalloffRemainsReadable()
     {
-        var pastOne = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 1);
-        var upcomingOne = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 1);
-        var pastTwo = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 2);
-        var upcomingTwo = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 2);
-        var pastFar = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Past, 100);
-        var upcomingFar = LyricsPresentationDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 100);
+        var pastOne = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Past, 1);
+        var upcomingOne = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 1);
+        var pastTwo = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Past, 2);
+        var upcomingTwo = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 2);
+        var pastFar = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Past, 100);
+        var upcomingFar = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(LyricLineRole.Upcoming, 100);
 
         Assert.Multiple(() =>
         {
@@ -435,10 +467,10 @@ public sealed class LyricsOverlayPresentationTests
             Assert.That(upcomingOne.Scale, Is.GreaterThan(upcomingTwo.Scale));
             Assert.That(pastOne.Opacity, Is.GreaterThan(pastTwo.Opacity));
             Assert.That(pastOne.Scale, Is.GreaterThan(pastTwo.Scale));
-            Assert.That(upcomingFar.Scale, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumScale));
-            Assert.That(upcomingFar.Opacity, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumOpacity));
-            Assert.That(pastFar.Scale, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumScale));
-            Assert.That(pastFar.Opacity, Is.GreaterThanOrEqualTo(LyricsPresentationDefaults.ContextMinimumOpacity));
+            Assert.That(upcomingFar.Scale, Is.GreaterThanOrEqualTo(LyricsOverlayAppearanceDefaults.ContextMinimumScale));
+            Assert.That(upcomingFar.Opacity, Is.GreaterThanOrEqualTo(LyricsOverlayAppearanceDefaults.ContextMinimumOpacity));
+            Assert.That(pastFar.Scale, Is.GreaterThanOrEqualTo(LyricsOverlayAppearanceDefaults.ContextMinimumScale));
+            Assert.That(pastFar.Opacity, Is.GreaterThanOrEqualTo(LyricsOverlayAppearanceDefaults.ContextMinimumOpacity));
         });
     }
 
@@ -454,12 +486,19 @@ public sealed class LyricsOverlayPresentationTests
     });
 
     private static LyricsTimelinePosition Position(LyricsLine? current, LyricsLine? next) =>
-        new(current is null ? null : 0, current, next is null ? null : 1, next);
+        new(current is null ? null : 0, current, next is null ? null : current is null ? 0 : 1, next);
 
     private static LyricsTimelinePosition EmptyTimeline() => new(null, null, null, null);
     private static LyricsSnapshotPayload TimedLyrics() => Lyrics(available: true, timed: true);
     private static LyricsSnapshotPayload LyricsWith(IReadOnlyList<LyricsLine> lines) =>
         new("track", true, true, "local", lines, null);
+    private static LyricsPresentationState Shared(IReadOnlyList<LyricsLine> lines, int? currentIndex, int? nextIndex)
+    {
+        var timeline = new LyricsTimelinePosition(
+            currentIndex, currentIndex is { } current ? lines[current] : null,
+            nextIndex, nextIndex is { } next ? lines[next] : null);
+        return LyricsPresentationMapper.FromResolvedTimeline(LyricsWith(lines), timeline, lines);
+    }
     private static LyricsSnapshotPayload Lyrics(bool available, bool timed) =>
         new("track", available, timed, available ? "youtubeMusic" : null, [], null);
     private static LyricsLine Line(string text) => new(0, 1, text);

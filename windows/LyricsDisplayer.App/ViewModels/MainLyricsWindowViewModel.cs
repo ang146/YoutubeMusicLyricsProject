@@ -5,33 +5,21 @@ using LyricsDisplayer.Core.Timeline;
 
 namespace LyricsDisplayer;
 
-public sealed class MainLyricsLineViewModel : ViewModelBase
+/// <summary>Immutable row projection of the shared lyrics presentation for the Main window.</summary>
+public sealed record MainLyricsLineViewModel(
+    int DocumentIndex,
+    string Text,
+    long? StartMs,
+    long? EndMs,
+    LyricLineRole Role)
 {
-    private LyricLineRole _role;
-
-    public int DocumentIndex { get; }
-    public string Text { get; }
-    public long? StartMs { get; }
-    public long? EndMs { get; }
-    public LyricLineRole Role => _role;
     public bool IsCurrent => Role == LyricLineRole.Current;
 
-    internal MainLyricsLineViewModel(LyricsPresentationLine line)
-    {
-        DocumentIndex = line.Index;
-        Text = line.Text;
-        StartMs = line.StartMs;
-        EndMs = line.EndMs;
-        _role = line.Role;
-    }
+    internal static MainLyricsLineViewModel From(LyricsPresentationLine line) =>
+        new(line.Index, line.Text, line.StartMs, line.EndMs, line.Role);
 
     internal bool RepresentsSameDocumentLine(LyricsPresentationLine line) =>
         DocumentIndex == line.Index && Text == line.Text && StartMs == line.StartMs && EndMs == line.EndMs;
-
-    internal void UpdateSemanticRole(LyricLineRole role)
-    {
-        if (SetProperty(ref _role, role)) OnPropertyChanged(nameof(IsCurrent));
-    }
 }
 
 /// <summary>Presentation state for the full-document, non-overlay lyrics reading window.</summary>
@@ -45,6 +33,9 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
     private bool _mappedLocalFileMissing;
     private bool _hasMappedPresentation;
     private MainLyricsLineViewModel? _currentLine;
+    private LyricsSnapshotPayload? _currentIdentityLyrics;
+    private int? _currentIdentityDocumentIndex;
+    private int? _currentIdentityTimelineIndex;
     private string _connectionStatus = "Waiting for playback source";
     private string _externalLyricsStatus = "No current local LRC";
     private bool _canOpenExternalLyrics;
@@ -139,12 +130,16 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
         {
             Lines.Clear();
             foreach (var line in presentation.Lines)
-                Lines.Add(new MainLyricsLineViewModel(line));
+                Lines.Add(MainLyricsLineViewModel.From(line));
         }
         else
         {
             for (var index = 0; index < presentation.Lines.Count; index++)
-                Lines[index].UpdateSemanticRole(presentation.Lines[index].Role);
+            {
+                var line = presentation.Lines[index];
+                if (Lines[index].Role != line.Role)
+                    Lines[index] = MainLyricsLineViewModel.From(line);
+            }
         }
 
         if (previouslyHadLines != HasLines)
@@ -166,7 +161,13 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
         var current = presentation.CurrentIndex is int currentIndex && currentIndex >= 0 && currentIndex < Lines.Count
             ? Lines[currentIndex]
             : null;
-        if (ReferenceEquals(_currentLine, current)) return;
+        var currentIdentityChanged = !ReferenceEquals(_currentIdentityLyrics, _mappedLyrics) ||
+                                     _currentIdentityDocumentIndex != presentation.CurrentIndex ||
+                                     _currentIdentityTimelineIndex != presentation.CurrentTimelineIndex;
+        _currentIdentityLyrics = _mappedLyrics;
+        _currentIdentityDocumentIndex = presentation.CurrentIndex;
+        _currentIdentityTimelineIndex = presentation.CurrentTimelineIndex;
+        if (!currentIdentityChanged) return;
 
         _currentLine = current;
         OnPropertyChanged(nameof(CurrentLine));

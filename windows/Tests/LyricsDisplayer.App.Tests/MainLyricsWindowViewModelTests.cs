@@ -1,5 +1,6 @@
-using LyricsDisplayer.Core.Protocol;
+using System.Collections.Specialized;
 using LyricsDisplayer.Core.Library;
+using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
 
 namespace LyricsDisplayer.App.Tests;
@@ -21,10 +22,13 @@ public sealed class MainLyricsWindowViewModelTests
         var timeline = new LyricsTimeline(documentLines);
         var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
         var currentLineChanges = new List<MainLyricsLineViewModel?>();
+        var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
         viewModel.CurrentLineChanged += currentLineChanges.Add;
+        viewModel.Lines.CollectionChanged += (_, args) => collectionChanges.Add(args);
 
         viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(1_500), timeline.OrderedLines);
         var originalItems = viewModel.Lines.ToArray();
+        collectionChanges.Clear();
 
         Assert.Multiple(() =>
         {
@@ -46,10 +50,133 @@ public sealed class MainLyricsWindowViewModelTests
         {
             Assert.That(viewModel.CurrentLine?.Text, Is.EqualTo("Third in time"));
             Assert.That(viewModel.CurrentLine?.Role, Is.EqualTo(LyricLineRole.Current));
-            Assert.That(viewModel.Lines[0], Is.SameAs(originalItems[0]), "Playback changes should retain document items.");
-            Assert.That(viewModel.Lines[1], Is.SameAs(originalItems[1]));
+            Assert.That(viewModel.Lines[0], Is.Not.SameAs(originalItems[0]));
+            Assert.That(viewModel.Lines[1], Is.Not.SameAs(originalItems[1]));
+            Assert.That(viewModel.Lines[2], Is.Not.SameAs(originalItems[2]));
+            Assert.That(viewModel.Lines[3], Is.SameAs(originalItems[3]),
+                "Rows whose visible role did not change should keep their immutable row snapshot.");
+            Assert.That(collectionChanges.Select(args => args.Action),
+                Is.All.EqualTo(NotifyCollectionChangedAction.Replace));
+            Assert.That(collectionChanges.SelectMany(args => args.NewItems!.Cast<MainLyricsLineViewModel>())
+                    .Select(line => line.DocumentIndex),
+                Is.EquivalentTo(new[] { 0, 1, 2 }));
             Assert.That(currentLineChanges.Select(line => line?.Text),
                 Is.EqualTo(new string?[] { "First in time", "Third in time" }));
+        });
+    }
+
+    [Test]
+    public void SequentialProgressionPublishesEachCurrentLineAndReplacesOnlyChangedRows()
+    {
+        var documentLines = Enumerable.Range(1, 15)
+            .Select(index => Line(index * 1_000, $"Line {index}"))
+            .ToArray();
+        var lyrics = TimedLyrics(documentLines);
+        var timeline = new LyricsTimeline(documentLines);
+        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var currentLineChanges = new List<int?>();
+        var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
+        viewModel.CurrentLineChanged += line => currentLineChanges.Add(line?.DocumentIndex);
+        viewModel.Lines.CollectionChanged += (_, args) => collectionChanges.Add(args);
+
+        viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(2_000), timeline.OrderedLines);
+        AssertRoles(viewModel, currentIndex: 1);
+        collectionChanges.Clear();
+
+        // Ten sequential lyric transitions ensure each semantic change reaches the observable
+        // collection without rebuilding the full document or relying on scroll events.
+        for (var currentIndex = 2; currentIndex <= 11; currentIndex++)
+        {
+            viewModel.UpdateLyricsPresentation(
+                lyrics, timeline.Evaluate((currentIndex + 1) * 1_000L), timeline.OrderedLines);
+
+            AssertRoles(viewModel, currentIndex);
+            AssertReplacedDocumentIndexes(collectionChanges, currentIndex - 1, currentIndex);
+            collectionChanges.Clear();
+        }
+
+        Assert.That(currentLineChanges, Is.EqualTo(Enumerable.Range(1, 11).Select(index => (int?)index)));
+    }
+
+    [Test]
+    public void LargeForwardAndBackwardSeeksReplaceEveryRowWhoseRoleChanges()
+    {
+        var documentLines = Enumerable.Range(1, 15)
+            .Select(index => Line(index * 1_000, $"Line {index}"))
+            .ToArray();
+        var lyrics = TimedLyrics(documentLines);
+        var timeline = new LyricsTimeline(documentLines);
+        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
+        viewModel.Lines.CollectionChanged += (_, args) => collectionChanges.Add(args);
+
+        viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(4_000), timeline.OrderedLines);
+        AssertRoles(viewModel, currentIndex: 3);
+        collectionChanges.Clear();
+
+        // A forward seek must update the full affected range, not just the new current row.
+        viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(12_000), timeline.OrderedLines);
+        AssertRoles(viewModel, currentIndex: 11);
+        AssertReplacedDocumentIndexes(collectionChanges, Enumerable.Range(3, 9).ToArray());
+        collectionChanges.Clear();
+
+        // A backward seek restores Upcoming roles for every row after the new current line.
+        viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(4_000), timeline.OrderedLines);
+        AssertRoles(viewModel, currentIndex: 3);
+        AssertReplacedDocumentIndexes(collectionChanges, Enumerable.Range(3, 9).ToArray());
+    }
+
+    [Test]
+    public void SameResolvedCurrentLineDoesNotReplaceRowsOrRepublishPresentation()
+    {
+        var lines = new[] { Line(1_000, "A"), Line(2_000, "B") };
+        var lyrics = TimedLyrics(lines);
+        var timeline = new LyricsTimeline(lines);
+        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
+        var currentLineChanges = 0;
+        viewModel.Lines.CollectionChanged += (_, args) => collectionChanges.Add(args);
+        viewModel.CurrentLineChanged += _ => currentLineChanges++;
+
+        viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(1_100), timeline.OrderedLines);
+        var presentation = viewModel.Presentation;
+        var items = viewModel.Lines.ToArray();
+        collectionChanges.Clear();
+
+        viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(1_900), timeline.OrderedLines);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Presentation, Is.SameAs(presentation));
+            Assert.That(viewModel.Lines, Is.EqualTo(items));
+            Assert.That(collectionChanges, Is.Empty);
+            Assert.That(currentLineChanges, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void ReplacingTrackDocumentRemovesOldRowsAndPublishesNewCurrentLine()
+    {
+        var oldLines = new[] { Line(1_000, "Old one"), Line(2_000, "Old two") };
+        var oldTimeline = new LyricsTimeline(oldLines);
+        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var currentLineChanges = new List<MainLyricsLineViewModel?>();
+        viewModel.CurrentLineChanged += currentLineChanges.Add;
+        viewModel.UpdateLyricsPresentation(TimedLyrics(oldLines), oldTimeline.Evaluate(2_000), oldTimeline.OrderedLines);
+        var oldCurrentLine = viewModel.CurrentLine;
+
+        var newLines = new[] { Line(1_500, "New one"), Line(2_500, "New two"), Line(3_500, "New three") };
+        var newTimeline = new LyricsTimeline(newLines);
+        viewModel.UpdateLyricsPresentation(TimedLyrics(newLines), newTimeline.Evaluate(2_500), newTimeline.OrderedLines);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Lines.Select(line => line.Text),
+                Is.EqualTo(new[] { "New one", "New two", "New three" }));
+            Assert.That(viewModel.CurrentLine?.Text, Is.EqualTo("New two"));
+            Assert.That(viewModel.CurrentLine, Is.Not.SameAs(oldCurrentLine));
+            Assert.That(currentLineChanges.Select(line => line?.Text),
+                Is.EqualTo(new string?[] { "Old two", "New two" }));
         });
     }
 
@@ -151,4 +278,27 @@ public sealed class MainLyricsWindowViewModelTests
         new("track", true, true, "local", lines, null);
 
     private static LyricsLine Line(long startMs, string text) => new(startMs, startMs, text);
+
+    private static void AssertRoles(MainLyricsWindowViewModel viewModel, int currentIndex)
+    {
+        var expected = Enumerable.Range(0, viewModel.Lines.Count)
+            .Select(index => index < currentIndex ? LyricLineRole.Past :
+                index == currentIndex ? LyricLineRole.Current : LyricLineRole.Upcoming);
+        Assert.That(viewModel.Lines.Select(line => line.Role), Is.EqualTo(expected));
+        Assert.That(viewModel.CurrentLine?.DocumentIndex, Is.EqualTo(currentIndex));
+    }
+
+    private static void AssertReplacedDocumentIndexes(
+        IReadOnlyCollection<NotifyCollectionChangedEventArgs> changes,
+        params int[] expectedIndexes)
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(changes.Select(args => args.Action),
+                Is.All.EqualTo(NotifyCollectionChangedAction.Replace));
+            Assert.That(changes.SelectMany(args => args.NewItems!.Cast<MainLyricsLineViewModel>())
+                    .Select(line => line.DocumentIndex),
+                Is.EquivalentTo(expectedIndexes));
+        });
+    }
 }

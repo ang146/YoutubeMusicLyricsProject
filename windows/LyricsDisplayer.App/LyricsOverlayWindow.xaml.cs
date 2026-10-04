@@ -123,7 +123,7 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         SecondaryText.MaxWidth = Math.Max(100, Width - 56);
     }
 
-    public void ApplyInteractionState(OverlayInteractionState state)
+    public void ApplyInteractionState(OverlayInteractionState state, bool effectiveTopmost)
     {
         _interaction = state;
         OverlaySurface.Background = state.ClickThrough
@@ -131,7 +131,7 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
             : new SolidColorBrush(Color.FromArgb(0x30, 0, 0, 0));
         if (Math.Abs(Width - state.Width) > 0.1) Width = state.Width;
         if (Math.Abs(Height - state.Height) > 0.1) Height = state.Height;
-        Topmost = state.Topmost;
+        Topmost = effectiveTopmost;
         SecondaryText.Visibility = state.ContentMode == LyricsContentMode.TwoLines
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -140,7 +140,6 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         AllLyricsMenuItem.IsChecked = state.ContentMode == LyricsContentMode.AllLyrics;
         LockedMenuItem.IsChecked = state.Locked;
         ClickThroughMenuItem.IsChecked = state.ClickThrough;
-        TopmostMenuItem.IsChecked = state.Topmost;
         PrimaryText.MaxWidth = Math.Max(100, state.Width - 56);
         SecondaryText.MaxWidth = Math.Max(100, state.Width - 56);
     }

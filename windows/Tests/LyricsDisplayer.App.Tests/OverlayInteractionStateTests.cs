@@ -12,7 +12,7 @@ public sealed class OverlayInteractionStateTests
     public void LockControlsMovementWithoutChangingTheSavedClickThroughValue(bool locked, bool clickThrough)
     {
         var state = new OverlayInteractionState(
-            locked, clickThrough, true, LyricsContentMode.TwoLines, 900, 220);
+            locked, clickThrough, LyricsContentMode.TwoLines, 900, 220);
         Assert.That(state.CanDragOnLyrics, Is.EqualTo(!locked));
         Assert.That(state.CanResize, Is.EqualTo(!clickThrough));
         Assert.That(state.ClickThrough, Is.EqualTo(clickThrough));
@@ -21,7 +21,7 @@ public sealed class OverlayInteractionStateTests
     [Test]
     public void PreferencesMappingPreservesEverySetting()
     {
-        var preferences = new OverlayPreferences(true, false, false, LyricsContentMode.OneLine, 1230, 377);
+        var preferences = new OverlayPreferences(true, false, LyricsContentMode.OneLine, 1230, 377);
         Assert.That(OverlayInteractionState.FromPreferences(preferences).ToPreferences(),
             Is.EqualTo(preferences));
     }

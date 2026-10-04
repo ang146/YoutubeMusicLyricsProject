@@ -42,7 +42,7 @@ public sealed class NativeOverlayClickThroughTests
     [TestCase(true, true)]
     public void LockAndResizeCapabilitiesRemainSeparate(bool canResize, bool locked)
     {
-        var state = new OverlayInteractionState(locked, !canResize, true,
+        var state = new OverlayInteractionState(locked, !canResize,
             LyricsContentMode.TwoLines, 900, OverlayPreferences.DefaultHeight);
         Assert.That(state.CanResize, Is.EqualTo(canResize));
         Assert.That(state.CanDragOnLyrics, Is.EqualTo(!locked));

@@ -54,8 +54,6 @@
                               Tag="ToggleLocked" Click="OnMenuItemClick" />
                     <MenuItem x:Name="ClickThroughMenuItem" Header="Click Through" IsCheckable="True"
                               Tag="ToggleClickThrough" Click="OnMenuItemClick" />
-                    <MenuItem x:Name="TopmostMenuItem" Header="Always on Top" IsCheckable="True"
-                              Tag="ToggleTopmost" Click="OnMenuItemClick" />
                 </MenuItem>
                 <Separator />
                 <MenuItem Header="Hide Desktop Lyrics" Tag="Hide" Click="OnMenuItemClick" />

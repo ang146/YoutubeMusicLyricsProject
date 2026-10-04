@@ -308,6 +308,8 @@ public static partial class EditorDocumentCodec
 /// <summary>Command-oriented mutable editor buffer with snapshot undo/redo and clean-baseline dirty tracking.</summary>
 public sealed class EditorDocumentBuffer
 {
+    public const int MaximumPlaybackTimestampOccurrences = 5;
+
     private sealed record State(EditorDocument Document, UserTrackMetadata Metadata);
     private readonly Stack<State> _undo = new();
     private readonly Stack<State> _redo = new();
@@ -402,24 +404,51 @@ public sealed class EditorDocumentBuffer
         return true;
     }
 
-    public bool SetTimestampFromPlayback(EditorSelection selection, bool trackMatches, long playbackPositionMs, long globalOffsetMs)
+    public bool SetTimestampFromPlayback(EditorSelection selection, bool trackMatches, long playbackPositionMs,
+        long globalOffsetMs, int? nextAvailableIndex = null)
     {
         if (!trackMatches || selection.SelectedRowId is not { } rowId || playbackPositionMs < 0) return false;
         var row = FindRow(Document, rowId);
         if (row is null) return false;
-        var index = 0;
-        if (row.Timestamps.Count > 0)
+        var occupiedCount = row.Timestamps.Count(timestamp => !string.IsNullOrWhiteSpace(timestamp.Value));
+        if (occupiedCount >= MaximumPlaybackTimestampOccurrences) return false;
+
+        var emptyIndex = Enumerable.Range(0, Math.Min(row.Timestamps.Count, MaximumPlaybackTimestampOccurrences))
+            .FirstOrDefault(index => string.IsNullOrWhiteSpace(row.Timestamps[index].Value), -1);
+        if (emptyIndex < 0)
         {
-            if (selection.SelectedTimestampIndex is not { } selected || selected < 0 || selected >= row.Timestamps.Count)
+            if (nextAvailableIndex is { } requestedIndex)
+            {
+                if (requestedIndex < 0 || requestedIndex >= MaximumPlaybackTimestampOccurrences ||
+                    requestedIndex > row.Timestamps.Count) return false;
+                if (requestedIndex < row.Timestamps.Count)
+                {
+                    long insertionTime;
+                    try { insertionTime = checked(playbackPositionMs - globalOffsetMs); }
+                    catch (OverflowException) { return false; }
+                    if (insertionTime < 0) return false;
+                    var insertionValue = EditorDocumentCodec.FormatTimestamp(insertionTime);
+                    Change(document => UpdateRow(document, rowId, existing =>
+                    {
+                        var timestamps = existing.Timestamps.ToList();
+                        timestamps.Insert(requestedIndex, new(Guid.NewGuid(), insertionValue));
+                        return existing with { Timestamps = timestamps };
+                    }));
+                    return true;
+                }
+            }
+            else if (row.Timestamps.Count >= MaximumPlaybackTimestampOccurrences)
+            {
                 return false;
-            index = selected;
+            }
         }
         long rawTime;
         try { rawTime = checked(playbackPositionMs - globalOffsetMs); }
         catch (OverflowException) { return false; }
         if (rawTime < 0) return false;
-        SetTimestamp(rowId, index, EditorDocumentCodec.FormatTimestamp(rawTime));
-        return true;
+        var targetIndex = emptyIndex >= 0 ? emptyIndex : row.Timestamps.Count;
+        if (targetIndex >= MaximumPlaybackTimestampOccurrences) return false;
+        return SetTimestamp(rowId, targetIndex, EditorDocumentCodec.FormatTimestamp(rawTime));
     }
 
     public void Undo()

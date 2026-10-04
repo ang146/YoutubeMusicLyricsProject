@@ -142,9 +142,9 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             CommitStagedEdits();
             CommitMetadata();
             _buffer.Undo();
-            RefreshFromBuffer();
+            RefreshFromBuffer(keepSelection: true);
         }, _ => CanUndo || IsDirty);
-        RedoCommand = new("editor.redo", _ => { _buffer.Redo(); RefreshFromBuffer(); }, _ => CanRedo);
+        RedoCommand = new("editor.redo", _ => { _buffer.Redo(); RefreshFromBuffer(keepSelection: true); }, _ => CanRedo);
         InsertRowAboveCommand = new("editor.row.insert-above", _ => InsertRelative(true), _ => SelectedRowIdInDocument is not null);
         InsertRowBelowCommand = new("editor.row.insert-below", _ => InsertRelative(false), _ => SelectedRowIdInDocument is not null);
         AppendRowCommand = new("editor.row.append", _ =>
@@ -381,12 +381,22 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     private void SetTimestampFromPlayback()
     {
+        RefreshPlayback();
+        if (!CanSetTimestampFromPlayback(null))
+        {
+            Status = "Select a row, ensure playback matches the editor track, and leave an available timestamp slot.";
+            return;
+        }
+        var nextAvailableIndex = FindNextAvailableTimestampIndex(
+            Rows.First(row => row.EditorLineId == _selection.SelectedRowId));
+        if (nextAvailableIndex is null) return;
         CommitStagedEdits();
         CommitMetadata();
         RefreshPlayback();
-        if (!_buffer.SetTimestampFromPlayback(_selection, _playbackMatches, _playbackPosition, _playback.GlobalOffsetMs))
+        if (!_buffer.SetTimestampFromPlayback(_selection, _playbackMatches, _playbackPosition,
+                _playback.GlobalOffsetMs, nextAvailableIndex))
         {
-            Status = "Select a row and, when it has timestamps, select one occurrence; playback must match the editor track.";
+            Status = "The current playback time cannot be added to this row.";
             return;
         }
         Status = string.Empty;
@@ -398,9 +408,27 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         if (!_playbackMatches || _selection.SelectedRowId is not { } rowId) return false;
         var row = _buffer.Document.Rows.FirstOrDefault(item => item.Id == rowId);
         if (row is null) return false;
-        return row.Timestamps.Count == 0 ||
-            (_selection.SelectedColumn == EditorColumn.Timestamp &&
-             _selection.SelectedTimestampIndex is { } index && index >= 0 && index < row.Timestamps.Count);
+        var viewRow = Rows.FirstOrDefault(item => item.EditorLineId == rowId);
+        if (viewRow is null || FindNextAvailableTimestampIndex(viewRow) is null) return false;
+
+        try
+        {
+            return checked(_playbackPosition - _playback.GlobalOffsetMs) >= 0;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static int? FindNextAvailableTimestampIndex(EditorRowViewModel row)
+    {
+        var limit = EditorDocumentBuffer.MaximumPlaybackTimestampOccurrences;
+        for (var index = 0; index < Math.Min(row.Timestamps.Count, limit); index++)
+            if (string.IsNullOrWhiteSpace(row.Timestamps[index])) return index;
+
+        var populatedCount = row.Timestamps.Count(value => !string.IsNullOrWhiteSpace(value));
+        return populatedCount < limit ? populatedCount : null;
     }
 
     private void CommitMetadata()
@@ -444,6 +472,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             {
                 OnPropertyChanged(nameof(IsDirty));
                 SaveCommand.Invalidate();
+                SetTimestampFromPlaybackCommand.Invalidate();
             };
             Rows.Add(viewRow);
         }

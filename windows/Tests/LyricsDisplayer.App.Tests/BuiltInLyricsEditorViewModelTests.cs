@@ -491,6 +491,212 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     [Test]
+    public void SetCurrentTimeAppendsToSelectedRowAndUndoRedoRestoresEachAppend()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:12.500]Hello\n", 38_200);
+        var viewModel = fixture.ViewModel;
+        var rowId = viewModel.Rows.Single().EditorLineId;
+        viewModel.SelectCell(rowId, EditorColumn.Lyrics);
+
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(2), Is.EqualTo(new[] { "00:12.500", "00:38.200" }));
+            Assert.That(viewModel.Selection.SelectedRowId, Is.EqualTo(rowId));
+            Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(3),
+                "The dynamic projection should expose the next spare timestamp column after append.");
+            Assert.That(viewModel.IsDirty, Is.True);
+            Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+        });
+
+        fixture.Playback.Apply(CreateMessage(2, "track-a", 45_600));
+        viewModel.RefreshPlayback();
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+        Assert.That(viewModel.Rows.Single().Timestamps.Take(3),
+            Is.EqualTo(new[] { "00:12.500", "00:38.200", "00:45.600" }));
+
+        viewModel.UndoCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(2), Is.EqualTo(new[] { "00:12.500", "00:38.200" }));
+            Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+        });
+        viewModel.UndoCommand.Execute(null);
+        Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo("00:12.500"));
+        viewModel.RedoCommand.Execute(null);
+        viewModel.RedoCommand.Execute(null);
+        Assert.That(viewModel.Rows.Single().Timestamps.Take(3),
+            Is.EqualTo(new[] { "00:12.500", "00:38.200", "00:45.600" }));
+    }
+
+    [Test]
+    public void SetCurrentTimeFillsTheFirstSparseGridSlotAndPreservesLaterTimestampOrder()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:10.000][00:30.000]Line\n", 20_000);
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        viewModel.SelectCell(row.EditorLineId, EditorColumn.Lyrics);
+
+        row.Timestamps[1] = string.Empty;
+        row.Timestamps[2] = "00:30.000";
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+
+        Assert.That(viewModel.Rows.Single().Timestamps.Take(3),
+            Is.EqualTo(new[] { "00:10.000", "00:20.000", "00:30.000" }));
+        Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(4));
+        viewModel.UndoCommand.Execute(null);
+        Assert.That(viewModel.Rows.Single().Timestamps.Take(2),
+            Is.EqualTo(new[] { "00:10.000", "00:30.000" }));
+        viewModel.RedoCommand.Execute(null);
+        Assert.That(viewModel.Rows.Single().Timestamps.Take(3),
+            Is.EqualTo(new[] { "00:10.000", "00:20.000", "00:30.000" }));
+    }
+
+    [Test]
+    public void SetCurrentTimeCanExecuteRefreshesAtFiveOccurrenceLimitAndUndoRedo()
+    {
+        using var fixture = CreatePlaybackViewModel(
+            "[00:10.000][00:20.000][00:30.000][00:40.000]Line\n", 50_000);
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        viewModel.SelectCell(row.EditorLineId, EditorColumn.Lyrics);
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+
+        var commandInvalidations = 0;
+        viewModel.SetTimestampFromPlaybackCommand.CanExecuteChanged += (_, _) => commandInvalidations++;
+        row.Timestamps[4] = "00:45.000";
+        Assert.Multiple(() =>
+        {
+            Assert.That(commandInvalidations, Is.GreaterThan(0),
+                "Staged timestamp edits immediately refresh command state.");
+            Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.False);
+        });
+
+        row.Timestamps[4] = string.Empty;
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+        var expected = new[] { "00:10.000", "00:20.000", "00:30.000", "00:40.000", "00:50.000" };
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(5), Is.EqualTo(expected));
+            Assert.That(viewModel.TimestampColumnCount, Is.EqualTo(6));
+            Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.False);
+        });
+
+        var dirtyAtLimit = viewModel.IsDirty;
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(5), Is.EqualTo(expected));
+            Assert.That(viewModel.IsDirty, Is.EqualTo(dirtyAtLimit),
+                "A direct invocation while disabled must not commit or mutate anything.");
+        });
+
+        viewModel.UndoCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(4),
+                Is.EqualTo(new[] { "00:10.000", "00:20.000", "00:30.000", "00:40.000" }));
+            Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+        });
+        viewModel.RedoCommand.Execute(null);
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.False);
+    }
+
+    [Test]
+    public void SetCurrentTimeRequiresASelectedRowAndMatchingFixedEditorTrack()
+    {
+        using var fixture = CreatePlaybackViewModel("Line\n", 10_000);
+        var viewModel = fixture.ViewModel;
+        var rowId = viewModel.Rows.Single().EditorLineId;
+        var editorTrackId = viewModel.EditorTrack.LocalTrackId;
+
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.False,
+            "No row selection must not fall back to another editor or playback row.");
+        viewModel.SelectCell(rowId, EditorColumn.Lyrics);
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True);
+
+        fixture.Playback.Apply(CreateMessage(2, "track-b", 20_000));
+        viewModel.RefreshPlayback();
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.False);
+            Assert.That(viewModel.EditorTrack.LocalTrackId, Is.EqualTo(editorTrackId));
+            Assert.That(viewModel.Selection.SelectedRowId, Is.EqualTo(rowId));
+            Assert.That(viewModel.Rows.Single().Timestamps, Is.All.Empty);
+        });
+
+        fixture.Playback.Apply(CreateMessage(3, "track-a", 30_000));
+        viewModel.RefreshPlayback();
+        Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.True,
+            "Returning playback to the fixed editor track re-enables the command.");
+    }
+
+    [Test]
+    public void DisabledSetCurrentTimeDoesNotDirtyAnUnchangedFiveTimestampDocument()
+    {
+        using var fixture = CreatePlaybackViewModel(
+            "[00:10.000][00:20.000][00:30.000][00:40.000][00:50.000]Line\n", 55_000);
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        viewModel.SelectCell(row.EditorLineId, EditorColumn.Lyrics);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.SetTimestampFromPlaybackCommand.CanExecute(null), Is.False);
+            Assert.That(viewModel.IsDirty, Is.False);
+        });
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(5), Is.EqualTo(new[]
+                { "00:10.000", "00:20.000", "00:30.000", "00:40.000", "00:50.000" }));
+            Assert.That(viewModel.IsDirty, Is.False);
+        });
+    }
+
+    [Test]
+    public void SetCurrentTimeValidationRemainsAdvisoryAndMultipleAppendsSaveAndReloadInOrder()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:30.000]Hello\n", 20_000);
+        var viewModel = fixture.ViewModel;
+        var rowId = viewModel.Rows.Single().EditorLineId;
+        viewModel.SelectCell(rowId, EditorColumn.Lyrics);
+
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+        fixture.Playback.Apply(CreateMessage(2, "track-a", 15_000));
+        viewModel.RefreshPlayback();
+        viewModel.SetTimestampFromPlaybackCommand.Execute(null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows.Single().Timestamps.Take(3),
+                Is.EqualTo(new[] { "00:30.000", "00:20.000", "00:15.000" }));
+            Assert.That(viewModel.Rows.Single().LyricsText, Is.EqualTo("Hello"));
+            Assert.That(viewModel.WarningCount, Is.EqualTo(2));
+            Assert.That(viewModel.SaveCommand.CanExecute(null), Is.True,
+                "Out-of-order timestamp diagnostics must not block Save.");
+        });
+
+        viewModel.SaveCommand.Execute(EditorSaveAction.Save);
+        var saved = fixture.Library.LoadForEditing(viewModel.EditorTrack).Asset!;
+        Assert.That(saved.LrcContent, Is.EqualTo("[00:30.000][00:20.000][00:15.000]Hello\n"));
+
+        using var reopened = new BuiltInLyricsEditorViewModel(saved, fixture.Library, fixture.Playback);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reopened.Rows.Single().Timestamps.Take(3),
+                Is.EqualTo(new[] { "00:30.000", "00:20.000", "00:15.000" }));
+            Assert.That(reopened.Rows.Single().LyricsText, Is.EqualTo("Hello"));
+            Assert.That(reopened.WarningCount, Is.EqualTo(2));
+            Assert.That(reopened.IsDirty, Is.False);
+        });
+    }
+
+    [Test]
     public void CommittingRowWithoutColumnShapeChangePreservesProjectionAndLogicalSelection()
     {
         using var fixture = CreateViewModel("[00:00.000]Line\n");
@@ -898,6 +1104,31 @@ public sealed class BuiltInLyricsEditorViewModelTests
         return new(viewModel, library, playback);
     }
 
+    private static EditorFixture CreatePlaybackViewModel(string content, long playbackPositionMs)
+    {
+        var root = CreateLibraryRoot();
+        LyricsLibrary? library = null;
+        try
+        {
+            library = new LyricsLibrary(CreateLibraryPaths(root));
+            Assert.That(library.Initialise().Completed, Is.True);
+            var track = ImportTrack(library, "track-a");
+            var imported = library.LoadForEditing(track.Record).Asset!;
+            File.WriteAllText(imported.LyricsPath, content);
+            var asset = library.LoadForEditing(track.Record).Asset!;
+            var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(new FixedTimeSource()), library);
+            playback.Apply(CreateMessage(1, "track-a", playbackPositionMs));
+            var viewModel = new BuiltInLyricsEditorViewModel(asset, library, playback);
+            return new(viewModel, library, playback, root);
+        }
+        catch
+        {
+            library?.Dispose();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            throw;
+        }
+    }
+
     private static void AssertRows(BuiltInLyricsEditorViewModel viewModel, params string[] expected) =>
         Assert.That(viewModel.Rows.Select(row => row.LyricsText), Is.EqualTo(expected));
 
@@ -922,6 +1153,12 @@ public sealed class BuiltInLyricsEditorViewModelTests
         return new(metadata, payload, "{}");
     }
 
+    private sealed class FixedTimeSource : IMonotonicTimeSource
+    {
+        public long GetTimestamp() => 0;
+        public TimeSpan GetElapsedTime(long startingTimestamp, long endingTimestamp) => TimeSpan.Zero;
+    }
+
     private static string CreateLibraryRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "LyricsDisplayerAppTests", Guid.NewGuid().ToString("N"));
@@ -944,7 +1181,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     private sealed class EditorFixture(BuiltInLyricsEditorViewModel viewModel, LyricsLibrary library,
-        PlaybackStateCoordinator playback) : IDisposable
+        PlaybackStateCoordinator playback, string? cleanupRoot = null) : IDisposable
     {
         public BuiltInLyricsEditorViewModel ViewModel { get; } = viewModel;
         public LyricsLibrary Library { get; } = library;
@@ -954,6 +1191,8 @@ public sealed class BuiltInLyricsEditorViewModelTests
         {
             ViewModel.Dispose();
             Library.Dispose();
+            if (cleanupRoot is not null && Directory.Exists(cleanupRoot))
+                Directory.Delete(cleanupRoot, recursive: true);
         }
     }
 }

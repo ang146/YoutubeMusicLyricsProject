@@ -239,21 +239,117 @@ public sealed class EditorDocumentTests
     }
 
     [Test]
-    public void SetCurrentTimeCreatesOrReplacesOnlyExplicitTimestampUsingGlobalOffset()
+    public void SetCurrentTimeAppendsWithoutOverwritingAndUsesGlobalOffset()
     {
         var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("[00:10.000][00:30.000]A\nUntimed B\n"),
             UserTrackMetadata.Normalise(null, null));
         var timedRow = buffer.Document.Rows[0];
         var untimedRow = buffer.Document.Rows[1];
 
-        Assert.That(buffer.SetTimestampFromPlayback(new(timedRow.Id, EditorColumn.Lyrics), true, 40_000, 500), Is.False,
-            "An existing multi-timestamp row requires an explicitly selected timestamp occurrence.");
-        Assert.That(buffer.SetTimestampFromPlayback(new(timedRow.Id, EditorColumn.Timestamp, 1), true, 40_000, 500), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(new(timedRow.Id, EditorColumn.Timestamp, 0), true, 40_000, 500), Is.True,
+            "Playback time appends even when an existing timestamp cell is selected.");
         Assert.That(buffer.SetTimestampFromPlayback(new(untimedRow.Id, EditorColumn.Lyrics), true, 12_345, 500), Is.True);
 
         Assert.That(EditorDocumentCodec.Serialize(buffer.Document),
-            Is.EqualTo("[00:10.000][00:39.500]A\n[00:11.845]Untimed B\n"));
+            Is.EqualTo("[00:10.000][00:30.000][00:39.500]A\n[00:11.845]Untimed B\n"));
         Assert.That(buffer.SetTimestampFromPlayback(new(untimedRow.Id, EditorColumn.Timestamp, 0), false, 20_000, 0), Is.False);
+    }
+
+    [Test]
+    public void SetCurrentTimeAppendsInOrderUpToFiveAndLeavesExistingOverLimitDataUntouched()
+    {
+        const string fourTimestamps = "[00:10.000][00:20.000][00:30.000][00:40.000]Line\n";
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(fourTimestamps),
+            UserTrackMetadata.Normalise(null, null));
+        var row = buffer.Document.Rows.Single();
+
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 50_000, 0), Is.True);
+        Assert.That(buffer.Document.Rows.Single().Timestamps.Select(item => item.Value),
+            Is.EqualTo(new[] { "00:10.000", "00:20.000", "00:30.000", "00:40.000", "00:50.000" }));
+        Assert.That(buffer.Document.Validate().Any(item => item.Severity == EditorValidationSeverity.Warning), Is.False);
+
+        var fiveTimestampContent = EditorDocumentCodec.Serialize(buffer.Document);
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 55_000, 0), Is.False);
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(fiveTimestampContent));
+
+        var legacySixTimestamp = "[00:10.000][00:20.000][00:30.000][00:40.000][00:50.000][01:00.000]Legacy\n";
+        var legacy = new EditorDocumentBuffer(EditorDocumentCodec.Load(legacySixTimestamp),
+            UserTrackMetadata.Normalise(null, null));
+        var legacyRow = legacy.Document.Rows.Single();
+        Assert.That(legacy.SetTimestampFromPlayback(new(legacyRow.Id, EditorColumn.Lyrics), true, 65_000, 0), Is.False);
+        Assert.That(EditorDocumentCodec.Serialize(legacy.Document), Is.EqualTo(legacySixTimestamp),
+            "Existing source data beyond the UI command limit remains lossless.");
+    }
+
+    [Test]
+    public void RepeatedCurrentTimeAppendsUndoAndRedoOneOccurrenceAtATimeAndRoundTrips()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("Line\n"),
+            UserTrackMetadata.Normalise(null, null));
+        var row = buffer.Document.Rows.Single();
+        var selection = new EditorSelection(row.Id, EditorColumn.Lyrics);
+
+        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 10_000, 0), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 22_500, 0), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 31_900, 0), Is.True);
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:10.000][00:22.500][00:31.900]Line\n"));
+
+        buffer.Undo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:10.000][00:22.500]Line\n"));
+        buffer.Undo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:10.000]Line\n"));
+        buffer.Redo();
+        buffer.Redo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:10.000][00:22.500][00:31.900]Line\n"));
+
+        var roundTripped = EditorDocumentCodec.Load(EditorDocumentCodec.Serialize(buffer.Document));
+        Assert.That(roundTripped.Rows.Single().LyricsText, Is.EqualTo("Line"));
+        Assert.That(roundTripped.Rows.Single().Timestamps.Select(item => item.Value),
+            Is.EqualTo(new[] { "00:10.000", "00:22.500", "00:31.900" }));
+    }
+
+    [Test]
+    public void SetCurrentTimeFillsAnExistingSparseSlotWithoutMovingLaterOccurrences()
+    {
+        var first = new EditorTimestamp(Guid.NewGuid(), "00:10.000");
+        var gap = new EditorTimestamp(Guid.NewGuid(), string.Empty);
+        var later = new EditorTimestamp(Guid.NewGuid(), "00:30.000");
+        var row = new EditorLyricRow(Guid.NewGuid(), "Line", [first, gap, later]);
+        var line = new EditorPhysicalLine(Guid.NewGuid(), EditorEntryKind.Lyric,
+            "[00:10.000][][00:30.000]Line", "\n", row, IsModified: true);
+        var document = new EditorDocument([line], line.RawText + line.LineEnding, null, "\n");
+        var buffer = new EditorDocumentBuffer(document, UserTrackMetadata.Normalise(null, null));
+
+        Assert.That(buffer.SetTimestampFromPlayback(
+            new(row.Id, EditorColumn.Lyrics), true, 20_000, 0, nextAvailableIndex: 1), Is.True);
+        var updated = buffer.Document.Rows.Single();
+        Assert.That(updated.Timestamps.Select(item => item.Value),
+            Is.EqualTo(new[] { "00:10.000", "00:20.000", "00:30.000" }));
+        Assert.That(updated.Timestamps[2].Id, Is.EqualTo(later.Id),
+            "Filling a sparse slot preserves later occurrence identity and order.");
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document),
+            Is.EqualTo("[00:10.000][00:20.000][00:30.000]Line\n"));
+    }
+
+    [Test]
+    public void CurrentTimeAllowsOutOfOrderAndEqualOccurrencesButRejectsNegativeAuthoredTime()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("[00:30.000]Line\n"),
+            UserTrackMetadata.Normalise(null, null));
+        var row = buffer.Document.Rows.Single();
+
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 20_000, 0), Is.True);
+        Assert.That(buffer.Document.Validate().Any(item => item.Severity == EditorValidationSeverity.Warning), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 20_000, 0), Is.True,
+            "Equal timestamps are valid command input.");
+        Assert.That(buffer.Document.Rows.Single().Timestamps.Select(item => item.Value),
+            Is.EqualTo(new[] { "00:30.000", "00:20.000", "00:20.000" }));
+
+        var beforeNegative = EditorDocumentCodec.Serialize(buffer.Document);
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 1_000, 2_000), Is.False);
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(beforeNegative));
     }
 
     [Test]

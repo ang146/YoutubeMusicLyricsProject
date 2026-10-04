@@ -15,7 +15,7 @@ public sealed class WindowsTrayIcon : ITrayIconAdapter
     public WindowsTrayIcon()
     {
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Open Control Panel", null, (_, _) => _openControlPanel?.Invoke());
+        menu.Items.Add("Open Lyrics Window", null, (_, _) => _openControlPanel?.Invoke());
         _toggleOverlayItem = new Forms.ToolStripMenuItem("Show Desktop Lyrics");
         _toggleOverlayItem.Click += (_, _) => _toggleOverlay?.Invoke();
         menu.Items.Add(_toggleOverlayItem);

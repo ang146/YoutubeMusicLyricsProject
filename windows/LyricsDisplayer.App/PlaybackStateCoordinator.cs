@@ -22,6 +22,22 @@ public sealed class PlaybackStateCoordinator
     public LyricsSnapshotMessage? CurrentLyrics { get; private set; }
     public LocalLyricsDocument? CurrentLocalLyrics { get; private set; }
     public LocalTrackRecord? ActiveLocalLyricsRecord => _activeLocalLyricsRecord;
+    public EffectiveTrackMetadata? EffectiveMetadata
+    {
+        get
+        {
+            if (Current is not { } playback) return null;
+
+            var track = playback.Payload.Track;
+            var currentSource = new SourceTrackMetadata(
+                track.Title, track.Artist, track.Album, track.DurationMs);
+            var storedSource = _activeLocalLyricsRecord?.SourceAssociations.FirstOrDefault(association =>
+                association.Source == playback.Envelope.Source &&
+                association.SourceTrackId == track.SourceTrackId)?.Metadata ?? currentSource;
+            var userMetadata = _activeLocalLyricsRecord?.UserMetadata ?? new UserTrackMetadata(null, null);
+            return EffectiveTrackMetadata.From(storedSource, userMetadata, currentSource);
+        }
+    }
     public bool IsCurrentLocalLrcUsable => CurrentLocalLyrics is not null && _externalLrcUsable;
     public bool IsCurrentLocalLrcMissing { get; private set; }
     public string LyricsLoadedFrom { get; private set; } = "Pending / unknown";

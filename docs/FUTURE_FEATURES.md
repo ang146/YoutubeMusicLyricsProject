@@ -236,7 +236,7 @@ Seekable progress
 Open Built-in Editor
 ```
 
-`Open Built-in Editor` is the same application command used by the current MainWindow/future Main Lyrics Window and overlay context menu; the Media Controller must not implement a separate editor-opening path.
+`Open Built-in Editor` is the same application command used by the Main Lyrics Window and overlay context menu; the Media Controller must not implement a separate editor-opening path.
 
 Playback display should reuse the existing Lyrics Displayer playback model. Transport commands should use a provider-independent `MediaControlService` and fail safe when Windows media-session matching is ambiguous. Do not assume `GetCurrentSession()` is the tracked YouTube Music session.
 

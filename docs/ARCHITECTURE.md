@@ -1559,6 +1559,8 @@ Primary work:
 * consolidate shared application commands/context-menu actions across lyrics surfaces
 * establish placeholders/settings boundaries for later Media Controller, renderer appearance, semantic break markers, and provider configuration without implementing those later features prematurely
 
+The App-side ViewModel foundation uses ordinary typed backing fields. Generic `SetProperty` raises only the changed property's notification; dependent-property notifications stay explicit, and command invalidation remains an explicit operation owned by the relevant application state rather than a global requery. Domain logic remains in Core and application services.
+
 M12 is primarily an application-structure and user-surface milestone. It should reduce accumulated MainWindow coupling before Lyrics Search, Media Controller, and richer renderer work add more state.
 
 ---

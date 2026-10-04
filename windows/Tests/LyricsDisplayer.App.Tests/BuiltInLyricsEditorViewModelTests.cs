@@ -126,6 +126,65 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     [Test]
+    public void EditingRowRaisesOnePropertyChangeAndRefreshesOnlyDependentCommands()
+    {
+        using var fixture = CreateViewModel("First");
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        viewModel.SelectCell(row.EditorLineId, EditorColumn.Lyrics);
+
+        var rowNotifications = new List<string?>();
+        row.PropertyChanged += (_, args) => rowNotifications.Add(args.PropertyName);
+        var saveInvalidations = 0;
+        var clearCellInvalidations = 0;
+        var deleteRowInvalidations = 0;
+        viewModel.SaveCommand.CanExecuteChanged += (_, _) => saveInvalidations++;
+        viewModel.ClearCellCommand.CanExecuteChanged += (_, _) => clearCellInvalidations++;
+        viewModel.DeleteRowCommand.CanExecuteChanged += (_, _) => deleteRowInvalidations++;
+
+        row.LyricsText = string.Empty;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rowNotifications, Is.EqualTo(new[] { nameof(EditorRowViewModel.LyricsText) }));
+            Assert.That(viewModel.SaveCommand.CanExecute(null), Is.True);
+            Assert.That(viewModel.ClearCellCommand.CanExecute(null), Is.False);
+            Assert.That(viewModel.DeleteRowCommand.CanExecute(null), Is.True);
+            Assert.That(saveInvalidations, Is.EqualTo(1));
+            Assert.That(clearCellInvalidations, Is.EqualTo(1));
+            Assert.That(deleteRowInvalidations, Is.Zero,
+                "A lyric text edit does not affect whether the selected row can be deleted.");
+        });
+    }
+
+    [Test]
+    public void DiagnosticPresentationNotifiesComputedPropertiesAndOnlyChangedLineNumber()
+    {
+        var row = new EditorRowViewModel(
+            new EditorLyricRow(Guid.NewGuid(), "Line", []), timestampColumnCount: 1, visibleLineNumber: 1);
+        var notifications = new List<string?>();
+        row.PropertyChanged += (_, args) => notifications.Add(args.PropertyName);
+
+        row.UpdateDiagnosticPresentation(2, []);
+
+        Assert.That(notifications, Is.EqualTo(new[]
+        {
+            nameof(EditorRowViewModel.VisibleLineNumber),
+            nameof(EditorRowViewModel.Diagnostics),
+            nameof(EditorRowViewModel.LyricsDiagnosticSeverity)
+        }));
+
+        notifications.Clear();
+        row.UpdateDiagnosticPresentation(2, []);
+
+        Assert.That(notifications, Is.EqualTo(new[]
+        {
+            nameof(EditorRowViewModel.Diagnostics),
+            nameof(EditorRowViewModel.LyricsDiagnosticSeverity)
+        }));
+    }
+
+    [Test]
     public void WarningAndErrorCountsAndCellSeverityUpdateLiveWithErrorWinningVisually()
     {
         using var fixture = CreateViewModel("[00:30.000]First\n[00:20.000]Second");

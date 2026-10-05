@@ -6,7 +6,6 @@ using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Infrastructure.Commands;
 using LyricsDisplayer.Infrastructure.Errors;
 using LyricsDisplayer.Infrastructure.Factories;
-using LyricsDisplayer.Infrastructure.Logging;
 using Microsoft.Extensions.Logging;
 using Unity;
 using Unity.Lifetime;
@@ -25,7 +24,7 @@ public sealed class ApplicationCompositionRoot : IDisposable
     internal CrashReportService CrashReports { get; }
     internal FatalExceptionCoordinator FatalExceptionCoordinator { get; }
     internal ApplicationLifetimeState Lifetime => _lifetime;
-    internal SessionFileLogger Logger => _container.Resolve<SessionFileLogger>();
+    internal ILogger<App> AppLogger => _container.Resolve<ILogger<App>>();
     internal bool IsInitialized => _initialized;
 
     public ApplicationCompositionRoot(string? applicationDataDirectory = null)
@@ -51,15 +50,15 @@ public sealed class ApplicationCompositionRoot : IDisposable
             builder.AddProvider(new SessionFileLoggerProvider(logger));
         });
         var settings = new ApplicationSettingsStore(Path.Combine(appData, "settings.json"));
-        var library = new LyricsLibrary(LibraryPaths.Resolve(appData), logger.Write);
 
         _container.RegisterInstance(logger);
         _container.RegisterInstance<ILoggerFactory>(loggerFactory);
+        _container.RegisterType(typeof(ILogger<>), typeof(Logger<>));
         _container.RegisterInstance(settings);
         _container.RegisterInstance<IOverlaySettingsStore>(settings);
+        var library = new LyricsLibrary(LibraryPaths.Resolve(appData), loggerFactory.CreateLogger<LyricsLibrary>());
         _container.RegisterInstance(library);
         library.Initialise();
-        RegisterLoggers(loggerFactory);
         _container.RegisterFactory<IExceptionHandler>(c => new ApplicationExceptionHandler(
             c.Resolve<ILogger<ApplicationExceptionHandler>>(), new WpfRecoverableExceptionPresenter()),
             new ContainerControlledLifetimeManager());
@@ -68,17 +67,17 @@ public sealed class ApplicationCompositionRoot : IDisposable
         _container.RegisterType<SnapshotStateTracker>(new ContainerControlledLifetimeManager());
         _container.RegisterType<PlaybackClock>(new ContainerControlledLifetimeManager());
         _container.RegisterFactory<PlaybackStateCoordinator>(c => new PlaybackStateCoordinator(
-            c.Resolve<SnapshotStateTracker>(), c.Resolve<PlaybackClock>(), c.Resolve<LyricsLibrary>(),
-            ApplicationLogAdapter.ToAction(c.Resolve<ILogger<PlaybackStateCoordinator>>())),
+            c.Resolve<ILogger<PlaybackStateCoordinator>>(), c.Resolve<SnapshotStateTracker>(),
+            c.Resolve<PlaybackClock>(), c.Resolve<LyricsLibrary>()),
             new ContainerControlledLifetimeManager());
         _container.RegisterFactory<NamedPipeServer>(c => new NamedPipeServer(
             c.Resolve<ILogger<NamedPipeServer>>(), c.Resolve<PlaybackStateCoordinator>()), new ContainerControlledLifetimeManager());
         _container.RegisterType<ILyricsOverlayView, LyricsOverlayWindow>();
         _container.RegisterFactory<ILyricsOverlayViewFactory>(_ => new LyricsOverlayViewFactory(_container), new ContainerControlledLifetimeManager());
         _container.RegisterFactory<LyricsOverlayController>(c => new LyricsOverlayController(
+            c.Resolve<ILogger<LyricsOverlayController>>(),
             () => c.Resolve<ILyricsOverlayViewFactory>().Create(), c.Resolve<IOverlaySettingsStore>(),
-            DesktopWorkAreaProvider.GetVisibleWorkAreas,
-            ApplicationLogAdapter.ToAction(c.Resolve<ILogger<LyricsOverlayController>>())),
+            DesktopWorkAreaProvider.GetVisibleWorkAreas),
             new ContainerControlledLifetimeManager());
         _container.RegisterType<ISettingsViewModel, SettingsViewModel>(new ContainerControlledLifetimeManager());
         _container.RegisterFactory<IDebugSettingsPageViewModel>(c => new DebugSettingsPageViewModel(
@@ -97,7 +96,7 @@ public sealed class ApplicationCompositionRoot : IDisposable
         _container.RegisterType<IGlobalHotkeyServiceFactory, GlobalHotkeyServiceFactory>(new ContainerControlledLifetimeManager());
         _container.RegisterType<ITrayLifecycleServiceFactory, TrayLifecycleServiceFactory>(new ContainerControlledLifetimeManager());
         _container.RegisterFactory<ExternalLrcOpener>(c => new ExternalLrcOpener(
-            log: ApplicationLogAdapter.ToAction(c.Resolve<ILogger<ExternalLrcOpener>>())), new ContainerControlledLifetimeManager());
+            c.Resolve<ILogger<ExternalLrcOpener>>()), new ContainerControlledLifetimeManager());
         _container.RegisterType<MainWindow>();
         _initialized = true;
     }
@@ -128,6 +127,8 @@ public sealed class ApplicationCompositionRoot : IDisposable
         _ = _container.Resolve<IGlobalHotkeyServiceFactory>();
         _ = _container.Resolve<ITrayLifecycleServiceFactory>();
         _ = _container.Resolve<ExternalLrcOpener>();
+        var unlistedLogger = _container.Resolve<ILogger<UnlistedLoggerCategory>>();
+        unlistedLogger.LogInformation("Open-generic typed logger composition check.");
 
         var record = new LocalTrackRecord("composition-smoke", new UserTrackMetadata(null, null),
             "composition-smoke.lrc", "composition-smoke.json", null, null, []);
@@ -148,27 +149,6 @@ public sealed class ApplicationCompositionRoot : IDisposable
         _container.Dispose();
     }
 
-    private void RegisterLoggers(ILoggerFactory loggerFactory)
-    {
-        RegisterLogger<ApplicationExceptionHandler>(loggerFactory);
-        RegisterLogger<ApplicationCommandFactory>(loggerFactory);
-        RegisterLogger<DebugSettingsPageViewModel>(loggerFactory);
-        RegisterLogger<SettingsViewModel>(loggerFactory);
-        RegisterLogger<SettingsWindowService>(loggerFactory);
-        RegisterLogger<MainLyricsWindowViewModel>(loggerFactory);
-        RegisterLogger<BuiltInLyricsEditorViewModel>(loggerFactory);
-        RegisterLogger<MainWindow>(loggerFactory);
-        RegisterLogger<PlaybackStateCoordinator>(loggerFactory);
-        RegisterLogger<NamedPipeServer>(loggerFactory);
-        RegisterLogger<LyricsOverlayController>(loggerFactory);
-        RegisterLogger<ActiveLrcFileWatcher>(loggerFactory);
-        RegisterLogger<GlobalHotkeyService>(loggerFactory);
-        RegisterLogger<ExternalLrcOpener>(loggerFactory);
-    }
-
-    private void RegisterLogger<T>(ILoggerFactory factory) where T : class =>
-        _container.RegisterInstance<ILogger<T>>(factory.CreateLogger<T>());
-
     private void WriteLog(string level, string category, string message)
     {
         var logger = _container.IsRegistered<SessionFileLogger>() ? _container.Resolve<SessionFileLogger>() : null;
@@ -181,4 +161,6 @@ public sealed class ApplicationCompositionRoot : IDisposable
         var logger = _container.IsRegistered<SessionFileLogger>() ? _container.Resolve<SessionFileLogger>() : null;
         logger?.WriteMultiline(level, category, message);
     }
+
+    private sealed class UnlistedLoggerCategory { }
 }

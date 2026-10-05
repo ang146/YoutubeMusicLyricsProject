@@ -52,9 +52,9 @@ public sealed class MainLyricsViewModelFactory(ICommandFactory commands,
     public IMainLyricsViewModel Create(Action openEditor, Func<bool> canOpenEditor, Action openSettings)
     {
         var editorCommand = commands.Create("application.open-built-in-editor", _ => openEditor(),
-            _ => canOpenEditor(), EditorHotkeyScope.Application);
+            _ => canOpenEditor(), CommandScope.Application);
         var settingsCommand = commands.Create("application.open-settings", _ => openSettings(),
-            scope: EditorHotkeyScope.Application);
+            scope: CommandScope.Application);
         return new MainLyricsWindowViewModel(editorCommand, settingsCommand, logger);
     }
 }
@@ -77,29 +77,18 @@ public sealed class ActiveLrcFileWatcherFactory(ILogger<ActiveLrcFileWatcher> lo
     : IActiveLrcFileWatcherFactory
 {
     public ActiveLrcFileWatcher Create(string path, string? fingerprint, Action<ActiveLrcFileObservation> changed) =>
-        new(path, fingerprint, changed, ApplicationLogAdapter.ToAction(logger));
+        new(logger, path, fingerprint, changed);
 }
 
 public sealed class GlobalHotkeyServiceFactory(ILogger<GlobalHotkeyService> logger)
     : IGlobalHotkeyServiceFactory
 {
     public GlobalHotkeyService Create(nint windowHandle, Action toggleOverlay, Action toggleClickThrough) =>
-        new(new Win32GlobalHotkeyPlatform(windowHandle), toggleOverlay, toggleClickThrough,
-            ApplicationLogAdapter.ToAction(logger));
+        new(logger, new Win32GlobalHotkeyPlatform(windowHandle), toggleOverlay, toggleClickThrough);
 }
 
 public sealed class TrayLifecycleServiceFactory : ITrayLifecycleServiceFactory
 {
     public TrayLifecycleService Create(Action openControlPanel, Func<bool> toggleOverlay, Action exitApplication) =>
         new(new WindowsTrayIcon(), openControlPanel, toggleOverlay, exitApplication);
-}
-
-internal static class ApplicationLogAdapter
-{
-    public static Action<string, string, string> ToAction(ILogger logger) => (level, _, message) =>
-    {
-        var parsedLevel = Enum.TryParse<LogLevel>(level, ignoreCase: true, out var result)
-            ? result : LogLevel.Information;
-        logger.Log(parsedLevel, "{Message}", message);
-    };
 }

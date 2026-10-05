@@ -46,8 +46,7 @@ public sealed class LyricsLibraryTests
                 Assert.That(library.Lookup("youtubeMusic", "P4SDPyGfxho").Status, Is.EqualTo(LocalLyricsLookupStatus.Found));
             });
         }
-        using var restarted = new LyricsLibrary(_paths,
-            (level, category, message) => TestContext.Progress.WriteLine($"{level} [{category}] {message}"));
+        using var restarted = new LyricsLibrary(_paths);
         restarted.Initialise();
         Assert.That(restarted.Lookup("youtubeMusic", "P4SDPyGfxho").Document!.Record.LocalTrackId, Is.EqualTo(id));
     }

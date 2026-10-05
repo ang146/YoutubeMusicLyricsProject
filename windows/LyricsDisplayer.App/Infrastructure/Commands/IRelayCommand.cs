@@ -1,10 +1,9 @@
 using System.ComponentModel;
 using System.Windows.Input;
-using LyricsDisplayer.Core.Library;
 
 namespace LyricsDisplayer.Infrastructure.Commands;
 
-public sealed record CommandIdentity(string Name, EditorHotkeyScope Scope);
+public sealed record CommandIdentity(string Name, CommandScope Scope);
 
 public interface IRelayCommand : ICommand
 {
@@ -21,11 +20,11 @@ public interface IAsyncRelayCommand : IRelayCommand, INotifyPropertyChanged
 public interface ICommandFactory
 {
     IRelayCommand Create(string name, Action<object?> execute,
-        Predicate<object?>? canExecute = null, EditorHotkeyScope scope = EditorHotkeyScope.Editor);
+        Predicate<object?>? canExecute = null, CommandScope scope = CommandScope.Editor);
 
     IRelayCommand Create(string name, Action execute,
-        Func<bool>? canExecute = null, EditorHotkeyScope scope = EditorHotkeyScope.Editor);
+        Func<bool>? canExecute = null, CommandScope scope = CommandScope.Editor);
 
     IAsyncRelayCommand CreateAsync(string name, Func<Task> execute,
-        Func<bool>? canExecute = null, EditorHotkeyScope scope = EditorHotkeyScope.Editor);
+        Func<bool>? canExecute = null, CommandScope scope = CommandScope.Editor);
 }

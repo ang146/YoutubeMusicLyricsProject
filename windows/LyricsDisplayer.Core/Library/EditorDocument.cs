@@ -16,13 +16,6 @@ public enum EditorColumn
     Lyrics
 }
 
-public enum EditorHotkeyScope
-{
-    Global,
-    Application,
-    Editor
-}
-
 public sealed record EditorSelection(Guid? SelectedRowId, EditorColumn SelectedColumn, int? SelectedTimestampIndex = null);
 
 public sealed record EditorTimestamp(Guid Id, string Value)

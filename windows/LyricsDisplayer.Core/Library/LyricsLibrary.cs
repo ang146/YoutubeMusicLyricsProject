@@ -1,5 +1,7 @@
 using LyricsDisplayer.Core.Protocol;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Security;
 using System.Text.Json;
 
@@ -7,7 +9,7 @@ namespace LyricsDisplayer.Core.Library;
 
 public sealed class LyricsLibrary : IDisposable
 {
-    private readonly Action<string, string, string>? _log;
+    private readonly ILogger<LyricsLibrary> _logger;
     private readonly Action<int>? _beforeTimingBakeCommit;
     private readonly Action? _beforeLineCommit;
     private readonly HashSet<(string Source, string SourceTrackId)> _duplicateAssociations = [];
@@ -20,16 +22,16 @@ public sealed class LyricsLibrary : IDisposable
     public string IndexStatus { get; private set; } = "Not initialised";
     public LibraryScanResult? LastScan { get; private set; }
 
-    public LyricsLibrary(LibraryPaths paths, Action<string, string, string>? log = null)
-        : this(paths, log, null)
+    public LyricsLibrary(LibraryPaths paths, ILogger<LyricsLibrary>? logger = null)
+        : this(paths, logger, null)
     {
     }
 
-    internal LyricsLibrary(LibraryPaths paths, Action<string, string, string>? log,
+    internal LyricsLibrary(LibraryPaths paths, ILogger<LyricsLibrary>? logger,
         Action<int>? beforeTimingBakeCommit, Action? beforeLineCommit = null)
     {
         Paths = paths;
-        _log = log;
+        _logger = logger ?? NullLogger<LyricsLibrary>.Instance;
         _beforeTimingBakeCommit = beforeTimingBakeCommit;
         _beforeLineCommit = beforeLineCommit;
     }
@@ -734,7 +736,19 @@ public sealed class LyricsLibrary : IDisposable
         catch (Exception) { }
     }
 
-    private void Log(string level, string category, string message) => _log?.Invoke(level, category, message);
+    private void Log(string level, string category, string message)
+    {
+        var contextualMessage = category == "Library" ? message : $"{category}: {message}";
+        switch (level)
+        {
+            case "Trace": _logger.LogTrace("{Message}", contextualMessage); break;
+            case "Debug": _logger.LogDebug("{Message}", contextualMessage); break;
+            case "Warning": _logger.LogWarning("{Message}", contextualMessage); break;
+            case "Error": _logger.LogError("{Message}", contextualMessage); break;
+            case "Critical": _logger.LogCritical("{Message}", contextualMessage); break;
+            default: _logger.LogInformation("{Message}", contextualMessage); break;
+        }
+    }
 
     public void Dispose() => _index?.Dispose();
 }

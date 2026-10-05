@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using System.Text;
 using System.Threading.Channels;
 using LyricsDisplayer.Core.Logging;
+using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer.NativeHost;
 
@@ -30,7 +31,7 @@ public sealed class ReconnectingMessageForwarder(
     IMessageConnectionFactory connectionFactory,
     IAsyncDelay delay,
     TimeSpan retryDelay,
-    SessionFileLogger logger,
+    ILogger<ReconnectingMessageForwarder> logger,
     LatestMessageBuffer? retainedMessages = null)
 {
     public async Task RunAsync(ChannelReader<string> messages, CancellationToken cancellationToken)
@@ -40,9 +41,9 @@ public sealed class ReconnectingMessageForwarder(
             IMessageConnection? connection = null;
             try
             {
-                logger.Write("Information", "NamedPipe", "Attempting to connect to the application pipe.");
+                logger.LogInformation("Attempting to connect to the application pipe.");
                 connection = await connectionFactory.ConnectAsync(cancellationToken);
-                logger.Write("Information", "NamedPipe", "Connected to LyricsDisplayer.NativeHost.v1.");
+                logger.LogInformation("Connected to LyricsDisplayer.NativeHost.v1.");
 
                 if (retainedMessages is not null)
                 {
@@ -63,15 +64,15 @@ public sealed class ReconnectingMessageForwarder(
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                logger.Write("Information", "NamedPipe", "Connection or retry processing cancelled.");
+                logger.LogInformation("Connection or retry processing cancelled.");
                 return;
             }
             catch (Exception exception)
             {
                 var wasConnected = connection is not null;
-                logger.Write("Warning", "NamedPipe", wasConnected
-                    ? $"Pipe connection was lost: {exception.Message}"
-                    : $"Connection attempt failed: {exception.Message}");
+                logger.LogWarning(exception, wasConnected
+                    ? "Pipe connection was lost."
+                    : "Connection attempt failed.");
             }
             finally
             {
@@ -83,19 +84,19 @@ public sealed class ReconnectingMessageForwarder(
                     }
                     catch (Exception exception)
                     {
-                        logger.Write("Warning", "NamedPipe", $"Error while closing pipe connection: {exception.Message}");
+                        logger.LogWarning(exception, "Error while closing pipe connection.");
                     }
                 }
             }
 
-            logger.Write("Information", "NamedPipe", $"Retrying in approximately {retryDelay.TotalSeconds:0.#} seconds.");
+            logger.LogInformation("Retrying in approximately {RetryDelaySeconds:0.#} seconds.", retryDelay.TotalSeconds);
             try
             {
                 await delay.DelayAsync(retryDelay, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                logger.Write("Information", "NamedPipe", "Retry delay cancelled.");
+                logger.LogInformation("Retry delay cancelled.");
                 return;
             }
         }

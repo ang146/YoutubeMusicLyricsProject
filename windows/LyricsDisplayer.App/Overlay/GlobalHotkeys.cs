@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
+using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
 
@@ -35,20 +36,20 @@ public sealed class GlobalHotkeyService : IDisposable
     private readonly IGlobalHotkeyPlatform _platform;
     private readonly Action _toggleOverlay;
     private readonly Action _toggleClickThrough;
-    private readonly Action<string, string, string>? _log;
+    private readonly ILogger<GlobalHotkeyService> _logger;
     private readonly HashSet<int> _registered = [];
     private bool _started;
 
     public GlobalHotkeyService(
+        ILogger<GlobalHotkeyService> logger,
         IGlobalHotkeyPlatform platform,
         Action toggleOverlay,
-        Action toggleClickThrough,
-        Action<string, string, string>? log = null)
+        Action toggleClickThrough)
     {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _platform = platform;
         _toggleOverlay = toggleOverlay;
         _toggleClickThrough = toggleClickThrough;
-        _log = log;
     }
 
     public IReadOnlyCollection<int> RegisteredIds => _registered;
@@ -82,12 +83,12 @@ public sealed class GlobalHotkeyService : IDisposable
         if (_platform.Register(id, gesture))
         {
             _registered.Add(id);
-            _log?.Invoke("Information", "Hotkeys", $"Registered global shortcut {description}.");
+            _logger.LogInformation("Registered global shortcut {Gesture}.", description);
         }
         else
         {
-            _log?.Invoke("Warning", "Hotkeys",
-                $"Global shortcut {description} is unavailable; the application will continue without it.");
+            _logger.LogWarning("Global shortcut {Gesture} is unavailable; the application will continue without it.",
+                description);
         }
     }
 
@@ -96,12 +97,12 @@ public sealed class GlobalHotkeyService : IDisposable
         if (!_registered.Contains(id)) return;
         if (id == ToggleOverlayId)
         {
-            _log?.Invoke("Information", "Hotkeys", "Global overlay-visibility shortcut triggered.");
+            _logger.LogInformation("Global overlay-visibility shortcut triggered.");
             _toggleOverlay();
         }
         else if (id == ToggleClickThroughId)
         {
-            _log?.Invoke("Information", "Hotkeys", "Global click-through shortcut triggered.");
+            _logger.LogInformation("Global click-through shortcut triggered.");
             _toggleClickThrough();
         }
     }

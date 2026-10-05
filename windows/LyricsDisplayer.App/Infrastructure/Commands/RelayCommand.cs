@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
-using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Infrastructure.Errors;
 using Microsoft.Extensions.Logging;
 
@@ -19,7 +18,7 @@ public sealed class RelayCommand : IRelayCommand
     public event EventHandler? CanExecuteChanged;
 
     public RelayCommand(string name, Action<object?> execute, Predicate<object?>? canExecute,
-        EditorHotkeyScope scope, ILogger logger, IExceptionHandler exceptionHandler)
+        CommandScope scope, ILogger logger, IExceptionHandler exceptionHandler)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Identity = new(name, scope);
@@ -65,7 +64,7 @@ public sealed class AsyncRelayCommand : IAsyncRelayCommand
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public AsyncRelayCommand(string name, Func<Task> execute, Func<bool>? canExecute,
-        EditorHotkeyScope scope, ILogger logger, IExceptionHandler exceptionHandler)
+        CommandScope scope, ILogger logger, IExceptionHandler exceptionHandler)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         Identity = new(name, scope);
@@ -117,16 +116,16 @@ public sealed class ApplicationCommandFactory(
     IExceptionHandler exceptionHandler) : ICommandFactory
 {
     public IRelayCommand Create(string name, Action<object?> execute,
-        Predicate<object?>? canExecute = null, EditorHotkeyScope scope = EditorHotkeyScope.Editor) =>
+        Predicate<object?>? canExecute = null, CommandScope scope = CommandScope.Editor) =>
         new RelayCommand(name, execute, canExecute, scope,
             loggerFactory.CreateLogger($"Command.{name}"), exceptionHandler);
 
     public IRelayCommand Create(string name, Action execute,
-        Func<bool>? canExecute = null, EditorHotkeyScope scope = EditorHotkeyScope.Editor) =>
+        Func<bool>? canExecute = null, CommandScope scope = CommandScope.Editor) =>
         Create(name, _ => execute(), canExecute is null ? null : _ => canExecute(), scope);
 
     public IAsyncRelayCommand CreateAsync(string name, Func<Task> execute,
-        Func<bool>? canExecute = null, EditorHotkeyScope scope = EditorHotkeyScope.Editor) =>
+        Func<bool>? canExecute = null, CommandScope scope = CommandScope.Editor) =>
         new AsyncRelayCommand(name, execute, canExecute, scope,
             loggerFactory.CreateLogger($"Command.{name}"), exceptionHandler);
 }

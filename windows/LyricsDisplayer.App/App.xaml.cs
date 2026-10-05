@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using LyricsDisplayer.Core.Logging;
 using LyricsDisplayer.Infrastructure.DependencyInjection;
 using LyricsDisplayer.Infrastructure.Errors;
+using Microsoft.Extensions.Logging;
 using WpfMessageBox = System.Windows.MessageBox;
 
 namespace LyricsDisplayer;
@@ -27,7 +28,7 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         _compositionRoot.Initialize();
-        _compositionRoot.Logger.Write("Information", "Application", "LyricsDisplayer.App started.");
+        _compositionRoot.AppLogger.LogInformation("LyricsDisplayer.App started.");
         base.OnStartup(e);
         MainWindow = _compositionRoot.CreateMainWindow();
         MainWindow.Show();
@@ -36,7 +37,7 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         if (_compositionRoot.IsInitialized && !_compositionRoot.Lifetime.IsFatalShutdown)
-            _compositionRoot.Logger.Write("Information", "Application", "LyricsDisplayer.App shut down.");
+            _compositionRoot.AppLogger.LogInformation("LyricsDisplayer.App shut down.");
         _compositionRoot.Dispose();
         base.OnExit(e);
     }

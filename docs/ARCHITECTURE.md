@@ -254,21 +254,21 @@ Built-in Editor Dialog
 
 The Main Lyrics Window and Desktop Lyrics Overlay context menu both expose this command; a future Media Controller should reuse the same command. Opening the editor is therefore not tied to any one surface. The same principle applies to editor row actions: toolbar/buttons, context menus, and keyboard bindings should route to the same editor commands.
 
-Command identity and command execution are separate from input bindings. This separation allows future user-configurable hotkeys without rewriting feature logic. Global/application/editor shortcut scopes may be introduced later; Milestone 11 only needs the editor command/binding architecture described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+Command identity and command execution are separate from input bindings. The shared App command infrastructure owns a feature-independent `CommandScope` (`Global`, `Application`, or `Editor`); Core does not own WPF/application command scope concepts. This separation allows future user-configurable hotkeys without rewriting feature logic. See the editor command/binding architecture described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
 ### Application composition, ViewModels, and commands
 
 `App.xaml` does not use `StartupUri`. `App.xaml.cs` creates one `ApplicationCompositionRoot`, initializes it, and asks it for the root `MainWindow`. The root owns a Unity container, registrations, lifetimes, and root resolution. The application does not use the Generic Host. Ordinary windows, ViewModels, and services receive dependencies through constructors; Unity `Resolve<T>()` stays inside the composition root and focused factories.
 
-The long-lived registrations include the existing `SessionFileLogger` backend and its Microsoft `ILoggerFactory` adapter, application lifetime state, settings store, lyrics library, playback coordinator, Named Pipe server, overlay controller, command factory/exception handler, and the Settings service. The Settings ViewModel and its Debug page ViewModel are shared for the lifetime of the Settings service so diagnostics and selected-section state survive closing and reopening the one managed Settings window. The overlay controller creates and retains its WPF view lazily. WPF windows are not registered as application-wide singletons.
+The long-lived registrations include the existing `SessionFileLogger` backend and its shared Microsoft logging provider, an open-generic Unity registration for `ILogger<T>`, application lifetime state, settings store, lyrics library, playback coordinator, Named Pipe server, overlay controller, command factory/exception handler, and the Settings service. App and NativeHost use the same logging abstraction/provider while retaining separate App, NativeHost, and Firefox Extension log directories. Crash reports remain a separate fatal-reporting destination. The Settings ViewModel and its Debug page ViewModel are shared for the lifetime of the Settings service so diagnostics and selected-section state survive closing and reopening the one managed Settings window. The overlay controller creates and retains its WPF view lazily. WPF windows are not registered as application-wide singletons.
 
-Each application-level ViewModel exposes a meaningful consumer contract (`IMainLyricsViewModel`, `ISettingsViewModel`, `IDebugSettingsPageViewModel`, or `IBuiltInLyricsEditorViewModel`). Parent Views and consumers use those contracts rather than concrete ViewModel implementations. `ViewModelBase` accepts `ILogger` and exposes it as protected `Logger`; concrete ViewModels receive `ILogger<ConcreteViewModel>` and pass that instance to the base, preserving its concrete logging category. Small row projections with no logging responsibility may use the null logger. `EditableViewModelBase` forwards the same logger cleanly.
+Each application-level ViewModel exposes a meaningful consumer contract (`IMainLyricsViewModel`, `ISettingsViewModel`, `IDebugSettingsPageViewModel`, or `IBuiltInLyricsEditorViewModel`). Parent Views and consumers use those contracts rather than concrete ViewModel implementations. `ViewModelBase` has only a logger-requiring constructor and exposes it as protected `Logger`; concrete ViewModels receive `ILogger<ConcreteViewModel>` and pass that instance to the base, preserving its concrete logging category. Lightweight observable item/row projections derive from `ObservableObjectBase`, which provides notifications without a logger. `EditableViewModelBase` also requires and forwards the concrete ViewModel logger.
 
 Runtime factories are used where construction needs session-specific values or must preserve managed UI lifecycles: the editor factory accepts the fixed `LocalTrackRecord` and builds a modal editor session; the Settings factory recreates a closed window while the Settings service preserves its one-window behavior; the overlay view factory supports the controller's lazy view lifetime; and hotkey, tray, and active-LRC watcher factories accept HWNDs, callbacks, paths, and fingerprints that are only known at runtime. The Main Lyrics ViewModel factory creates its application-scoped commands using callbacks owned by the resolved Main Window. Simple records and document row projections remain local constructions instead of receiving factories without a lifecycle need.
 
 Application commands are created through `ICommandFactory`. `RelayCommand` and `AsyncRelayCommand` expose stable command identity and explicit `RaiseCanExecuteChanged()` invalidation; they do not depend on global `CommandManager` requery. The async implementation is non-reentrant, exposes `IsExecuting`, and disables itself until completion. Command failures are logged and passed to `IExceptionHandler`: recoverable failures are presented without closing the application, while explicitly fatal failures are rethrown to the existing WPF/AppDomain fatal boundary. Fatal crash reports remain separate from ordinary command error presentation and continue using the existing crash-report service.
 
-ViewModel unit tests instantiate the concrete type with substitutes or `NullLogger` when logging is not under test. Tests of consumers substitute the relevant `IXxxViewModel` contract without starting Unity. A focused composition smoke test resolves the production nonvisual service/ViewModel graph using the same registrations as startup.
+ViewModel unit tests instantiate the concrete type with substitutes or `NullLogger<T>` when logging is not under test. Tests of consumers substitute the relevant `IXxxViewModel` contract without starting Unity. A focused composition smoke test resolves the production nonvisual service/ViewModel graph and verifies arbitrary `ILogger<T>` resolution/category using the same registrations as startup. App tests are grouped broadly by production ownership.
 
 ### Desktop overlay window-state invariant
 
@@ -305,6 +305,8 @@ Seek is a desired future command: a drag requests playback-position change throu
 ## 3.4 LyricsDisplayer.Core
 
 Core contains application-domain types and logic that are not tied to WPF, Firefox or a particular transport.
+
+Core also contains the rotating `SessionFileLogger` backend and generic Microsoft logging provider as shared non-WPF infrastructure. App and NativeHost services use typed loggers rather than writing directly to the backend.
 
 Examples of future domain types include:
 
@@ -1236,6 +1238,8 @@ The expected retry frequency is approximately once every 5 seconds, so this logg
 
 NativeHost stdout must never contain normal log text.
 
+NativeHost and Firefox Extension diagnostics use Microsoft logging abstractions backed by the shared non-WPF `SessionFileLoggerProvider`. They keep separate sinks under `Logs/NativeHost/` and `Logs/FirefoxExtension/`; sharing the abstraction does not merge their destinations.
+
 ## 15.7 Windows App Logging
 
 Application logs belong under:
@@ -1256,7 +1260,7 @@ Useful entries include:
 
 Avoid repeatedly writing full lyrics payloads to logs during normal operation.
 
-The App's standard logging abstractions adapt to the existing rotating `SessionFileLogger`; they do not create a second storage system. ViewModels and important services receive category-specific `ILogger<T>` through the composition root. Meaningful lifecycle, command, operation, and state-transition events are logged; high-frequency playback ticks, every `PropertyChanged`, and every renderer refresh are not.
+App and NativeHost use standard Microsoft logging abstractions adapted by the shared non-WPF provider to the existing rotating `SessionFileLogger`; they do not create a second storage system. Typed loggers resolve through Unity's open-generic `ILogger<T>` registration. ViewModels and important services receive category-specific `ILogger<T>` through constructor injection. `SessionFileLogger` is only the backend/provider sink; ordinary App/NativeHost services do not write through it directly. Meaningful lifecycle, command, operation, and state-transition events are logged; high-frequency playback ticks, every `PropertyChanged`, and every renderer refresh are not.
 
 Commands are created through the shared command factory and route execution failures through recoverable application exception handling. The global fatal reporter remains the last-resort boundary rather than the normal error path for recoverable command/service failures.
 

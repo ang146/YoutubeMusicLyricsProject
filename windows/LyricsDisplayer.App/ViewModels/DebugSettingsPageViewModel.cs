@@ -5,10 +5,13 @@ using System.Text.Json;
 using System.Windows.Input;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Infrastructure.Commands;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LyricsDisplayer;
 
-public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageViewModel
+public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPageViewModel
 {
     private const string Unavailable = "Not available";
     private static readonly JsonSerializerOptions PrettyPrintJsonOptions = new() { WriteIndented = true };
@@ -74,19 +77,23 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageVie
     public ICommand OpenLogsFolderCommand { get; }
     public ICommand OpenCrashReportsFolderCommand { get; }
 
-    public DebugSettingsPageViewModel(string? libraryPath = null, string? indexPath = null,
+    public DebugSettingsPageViewModel(ICommandFactory commandFactory, ILogger<DebugSettingsPageViewModel> logger,
+        string? libraryPath = null, string? indexPath = null,
         string? logsDirectory = null, string? crashReportsDirectory = null,
         Action<string>? openFolder = null)
+        : base(logger)
     {
+        ArgumentNullException.ThrowIfNull(commandFactory);
         _libraryPath = libraryPath ?? string.Empty;
         _indexPath = indexPath ?? string.Empty;
         _logsDirectory = logsDirectory ?? string.Empty;
         _crashReportsDirectory = crashReportsDirectory ?? string.Empty;
         _openFolder = openFolder ?? OpenFolderInShell;
-        OpenLogsFolderCommand = new EditorCommand("debug.open-logs-folder",
+        OpenLogsFolderCommand = commandFactory.Create("debug.open-logs-folder",
             _ => OpenFolder(_logsDirectory), _ => IsConfigured(_logsDirectory));
-        OpenCrashReportsFolderCommand = new EditorCommand("debug.open-crash-reports-folder",
+        OpenCrashReportsFolderCommand = commandFactory.Create("debug.open-crash-reports-folder",
             _ => OpenFolder(_crashReportsDirectory), _ => IsConfigured(_crashReportsDirectory));
+        Logger.LogDebug("Debug Settings ViewModel initialized.");
     }
 
     public void SetTransportStatus(string status) => TransportStatus = status;

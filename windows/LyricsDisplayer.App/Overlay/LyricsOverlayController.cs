@@ -3,6 +3,7 @@ using System.Windows;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
+using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
 
@@ -38,7 +39,7 @@ public sealed class LyricsOverlayController
     private readonly Func<ILyricsOverlayView> _viewFactory;
     private readonly IOverlaySettingsStore _settingsStore;
     private readonly Func<IReadOnlyList<OverlayWorkArea>> _workAreas;
-    private readonly Action<string, string, string>? _log;
+    private readonly ILogger<LyricsOverlayController> _logger;
     private ILyricsOverlayView? _view;
     private LyricsOverlayPresentationState _presentation = LyricsOverlayPresentationState.Empty;
     private LyricsSnapshotPayload? _lyrics;
@@ -63,15 +64,15 @@ public sealed class LyricsOverlayController
     private bool _localFileMissing;
 
     public LyricsOverlayController(
+        ILogger<LyricsOverlayController> logger,
         Func<ILyricsOverlayView> viewFactory,
         IOverlaySettingsStore settingsStore,
-        Func<IReadOnlyList<OverlayWorkArea>> workAreas,
-        Action<string, string, string>? log = null)
+        Func<IReadOnlyList<OverlayWorkArea>> workAreas)
     {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _viewFactory = viewFactory;
         _settingsStore = settingsStore;
         _workAreas = workAreas;
-        _log = log;
         _interaction = LoadInteractionState();
     }
 
@@ -171,7 +172,7 @@ public sealed class LyricsOverlayController
         ApplyInteractionState();
         _view!.ShowWithoutActivation();
         _reportedVisible = true;
-        _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay shown.");
+        _logger.LogInformation("Desktop lyrics overlay shown.");
         VisibilityChanged?.Invoke(true);
     }
 
@@ -218,9 +219,9 @@ public sealed class LyricsOverlayController
         ApplyResolvedGeometry(placement);
         _view.SetPosition(placement.Position);
         if (saved is not null && placement.UsedFallback)
-            _log?.Invoke("Warning", "Overlay", "Saved overlay position was not visible; using fallback position.");
+            _logger.LogWarning("Saved overlay position was not visible; using fallback position.");
         else if (saved is not null)
-            _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay position restored.");
+            _logger.LogInformation("Desktop lyrics overlay position restored.");
     }
 
     private void RecoverAbnormalWindowStateIfNeeded()
@@ -239,7 +240,7 @@ public sealed class LyricsOverlayController
         ApplyResolvedGeometry(placement);
         _view.SetPosition(placement.Position);
         _view.CompleteGeometryRecovery();
-        _log?.Invoke("Warning", "Overlay", "Abnormal overlay window state was restored to normal geometry.");
+        _logger.LogWarning("Abnormal overlay window state was restored to normal geometry.");
     }
 
     private void RecoverGeometryForCurrentWorkAreas()
@@ -257,7 +258,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay", $"Desktop lyrics geometry recovery could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Desktop lyrics geometry recovery could not be saved.");
         }
     }
 
@@ -272,7 +273,7 @@ public sealed class LyricsOverlayController
     {
         if (!_reportedVisible) return;
         _reportedVisible = false;
-        _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay hidden.");
+        _logger.LogInformation("Desktop lyrics overlay hidden.");
         VisibilityChanged?.Invoke(false);
     }
 
@@ -289,7 +290,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay", $"Desktop lyrics overlay position could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Desktop lyrics overlay position could not be saved.");
         }
     }
 
@@ -301,8 +302,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay",
-                $"Overlay preferences could not be loaded ({exception.GetType().Name}); defaults are in use.");
+            _logger.LogWarning(exception, "Overlay preferences could not be loaded; defaults are in use.");
             return OverlayInteractionState.FromPreferences(OverlayPreferences.Default);
         }
     }
@@ -350,10 +350,9 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay",
-                $"Overlay preferences could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Overlay preferences could not be saved.");
         }
-        _log?.Invoke("Information", "Overlay", $"Overlay {settingName}.");
+        _logger.LogInformation("Overlay {SettingChange}.", settingName);
         InteractionStateChanged?.Invoke(next);
     }
 
@@ -464,7 +463,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay", $"Desktop lyrics geometry could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Desktop lyrics geometry could not be saved.");
         }
     }
 

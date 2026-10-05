@@ -8,7 +8,6 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Library;
-using WpfApplication = System.Windows.Application;
 using WpfBinding = System.Windows.Data.Binding;
 using WpfControl = System.Windows.Controls.Control;
 using WpfDataGridCell = System.Windows.Controls.DataGridCell;
@@ -20,7 +19,9 @@ namespace LyricsDisplayer;
 
 public partial class BuiltInLyricsEditorWindow : Window
 {
-    private readonly BuiltInLyricsEditorViewModel _viewModel;
+    private readonly IBuiltInLyricsEditorViewModel _viewModel;
+    private readonly LyricsLibrary _library;
+    private readonly IApplicationLifetimeState _lifetime;
     private readonly Dictionary<DataGridColumn, EditorGridColumn> _logicalGridColumns = [];
     private readonly FileSystemWatcher? _fileWatcher;
     private readonly FileSystemWatcher? _sidecarWatcher;
@@ -31,9 +32,12 @@ public partial class BuiltInLyricsEditorWindow : Window
     private bool _gridRowsResetInProgress;
     private bool _closed;
 
-    public BuiltInLyricsEditorWindow(BuiltInLyricsEditorViewModel viewModel)
+    public BuiltInLyricsEditorWindow(IBuiltInLyricsEditorViewModel viewModel, LyricsLibrary library,
+        IApplicationLifetimeState lifetime)
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _library = library ?? throw new ArgumentNullException(nameof(library));
+        _lifetime = lifetime ?? throw new ArgumentNullException(nameof(lifetime));
         // Subscribe before the ItemsSource binding so this guard is armed before the
         // DataGrid reacts to the collection Reset emitted by RefreshFromBuffer.
         _viewModel.Rows.CollectionChanged += OnViewModelRowsCollectionChanged;
@@ -62,7 +66,7 @@ public partial class BuiltInLyricsEditorWindow : Window
         _playbackRefreshTimer.Tick += (_, _) => _viewModel.RefreshPlayback();
         _playbackRefreshTimer.Start();
 
-        var fullDirectory = Path.GetDirectoryName(((App)WpfApplication.Current).LyricsLibrary.ResolveLyricsPath(viewModel.EditorTrack));
+        var fullDirectory = Path.GetDirectoryName(_library.ResolveLyricsPath(viewModel.EditorTrack));
         if (!string.IsNullOrWhiteSpace(fullDirectory) && Directory.Exists(fullDirectory))
         {
             try
@@ -517,7 +521,7 @@ public partial class BuiltInLyricsEditorWindow : Window
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         var canClose = EditorCloseGuard.CanClose(
-            ((App)WpfApplication.Current).Lifetime,
+            _lifetime,
             CommitGridEdits,
             () => _viewModel.IsDirty,
             PromptForDirtyClose,

@@ -3,6 +3,8 @@ using System.Windows.Input;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
+using LyricsDisplayer.Infrastructure.Commands;
+using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
 
@@ -24,7 +26,7 @@ public sealed record MainLyricsLineViewModel(
 }
 
 /// <summary>Presentation state for the full-document, non-overlay lyrics reading window.</summary>
-public sealed class MainLyricsWindowViewModel : ViewModelBase
+public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewModel
 {
     private LyricsPresentationState _presentation = LyricsPresentationState.Pending;
     private LyricsSnapshotPayload? _mappedLyrics;
@@ -44,8 +46,8 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
 
     public ObservableCollection<MainLyricsLineViewModel> Lines { get; } = [];
     public LyricsPresentationState Presentation => _presentation;
-    public ICommand OpenBuiltInEditorCommand { get; }
-    public ICommand? OpenSettingsCommand { get; }
+    public IRelayCommand OpenBuiltInEditorCommand { get; }
+    public IRelayCommand? OpenSettingsCommand { get; }
     public MainLyricsLineViewModel? CurrentLine => _currentLine;
     public string EffectiveTitle => string.IsNullOrWhiteSpace(_effectiveMetadata?.Title)
         ? "Lyrics Displayer"
@@ -92,11 +94,13 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
 
     public event Action<MainLyricsLineViewModel?>? CurrentLineChanged;
 
-    public MainLyricsWindowViewModel(ICommand openBuiltInEditorCommand, ICommand? openSettingsCommand = null)
+    public MainLyricsWindowViewModel(IRelayCommand openBuiltInEditorCommand, IRelayCommand? openSettingsCommand,
+        ILogger<MainLyricsWindowViewModel> logger) : base(logger)
     {
         OpenBuiltInEditorCommand = openBuiltInEditorCommand ??
             throw new ArgumentNullException(nameof(openBuiltInEditorCommand));
         OpenSettingsCommand = openSettingsCommand;
+        Logger.LogDebug("Main Lyrics Window ViewModel initialized.");
     }
 
     public void UpdateLyricsPresentation(

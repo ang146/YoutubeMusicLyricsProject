@@ -56,13 +56,16 @@ public sealed class FooViewModel : ViewModelBase, IFooViewModel
 - Tests of `XxxViewModel` itself instantiate the concrete implementation.
 - Tests of a consumer of another ViewModel should normally mock that ViewModel's interface.
 
-`ViewModelBase` owns common notification mechanics only:
+Every real application ViewModel must receive `ILogger<ConcreteViewModel>` through its constructor and pass it to `ViewModelBase`. `ViewModelBase` has no parameterless or `NullLogger` fallback. Lightweight row/item projections that only need property notifications should derive from `ObservableObjectBase` instead of pretending to be logged application ViewModels.
+
+`ObservableObjectBase` owns common notification mechanics only:
 
 - `INotifyPropertyChanged`
 - `SetProperty`
 - `OnPropertyChanged`
 - explicit dependent-property notification
-- protected logger access once logging infrastructure is wired
+
+`ViewModelBase : ObservableObjectBase` adds required protected `ILogger Logger` access. `EditableViewModelBase` derives from `ViewModelBase` and therefore also requires a logger.
 
 Do not turn it into a god ViewModel or hide application services inside it.
 
@@ -94,6 +97,8 @@ Passing `ILogger<FooViewModel>` to the non-generic base `ILogger` must preserve 
 Services may likewise use `ILogger<ConcreteService>`.
 
 Reuse/adapt the existing Lyrics Displayer file logging backend rather than creating a second unrelated logging store.
+
+Normal App and NativeHost code logs through `ILogger<T>` / `ILoggerFactory`. `SessionFileLogger` is the rotating file backend used by a Microsoft logging provider, not a second application-facing logging API. Keep App, NativeHost, Firefox Extension, and Crash report destinations separate where configured. The fatal crash coordinator may retain its narrow callback boundary for early-startup/fatal multiline reporting; ordinary App services should not accept custom logging delegates or write directly to the backend.
 
 Log meaningful events:
 
@@ -127,7 +132,7 @@ Application commands should use shared generic infrastructure:
 - `AsyncRelayCommand`
 - `ICommandFactory`
 
-The old app-wide use of the name `EditorCommand` is too specific and should be replaced by the shared command abstraction during the M12 infrastructure refactor.
+Do not reintroduce the old app-wide `EditorCommand` type; use the shared generic command abstraction.
 
 Outside command infrastructure itself:
 
@@ -136,6 +141,8 @@ Outside command infrastructure itself:
 - keep command `CanExecute` invalidation selective
 - do not call global `CommandManager.InvalidateRequerySuggested()` for every property change
 - async commands are non-reentrant by default unless a real feature explicitly needs concurrency
+
+`CommandScope` belongs under App `Infrastructure/Commands/`; Core must not own application/WPF command scope concepts.
 
 Command construction should support central logging and exception handling without forcing every ViewModel command handler to repeat boilerplate.
 
@@ -163,6 +170,7 @@ Unrecoverable failures may escalate to the existing global fatal reporter and co
 - Ordinary isolated unit tests should not start a Unity container.
 - Instantiate the concrete class under test and mock its interfaces/dependencies.
 - Add composition/registration smoke tests separately where they provide value.
+- Organize application tests into folders that broadly mirror production ownership (`Infrastructure/`, `ViewModels/`, `Editor/`, `Overlay/`, `Presentation/`, and relevant service areas); preserve namespaces when a file move does not require a code change.
 - Do not add brittle WPF UI automation for behaviour that can be tested at ViewModel/application-policy level.
 - Run the smallest relevant tests/build during narrow fixes; run the complete relevant suite before closing substantial tasks/milestones.
 
@@ -170,6 +178,7 @@ Unrecoverable failures may escalate to the existing global fatal reporter and co
 
 - Keep `App.xaml` and `MainWindow.xaml` at the application root unless there is a deliberate later restructure.
 - Other WPF views belong under `Views/`.
+- `Views/` owns windows, pages, and screens. `Controls/` is reserved for genuinely reusable custom WPF controls/components; do not put section pages there or invent placeholder controls to populate the folder.
 - Settings views belong under `Views/Settings/` and each Settings section owns its own UserControl/page view.
 - Built-in editor views belong under `Views/Editor/`.
 - `SettingsWindow` owns navigation and selected-page hosting; do not inline every page's full XAML into the shell.

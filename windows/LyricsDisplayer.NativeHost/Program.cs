@@ -1,15 +1,29 @@
 using LyricsDisplayer.Core.Logging;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.NativeHost;
+using Microsoft.Extensions.Logging;
 
 var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 var logsRoot = Path.Combine(localAppData, "LyricsDisplayer", "Logs");
-using var hostLogger = new SessionFileLogger(Path.Combine(logsRoot, "NativeHost"));
-using var extensionLogger = new SessionFileLogger(Path.Combine(logsRoot, "FirefoxExtension"));
+using var hostFileLogger = new SessionFileLogger(Path.Combine(logsRoot, "NativeHost"));
+using var extensionFileLogger = new SessionFileLogger(Path.Combine(logsRoot, "FirefoxExtension"));
+using var hostLoggerFactory = LoggerFactory.Create(builder =>
+{
+    builder.SetMinimumLevel(LogLevel.Debug);
+    builder.AddProvider(new SessionFileLoggerProvider(hostFileLogger));
+});
+using var extensionLoggerFactory = LoggerFactory.Create(builder =>
+{
+    builder.SetMinimumLevel(LogLevel.Trace);
+    builder.AddProvider(new SessionFileLoggerProvider(extensionFileLogger));
+});
+var processLogger = hostLoggerFactory.CreateLogger("Process");
+var nativeMessagingLogger = hostLoggerFactory.CreateLogger("NativeMessaging");
+var protocolLogger = hostLoggerFactory.CreateLogger("Protocol");
 using var shutdown = new CancellationTokenSource();
 
-hostLogger.Write("Information", "Process", "LyricsDisplayer.NativeHost started.");
-hostLogger.Write("Information", "NativeMessaging", "Firefox Native Messaging input session started.");
+processLogger.LogInformation("LyricsDisplayer.NativeHost started.");
+nativeMessagingLogger.LogInformation("Firefox Native Messaging input session started.");
 
 var messages = new LatestMessageBuffer(ProtocolConstants.PlaybackSnapshot, ProtocolConstants.LyricsSnapshot);
 
@@ -17,7 +31,7 @@ var forwarder = new ReconnectingMessageForwarder(
     new NamedPipeConnectionFactory(ProtocolConstants.PipeName, TimeSpan.FromSeconds(1)),
     new SystemAsyncDelay(),
     TimeSpan.FromSeconds(5),
-    hostLogger, messages);
+    hostLoggerFactory.CreateLogger<ReconnectingMessageForwarder>(), messages);
 var forwardingTask = forwarder.RunAsync(messages.Reader, shutdown.Token);
 
 try
@@ -32,25 +46,30 @@ try
         }
         catch (InvalidDataException exception)
         {
-            hostLogger.Write("Error", "NativeMessaging", exception.Message);
+            nativeMessagingLogger.LogError(exception, "Invalid Native Messaging input.");
             break;
         }
 
         if (json is null)
         {
-            hostLogger.Write("Information", "NativeMessaging", "Firefox input reached EOF or disconnected.");
+            nativeMessagingLogger.LogInformation("Firefox input reached EOF or disconnected.");
             break;
         }
 
         if (!ProtocolSerializer.TryParse(json, out var message, out var error))
         {
-            hostLogger.Write("Warning", "Protocol", $"Rejected message: {error}");
+            protocolLogger.LogWarning("Rejected message: {Error}", error);
             continue;
         }
 
         if (message is DiagnosticLogMessage diagnostic)
         {
-            extensionLogger.Write(diagnostic.Payload.Level, diagnostic.Payload.Category, diagnostic.Payload.Message);
+            var level = Enum.TryParse<LogLevel>(diagnostic.Payload.Level, ignoreCase: true, out var parsedLevel) &&
+                        parsedLevel is not LogLevel.None
+                ? parsedLevel
+                : LogLevel.Information;
+            extensionLoggerFactory.CreateLogger(diagnostic.Payload.Category)
+                .Log(level, "{Message}", diagnostic.Payload.Message);
             continue;
         }
 
@@ -66,17 +85,18 @@ try
 }
 catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
 {
-    hostLogger.Write("Information", "NativeMessaging", "Native Messaging processing was cancelled.");
+    nativeMessagingLogger.LogInformation("Native Messaging processing was cancelled.");
 }
 catch (Exception exception)
 {
-    hostLogger.Write("Error", "NativeMessaging", $"Fatal input error: {exception}");
+    nativeMessagingLogger.LogError(exception, "Fatal input error.");
 }
 finally
 {
     messages.Complete();
     shutdown.Cancel();
-    hostLogger.Write("Information", "NamedPipe", "Cancelling outstanding connection/retry work.");
+    hostLoggerFactory.CreateLogger<ReconnectingMessageForwarder>()
+        .LogInformation("Cancelling outstanding connection/retry work.");
     try
     {
         await forwardingTask;
@@ -86,5 +106,5 @@ finally
         // Expected while Firefox shutdown cancels a pending connection or delay.
     }
 
-    hostLogger.Write("Information", "Process", "LyricsDisplayer.NativeHost shut down gracefully.");
+    processLogger.LogInformation("LyricsDisplayer.NativeHost shut down gracefully.");
 }

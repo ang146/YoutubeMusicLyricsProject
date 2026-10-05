@@ -1,98 +1,124 @@
 # Lyrics Timing Adjustment
 
-Milestone 8 adds a non-destructive timing correction to each local timed lyrics asset. The correction is an integer number of milliseconds named `GlobalOffsetMs`; it is not an application-wide preference. The Current Line follow-up adds a separate explicit edit of one authoritative LRC timestamp; it does not introduce per-line offsets.
+Milestone 8 introduced timing correction before the built-in editor existed. Its original workflow used a per-track sidecar `GlobalOffsetMs`, Reset, Bake, and a separate current-line quick adjustment.
 
-## Sign and runtime behavior
+Milestone 12 Task 6 supersedes that user-facing authoring model. Timing changes now belong to the Built-in Lyrics Editor and directly edit the current `EditorDocument`, using the editor's existing dirty state, Undo/Redo history, Save/Discard flow, validation, and safe-write path.
 
-The sign convention is:
+## Current authoring model
 
-- positive offsets make lyrics happen later
-- negative offsets make lyrics happen earlier
-
-For example, a line at `10.000` with `GlobalOffsetMs = +500` becomes effective at `10.500`. The LRC is not changed during an ordinary adjustment. Instead, the existing lyrics timeline is evaluated with:
+The editor exposes compact timing controls:
 
 ```text
-TimelinePositionMs = PlaybackPositionMs - GlobalOffsetMs
+00:27.137 | current lyric text
+
+Shift All Timestamps
+[-0.5s] [-0.1s] [+0.1s] [+0.5s]
+
+Selected Line
+[-0.5s] [-0.1s] [+0.1s] [+0.5s]
+
+[Set Time]
 ```
 
-`PlaybackClock` continues to expose the real media position. Only the input to `LyricsTimeline` is adjusted, so pause, resume, playback-rate changes, and forward/backward seeks retain their existing clock behavior. The desktop overlay receives the resulting current/next timeline state and contains no offset arithmetic of its own.
+There is no user-facing Global Offset / Reset / Bake workflow in the intended architecture.
 
-The Milestone 8 implementation exposes `-0.5s`, `-0.1s`, `Reset`, `+0.1s`, `+0.5s`, and `Bake into LRC` in the current MainWindow/Control Panel. The agreed target desktop UI relocates all of these authoring controls into the Built-in Lyrics Editor; the ordinary Main Lyrics Window and Desktop Lyrics Overlay should not own timing-adjustment UI after that restructuring. Button changes use checked integer arithmetic, apply immediately, and perform one sidecar save per successful click. The displayed value uses signed seconds with millisecond precision, such as `+0.500s` or `-1.200s`.
+## Shift All Timestamps
 
-The controls are available only when the current track has an authoritative local timed lyrics document. They remain disabled for pending, unavailable, untimed, or runtime-only lyrics, and those states do not create timing records.
+A Shift All action applies the chosen delta directly to timestamp occurrences in the editor document.
 
-## Portable persistence
+One button press:
 
-The portable `track.lyrics.json` sidecar is authoritative:
+- is one logical Undo/Redo unit
+- marks the editor document dirty
+- updates the editor's live preview/runtime projection
+- is persisted only when the user performs the normal Save
+- is discarded by the normal Discard flow
 
-```json
-"timing": {
-  "globalOffsetMs": 500
-}
-```
+The operation is atomic with respect to negative-time safety. Ordinary timestamps must never be silently clamped to zero. If a non-protected timestamp would become negative, the shift is rejected as a whole.
 
-This is an optional additive field in sidecar schema version 1. Existing version 1 sidecars without `timing` load as zero and are not rewritten merely because the effective value is zero. SQLite has no timing column; deleting and rebuilding the machine-local index does not lose the correction.
+The existing exact-zero semantic anchor rule remains narrow: an exact `00:00.000` occurrence on intrinsic blank/whitespace lyric text or an explicit semantic break marker such as the current default `♪` may remain anchored at zero for a negative shift. This is not a general `max(0, value)` rule. Other timestamp occurrences on the same row still shift normally and can still make the whole operation invalid.
 
-Offsets are loaded from the sidecar whenever a local track is resolved. Adjustment and bake operations are bound to `LocalTrackId`, preventing one track's offset from leaking into another. The app also captures the track ID and offset before showing the Bake confirmation and cancels if either is no longer current when the user confirms.
+Positive shifts do not receive special zero-anchor treatment.
 
-`Reset` sets and persists `GlobalOffsetMs = 0`, immediately re-evaluates the original timeline, and never rewrites the LRC.
+## Selected Line
 
-## Bake into LRC
-
-Bake is the explicit operation that permanently applies the global offset to every timestamp in `track.lrc`, and it requires confirmation. Current Line buttons separately edit one timestamp directly, as described below. A zero global offset is not baked. On success:
+Playback current lyric and editor selection are separate concepts:
 
 ```text
-new LRC timestamp = old LRC timestamp + GlobalOffsetMs
-new GlobalOffsetMs = 0
+Playback Current Line != Editor Selected Line
 ```
 
-Consequently, effective playback timing is unchanged across the bake. A focused timestamp rewriter handles the supported `[mm:ss.xx]` and `[mm:ss.xxx]` tokens and emits changed tokens as `[mm:ss.fff]`. It edits tokens in the original physical text instead of serializing parsed lyric lines, preserving metadata and unknown tags, blank lines, line endings, multiple timestamps on one line, lyric text, Unicode, and an explicit `♪` line. Milestone 8 assigns no rendering semantics to `♪`.
+The Selected Line controls operate on the manually selected editor row. Selecting anywhere on that row is sufficient; the user does not need to select a particular timestamp cell.
 
-The complete rewrite is validated before either authoritative file changes. Bake is rejected if any adjusted timestamp would be negative or if parsing/addition/formatting would overflow. During a negative bake only, an exact zero timestamp on intrinsically blank/whitespace lyric text or on a recognized explicit break marker remains at zero; other timestamps, including ordinary lyrics at zero and any near-zero timestamp, are still rejected if they would become negative. The current default explicit-marker set contains `♪`. The shared Core semantics accepts an effective marker set without reading Settings itself, leaving room for a later user-configurable marker preference. Classification trims only for comparison and never normalizes or rewrites lyric text. Rejection leaves the LRC, sidecar offset, and runtime timeline unchanged.
+The chosen delta applies to every timestamp occurrence on that row as one logical edit. Playback progression must never move the DataGrid selection or silently retarget the operation.
 
-For a valid bake, complete LRC and sidecar contents are written to unique same-directory temporary files and flushed before commit. The LRC is replaced first and the sidecar-with-zero second. If the second replacement fails, the app attempts to restore the original LRC and reports a storage failure; owned temporary files are cleaned up on a best-effort basis. This is a small best-effort filesystem transaction, not a cross-filesystem or power-loss-safe transactional store. A rollback failure is surfaced and logged rather than presented as success.
+Any resulting chronology issue remains visible through the editor's existing diagnostics/validation model. The timing command must still respect hard safety rules such as invalid negative timestamps.
 
-After a successful bake, the local LRC is parsed again and the current timeline is rebuilt from its new timestamps. The local-first ownership rule remains unchanged: later provider results cannot overwrite the user-owned adjusted or baked LRC.
+## Set Time
 
-## Current Line adjustment
+`Set Time` is playback-assisted authoring for the selected row. It is enabled only when the currently playing track identity matches the fixed editor track.
 
-The current Milestone 8 MainWindow's Current Line section shows the current M6 timeline index (displayed one-based), original LRC start timestamp, and lyric text. In the target desktop UI this capability moves into the Built-in Lyrics Editor together with the global-offset controls and Bake. Its `-0.5s`, `-0.1s`, `+0.1s`, and `+0.5s` buttons are explicit destructive edits: each changes only that selected timestamp token in the local LRC and persists immediately. They do not require Bake or an additional confirmation. There is no arbitrary line selection or text editor.
-
-The two mechanisms remain independent:
+It appends the current playback position to the first free timestamp lane:
 
 ```text
-Global Timing: sidecar GlobalOffsetMs, non-destructive, entire document
-Current Line: authoritative LRC timestamp, explicit direct edit, one occurrence
-
-EffectiveLineStartMs = LrcLineStartMs + GlobalOffsetMs
+0 timestamps -> T1
+1 timestamp  -> T2
+2 timestamps -> T3
+3 timestamps -> T4
+4 timestamps -> T5
+5 timestamps -> disabled
 ```
 
-For example, editing a `20.000` line by `+100` with a global offset of `+500` produces an LRC start of `20.100` and an effective start of `20.600`. The sidecar is not modified. A later global Bake produces `20.600` in the LRC and resets the global offset to zero, preserving the same effective timing exactly once.
+It never overwrites an existing timestamp occurrence.
 
-### Target identity and boundaries
+Switching playback to another track does not close or switch the editor. It only disables playback-dependent timing authoring. Switching back to the fixed editor track re-enables it.
 
-Local LRC parsing retains each usable timestamp token's character index and length alongside the stable normalized document ordering. The current timeline index maps to that exact source occurrence, rather than matching text or timestamps alone. Duplicate text, duplicate timestamps, unsorted physical lines, and multiple timestamps on one physical line therefore do not select the wrong token. For `[00:10.000][00:20.000]Same text`, editing the second timeline entry changes only `[00:20.000]`. These locations are local-library metadata only; nothing is added to the playback protocol, sidecar, or SQLite.
+## Live playback line
 
-The app captures the local document, its `LocalTrackId`, relative LRC path, loaded-content hash, and current index at the click. A delayed operation is rejected if the current local asset/version has changed. Persistence remains bound to the captured asset; if a track change occurs during saving, another track's file and runtime state are never replaced by the result.
-
-Checked integer addition must produce a timestamp at or above zero. When present, adjacent lines impose inclusive bounds:
+The editor shows a compact single-line playback indicator:
 
 ```text
-previous.StartMs <= adjusted.StartMs <= next.StartMs
+00:27.137 | lyric text
 ```
 
-Crossing a neighbour or creating a negative/overflowing timestamp rejects the edit without changing files. Equality is allowed and follows the existing stable duplicate-timestamp selection rule. The first line has no previous boundary; the last line has no next boundary or artificial duration maximum. A current `♪` line uses exactly these same rules, without new break-rendering behavior.
+The lyric text reflects the editor's current in-memory document, including committed unsaved text edits. This live display is informational only and does not drive selection.
 
-### Saving and re-evaluation
+If playback does not match the fixed editor track, the UI must not display a misleading lyric as though it belonged to the editor session.
 
-The loaded LRC byte content has a SHA-256 identity. Before editing, the library re-reads and validates the authoritative asset and compares its path, global offset, and LRC identity with the captured document. After preparing and flushing a unique same-directory temporary file, it checks the LRC hash again immediately before replacement. An unexpected external change aborts the edit and safely reloads the current local document; an unusable changed document clears the stale timeline. Milestone 10 adds a read-only active-file watcher; watcher reloads never write the LRC. Content identity deduplicates notifications from Current Line and Bake self-writes. See [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
+## Persistence and authority
 
-Only the selected raw timestamp token is replaced, using canonical millisecond precision. Other timestamps, metadata/unknown tags, blank lines, mixed line endings, Unicode text, and existing encoding/BOM are retained. Failed writes clean up owned temporary files where possible and leave the previous valid runtime timing intact. File writability is checked when loading and again when saving; read-only assets have disabled current-line controls.
+Timing edits are ordinary edits to the authoritative local LRC buffer. They do not create a second timing authority.
 
-After successful persistence, the app rebuilds the timeline from the edited parsed document and refreshed source occurrences/content identity, retaining the global offset and actual `PlaybackClock` position. Current/Next and the overlay are re-evaluated immediately. This may change which line is current; the next button click targets the newly current line, not a pinned prior selection. Later remote lyrics remain unable to overwrite the local edit.
+```text
+EditorDocument change
+        ↓
+Dirty / Undo / Redo
+        ↓
+Save
+        ↓
+Authoritative local LRC
+        ↓
+Existing reload / timeline / presentation path
+```
 
-The pre-replacement hash check is best-effort write safety, not a filesystem compare-and-swap lock against arbitrary concurrent external replacements. External edits refresh parsed source-occurrence mappings before later Current Line edits. No per-line metadata or library-wide external-edit synchronization system is added.
+SQLite remains an index/cache and does not become timing authority.
 
-## Deliberate scope limits
+The project is still in pre-release development. Superseded development-state timing mechanisms do not require migration or compatibility machinery unless explicitly requested. New work should follow the editor-document timing model rather than reintroducing sidecar offset authoring.
 
-Milestone 8 does not add timing state to SQLite, alter Firefox or NativeHost messages, or change `PlaybackClock`. Milestone 9 currently exposes quick current-line and global timing actions in the overlay context menu by routing them to these existing coordinator operations, while Bake remains on the current MainWindow. The agreed desktop-surface redesign removes those presentation shortcuts and consolidates all timing-adjustment UI in the Built-in Lyrics Editor without changing the underlying coordinator, persistence, target-identity, or safety rules. Break rendering, preparation cues, karaoke progress, and word/character timing remain later work.
+## Relationship to other surfaces
+
+The ordinary Main Lyrics Window and Desktop Lyrics Overlay are presentation surfaces, not timing-authoring surfaces.
+
+Timing controls belong in the Built-in Lyrics Editor. Shared context menus may offer **Open Built-in Editor**, but should not recreate a second timing workflow.
+
+## Semantic break markers
+
+A long timestamp gap alone never implies a break.
+
+Blank/whitespace lyric text is intrinsically semantic-empty. The default explicit portable break marker remains:
+
+```lrc
+[00:13.000]♪
+```
+
+A later preference may define additional exact trim-matched marker strings. The same semantic classifier should be reusable by negative-shift zero-anchor safety, break-aware rendering, and future preparation-cue logic. Core semantics must not read Settings directly.

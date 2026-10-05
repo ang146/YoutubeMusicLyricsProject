@@ -20,6 +20,7 @@ public sealed class PlaybackStateCoordinator
     private bool _externalLrcUsable;
 
     public LyricsSnapshotMessage? CurrentLyrics { get; private set; }
+    public LyricsSnapshotMessage? CurrentRawLyricsSnapshot { get; private set; }
     public LocalLyricsDocument? CurrentLocalLyrics { get; private set; }
     public LocalTrackRecord? ActiveLocalLyricsRecord => _activeLocalLyricsRecord;
     public EffectiveTrackMetadata? EffectiveMetadata
@@ -222,6 +223,14 @@ public sealed class PlaybackStateCoordinator
         var decision = _stateTracker.Apply(snapshot);
         if (decision is SnapshotDecision.Accepted or SnapshotDecision.AcceptedNewSession)
         {
+            if (previous is null ||
+                !string.Equals(previous.Envelope.Source, snapshot.Envelope.Source, StringComparison.Ordinal) ||
+                !string.Equals(previous.Envelope.SourceSessionId, snapshot.Envelope.SourceSessionId,
+                    StringComparison.Ordinal) ||
+                !string.Equals(previous.Payload.Track.SourceTrackId, snapshot.Payload.Track.SourceTrackId,
+                    StringComparison.Ordinal))
+                CurrentRawLyricsSnapshot = null;
+
             if (previous is null || decision == SnapshotDecision.AcceptedNewSession ||
                 previous.Payload.Track.SourceTrackId != snapshot.Payload.Track.SourceTrackId)
             {
@@ -267,6 +276,7 @@ public sealed class PlaybackStateCoordinator
         {
             return LyricsApplyDecision.Rejected;
         }
+        CurrentRawLyricsSnapshot = snapshot;
         _lyricsSequence = snapshot.Envelope.Sequence;
 
         if (_hasActiveLocalAssociation)

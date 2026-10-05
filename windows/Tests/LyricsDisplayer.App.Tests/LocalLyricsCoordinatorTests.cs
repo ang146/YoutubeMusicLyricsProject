@@ -38,7 +38,8 @@ public sealed class LocalLyricsCoordinatorTests
         var coordinator = Coordinator(library);
 
         coordinator.Apply(Playback("track-a", 1));
-        var remoteDecision = coordinator.ApplyLyricsDetailed(Lyrics("track-a", 2, text: "Remote replacement"));
+        var incomingLyrics = Lyrics("track-a", 2, text: "Remote replacement");
+        var remoteDecision = coordinator.ApplyLyricsDetailed(incomingLyrics);
 
         Assert.Multiple(() =>
         {
@@ -46,6 +47,7 @@ public sealed class LocalLyricsCoordinatorTests
             Assert.That(coordinator.LyricsLoadedFrom, Is.EqualTo("Local Library"));
             Assert.That(coordinator.LocalAssociationStatus, Is.EqualTo("Found"));
             Assert.That(remoteDecision, Is.EqualTo(LyricsApplyDecision.IgnoredBecauseLocal));
+            Assert.That(coordinator.CurrentRawLyricsSnapshot, Is.SameAs(incomingLyrics));
             Assert.That(File.ReadAllText(lrc), Does.Not.Contain("Remote replacement"));
         });
     }
@@ -57,12 +59,15 @@ public sealed class LocalLyricsCoordinatorTests
         var coordinator = Coordinator(library);
         coordinator.Apply(Playback("track-a", 1));
 
-        var decision = coordinator.ApplyLyricsDetailed(Lyrics("track-a", 2));
+        var incomingLyrics = Lyrics("track-a", 2);
+        var decision = coordinator.ApplyLyricsDetailed(incomingLyrics);
 
         Assert.Multiple(() =>
         {
             Assert.That(decision, Is.EqualTo(LyricsApplyDecision.ImportedAsLocal));
             Assert.That(coordinator.CurrentLocalLyrics, Is.Not.Null);
+            Assert.That(coordinator.CurrentRawLyricsSnapshot, Is.SameAs(incomingLyrics));
+            Assert.That(coordinator.CurrentLyrics!.RawJson, Is.Empty);
             Assert.That(coordinator.LyricsLoadedFrom, Is.EqualTo("Local Library"));
             Assert.That(coordinator.LocalAssociationStatus, Is.EqualTo("Imported"));
             Assert.That(coordinator.GetTimelinePosition().CurrentLine!.Text, Is.EqualTo("Remote line"));

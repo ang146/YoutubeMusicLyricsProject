@@ -1,5 +1,7 @@
 namespace LyricsDisplayer;
 
+using Microsoft.Extensions.Logging;
+
 public enum SettingsPageId
 {
     General,
@@ -18,11 +20,11 @@ public interface ISettingsPageViewModel
 
 public sealed record SettingsPageViewModel(SettingsPageId Id, string Title) : ISettingsPageViewModel;
 
-public sealed class SettingsViewModel : ViewModelBase
+public sealed class SettingsViewModel : ViewModelBase, ISettingsViewModel
 {
     private ISettingsPageViewModel _selectedPage = null!;
 
-    public DebugSettingsPageViewModel DebugPage { get; }
+    public IDebugSettingsPageViewModel DebugPage { get; }
     public IReadOnlyList<ISettingsPageViewModel> Pages { get; }
 
     public ISettingsPageViewModel SelectedPage
@@ -31,9 +33,10 @@ public sealed class SettingsViewModel : ViewModelBase
         set => SetProperty(ref _selectedPage, value ?? throw new ArgumentNullException(nameof(value)));
     }
 
-    public SettingsViewModel(DebugSettingsPageViewModel? debugPage = null)
+    public SettingsViewModel(ILogger<SettingsViewModel> logger, IDebugSettingsPageViewModel debugPage)
+        : base(logger)
     {
-        DebugPage = debugPage ?? new DebugSettingsPageViewModel();
+        DebugPage = debugPage ?? throw new ArgumentNullException(nameof(debugPage));
         Pages =
         [
             new SettingsPageViewModel(SettingsPageId.General, "General"),
@@ -44,5 +47,6 @@ public sealed class SettingsViewModel : ViewModelBase
             DebugPage
         ];
         SelectedPage = Pages[0];
+        Logger.LogDebug("Settings ViewModel initialized with {PageCount} pages.", Pages.Count);
     }
 }

@@ -1,12 +1,15 @@
 namespace LyricsDisplayer.App.Tests;
 
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
+
 [TestFixture]
 public sealed class SettingsViewModelTests
 {
     [Test]
     public void GeneralIsDefaultAndAllSixSettingsDestinationsAreAvailable()
     {
-        var viewModel = new SettingsViewModel();
+        var viewModel = CreateViewModel();
 
         Assert.Multiple(() =>
         {
@@ -26,7 +29,7 @@ public sealed class SettingsViewModelTests
     [Test]
     public void SelectedPageCanChangeAndPublishesNavigationState()
     {
-        var viewModel = new SettingsViewModel();
+        var viewModel = CreateViewModel();
         var propertyChanges = new List<string?>();
         viewModel.PropertyChanged += (_, args) => propertyChanges.Add(args.PropertyName);
         var targetPage = viewModel.Pages.Single(page => page.Id == SettingsPageId.LyricsWindow);
@@ -38,5 +41,15 @@ public sealed class SettingsViewModelTests
             Assert.That(viewModel.SelectedPage, Is.SameAs(targetPage));
             Assert.That(propertyChanges, Is.EqualTo(new[] { nameof(viewModel.SelectedPage) }));
         });
+    }
+    private static SettingsViewModel CreateViewModel() =>
+        new(NullLogger<SettingsViewModel>.Instance, CreateDebugPage());
+
+    private static IDebugSettingsPageViewModel CreateDebugPage()
+    {
+        var debugPage = Substitute.For<IDebugSettingsPageViewModel>();
+        debugPage.Id.Returns(SettingsPageId.Debug);
+        debugPage.Title.Returns("Debug");
+        return debugPage;
     }
 }

@@ -4,9 +4,7 @@ namespace LyricsDisplayer;
 
 public partial class SettingsWindow : Window
 {
-    public SettingsWindow() : this(new SettingsViewModel()) { }
-
-    public SettingsWindow(SettingsViewModel viewModel)
+    public SettingsWindow(ISettingsViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         InitializeComponent();

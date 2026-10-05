@@ -1,5 +1,6 @@
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LyricsDisplayer.App.Tests;
 
@@ -9,10 +10,10 @@ public sealed class DebugSettingsPageViewModelTests
     [Test]
     public void ExposesExistingPathsAndEnablesFolderActionsOnlyWhenPathsAreConfigured()
     {
-        var viewModel = new DebugSettingsPageViewModel(
+        var viewModel = CreateViewModel(
             "C:\\Lyrics", "C:\\Lyrics\\library-index.db", "C:\\App\\Logs", "C:\\App\\Logs\\Crash",
             _ => { });
-        var unconfigured = new DebugSettingsPageViewModel();
+        var unconfigured = CreateViewModel();
 
         Assert.Multiple(() =>
         {
@@ -30,7 +31,7 @@ public sealed class DebugSettingsPageViewModelTests
     [Test]
     public void RuntimeDiagnosticsUpdateFromPlaybackAndLyricsSnapshots()
     {
-        var viewModel = new DebugSettingsPageViewModel();
+        var viewModel = CreateViewModel();
         var propertyChanges = new List<string?>();
         viewModel.PropertyChanged += (_, args) => propertyChanges.Add(args.PropertyName);
         var playback = Playback("track-a", "raw playback A");
@@ -93,7 +94,7 @@ public sealed class DebugSettingsPageViewModelTests
         var playback = Playback("track-a", playbackRawJson);
         var lyrics = Lyrics("track-a", string.Empty);
         var rawLyrics = Lyrics("track-a", lyricsRawJson);
-        var viewModel = new DebugSettingsPageViewModel();
+        var viewModel = CreateViewModel();
 
         viewModel.UpdateRuntimeState(playback, lyrics, rawLyrics, null, null, "Local Library", "Found");
 
@@ -109,7 +110,7 @@ public sealed class DebugSettingsPageViewModelTests
                   },
                   "enabled": true
                 }
-                """));
+                """.ReplaceLineEndings("\n")));
             Assert.That(lyricsJsonForDisplay, Is.EqualTo(
                 """
                 {
@@ -121,7 +122,7 @@ public sealed class DebugSettingsPageViewModelTests
                     ]
                   }
                 }
-                """));
+                """.ReplaceLineEndings("\n")));
             Assert.That(playback.RawJson, Is.EqualTo(playbackRawJson));
             Assert.That(rawLyrics.RawJson, Is.EqualTo(lyricsRawJson));
         });
@@ -135,7 +136,7 @@ public sealed class DebugSettingsPageViewModelTests
         var playback = Playback("track-a", playbackRawJson);
         var lyrics = Lyrics("track-a", string.Empty);
         var rawLyrics = Lyrics("track-a", lyricsRawJson);
-        var viewModel = new DebugSettingsPageViewModel();
+        var viewModel = CreateViewModel();
 
         viewModel.UpdateRuntimeState(playback, lyrics, rawLyrics, null, null, "Local Library", "Found");
 
@@ -156,4 +157,10 @@ public sealed class DebugSettingsPageViewModelTests
         new(new EnvelopeMetadata(1, ProtocolConstants.LyricsSnapshot, "youtubeMusic", "session", 2,
                 DateTimeOffset.UnixEpoch),
             new LyricsSnapshotPayload(trackId, true, true, "test-provider", [], null), rawJson);
+
+    private static DebugSettingsPageViewModel CreateViewModel(string? libraryPath = null,
+        string? indexPath = null, string? logsDirectory = null, string? crashReportsDirectory = null,
+        Action<string>? openFolder = null) =>
+        new(TestCommandFactory.Instance, NullLogger<DebugSettingsPageViewModel>.Instance,
+            libraryPath, indexPath, logsDirectory, crashReportsDirectory, openFolder);
 }

@@ -5,6 +5,9 @@ using System.Runtime.CompilerServices;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
+using LyricsDisplayer.Infrastructure.Commands;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LyricsDisplayer;
 
@@ -56,7 +59,7 @@ public sealed class EditorRowViewModel : ViewModelBase
     }
 }
 
-public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisposable
+public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyricsEditorViewModel
 {
     private readonly LyricsLibrary _library;
     private readonly PlaybackStateCoordinator _playback;
@@ -110,48 +113,49 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     public int ErrorCount => _diagnostics.Count(item => item.Severity == EditorValidationSeverity.Error);
     public bool HasValidationDiagnostics => _diagnostics.Count > 0;
 
-    public EditorCommand SaveCommand { get; }
-    public EditorCommand UndoCommand { get; }
-    public EditorCommand RedoCommand { get; }
-    public EditorCommand InsertRowAboveCommand { get; }
-    public EditorCommand InsertRowBelowCommand { get; }
-    public EditorCommand AppendRowCommand { get; }
-    public EditorCommand DeleteRowCommand { get; }
-    public EditorCommand ClearCellCommand { get; }
-    public EditorCommand SetTimestampFromPlaybackCommand { get; }
-    public EditorCommand ShiftAllTimestampsCommand { get; }
-    public EditorCommand ShiftSelectedLineTimingCommand { get; }
-    public EditorCommand CommitMetadataCommand { get; }
-    public EditorCommand ClearTitleOverrideCommand { get; }
-    public EditorCommand ClearArtistOverrideCommand { get; }
-    public EditorCommand ReloadExternalCommand { get; }
-    public event PropertyChangedEventHandler? PropertyChanged;
+    public IRelayCommand SaveCommand { get; }
+    public IRelayCommand UndoCommand { get; }
+    public IRelayCommand RedoCommand { get; }
+    public IRelayCommand InsertRowAboveCommand { get; }
+    public IRelayCommand InsertRowBelowCommand { get; }
+    public IRelayCommand AppendRowCommand { get; }
+    public IRelayCommand DeleteRowCommand { get; }
+    public IRelayCommand ClearCellCommand { get; }
+    public IRelayCommand SetTimestampFromPlaybackCommand { get; }
+    public IRelayCommand ShiftAllTimestampsCommand { get; }
+    public IRelayCommand ShiftSelectedLineTimingCommand { get; }
+    public IRelayCommand CommitMetadataCommand { get; }
+    public IRelayCommand ClearTitleOverrideCommand { get; }
+    public IRelayCommand ClearArtistOverrideCommand { get; }
+    public IRelayCommand ReloadExternalCommand { get; }
     public event Action? ConflictRequiresChoice;
     public event Action? SaveCompleted;
 
     public BuiltInLyricsEditorViewModel(EditorAssetSnapshot asset, LyricsLibrary library,
-        PlaybackStateCoordinator playback)
+        PlaybackStateCoordinator playback, ICommandFactory commandFactory,
+        ILogger<BuiltInLyricsEditorViewModel> logger) : base(logger)
     {
         _asset = asset ?? throw new ArgumentNullException(nameof(asset));
         _library = library ?? throw new ArgumentNullException(nameof(library));
         _playback = playback ?? throw new ArgumentNullException(nameof(playback));
+        ArgumentNullException.ThrowIfNull(commandFactory);
         _buffer = new(EditorDocumentCodec.Load(asset.LrcContent, asset.LrcHash), asset.Sidecar.UserMetadata);
         _titleOverride = asset.Sidecar.UserMetadata.Title ?? string.Empty;
         _artistOverride = asset.Sidecar.UserMetadata.Artist ?? string.Empty;
 
-        SaveCommand = new("editor.save", parameter => Save(parameter is EditorSaveAction action ? action : EditorSaveAction.Save),
+        SaveCommand = commandFactory.Create("editor.save", parameter => Save(parameter is EditorSaveAction action ? action : EditorSaveAction.Save),
             _ => IsDirty, EditorHotkeyScope.Editor);
-        UndoCommand = new("editor.undo", _ =>
+        UndoCommand = commandFactory.Create("editor.undo", _ =>
         {
             CommitStagedEdits();
             CommitMetadata();
             _buffer.Undo();
             RefreshFromBuffer(keepSelection: true);
         }, _ => CanUndo || IsDirty);
-        RedoCommand = new("editor.redo", _ => { _buffer.Redo(); RefreshFromBuffer(keepSelection: true); }, _ => CanRedo);
-        InsertRowAboveCommand = new("editor.row.insert-above", _ => InsertRelative(true), _ => SelectedRowIdInDocument is not null);
-        InsertRowBelowCommand = new("editor.row.insert-below", _ => InsertRelative(false), _ => SelectedRowIdInDocument is not null);
-        AppendRowCommand = new("editor.row.append", _ =>
+        RedoCommand = commandFactory.Create("editor.redo", _ => { _buffer.Redo(); RefreshFromBuffer(keepSelection: true); }, _ => CanRedo);
+        InsertRowAboveCommand = commandFactory.Create("editor.row.insert-above", _ => InsertRelative(true), _ => SelectedRowIdInDocument is not null);
+        InsertRowBelowCommand = commandFactory.Create("editor.row.insert-below", _ => InsertRelative(false), _ => SelectedRowIdInDocument is not null);
+        AppendRowCommand = commandFactory.Create("editor.row.append", _ =>
         {
             CommitStagedEdits();
             CommitMetadata();
@@ -159,29 +163,30 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             RefreshFromBuffer(keepSelection: true);
             SelectRow(inserted);
         }, _ => true);
-        DeleteRowCommand = new("editor.row.delete", _ => DeleteSelected(), _ => SelectedRowIdInDocument is not null);
-        ClearCellCommand = new("editor.cell.clear", ClearCell,
+        DeleteRowCommand = commandFactory.Create("editor.row.delete", _ => DeleteSelected(), _ => SelectedRowIdInDocument is not null);
+        ClearCellCommand = commandFactory.Create("editor.cell.clear", ClearCell,
             parameter => CanClearCell(parameter as EditorSelection ?? Selection));
-        SetTimestampFromPlaybackCommand = new("editor.timestamp.from-playback", _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
-        ShiftAllTimestampsCommand = new("editor.timing.shift-all", ShiftAllTimestamps, CanShiftAllTimestamps);
-        ShiftSelectedLineTimingCommand = new("editor.timing.shift-selected", ShiftSelectedLineTiming,
+        SetTimestampFromPlaybackCommand = commandFactory.Create("editor.timestamp.from-playback", _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
+        ShiftAllTimestampsCommand = commandFactory.Create("editor.timing.shift-all", ShiftAllTimestamps, CanShiftAllTimestamps);
+        ShiftSelectedLineTimingCommand = commandFactory.Create("editor.timing.shift-selected", ShiftSelectedLineTiming,
             CanShiftSelectedLineTiming);
-        CommitMetadataCommand = new("editor.metadata.commit", _ => CommitMetadata());
-        ClearTitleOverrideCommand = new("editor.metadata.clear-title", _ =>
+        CommitMetadataCommand = commandFactory.Create("editor.metadata.commit", _ => CommitMetadata());
+        ClearTitleOverrideCommand = commandFactory.Create("editor.metadata.clear-title", _ =>
         {
             _buffer.ClearTitleOverride();
             TitleOverride = string.Empty;
             RefreshFromBuffer();
         });
-        ClearArtistOverrideCommand = new("editor.metadata.clear-artist", _ =>
+        ClearArtistOverrideCommand = commandFactory.Create("editor.metadata.clear-artist", _ =>
         {
             _buffer.ClearArtistOverride();
             ArtistOverride = string.Empty;
             RefreshFromBuffer();
         });
-        ReloadExternalCommand = new("editor.external.reload", _ => ReloadExternalVersion());
+        ReloadExternalCommand = commandFactory.Create("editor.external.reload", _ => ReloadExternalVersion());
         RefreshFromBuffer();
         RefreshPlayback();
+        Logger.LogDebug("Built-in Lyrics Editor ViewModel initialized for {LocalTrackId}.", EditorTrack.LocalTrackId);
     }
 
     public void SelectCell(Guid? rowId, EditorColumn column, int? timestampIndex = null)
@@ -643,17 +648,17 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             viewRow.PropertyChanged += (_, args) =>
             {
                 OnPropertyChanged(nameof(IsDirty));
-                SaveCommand.Invalidate();
-                ClearCellCommand.Invalidate();
+                SaveCommand.RaiseCanExecuteChanged();
+                ClearCellCommand.RaiseCanExecuteChanged();
                 if (args.PropertyName == nameof(EditorRowViewModel.LyricsText))
                     PublishEditorPreview();
             };
             viewRow.Timestamps.CollectionChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(IsDirty));
-                SaveCommand.Invalidate();
-                ClearCellCommand.Invalidate();
-                SetTimestampFromPlaybackCommand.Invalidate();
+                SaveCommand.RaiseCanExecuteChanged();
+                ClearCellCommand.RaiseCanExecuteChanged();
+                SetTimestampFromPlaybackCommand.RaiseCanExecuteChanged();
                 InvalidateDocumentTimingCommands();
                 PublishEditorPreview();
             };
@@ -700,16 +705,16 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     private void InvalidateCommands()
     {
-        SaveCommand.Invalidate(); UndoCommand.Invalidate(); RedoCommand.Invalidate();
-        InsertRowAboveCommand.Invalidate(); InsertRowBelowCommand.Invalidate(); AppendRowCommand.Invalidate();
-        DeleteRowCommand.Invalidate(); ClearCellCommand.Invalidate(); SetTimestampFromPlaybackCommand.Invalidate();
-        ShiftAllTimestampsCommand.Invalidate(); ShiftSelectedLineTimingCommand.Invalidate();
+        SaveCommand.RaiseCanExecuteChanged(); UndoCommand.RaiseCanExecuteChanged(); RedoCommand.RaiseCanExecuteChanged();
+        InsertRowAboveCommand.RaiseCanExecuteChanged(); InsertRowBelowCommand.RaiseCanExecuteChanged(); AppendRowCommand.RaiseCanExecuteChanged();
+        DeleteRowCommand.RaiseCanExecuteChanged(); ClearCellCommand.RaiseCanExecuteChanged(); SetTimestampFromPlaybackCommand.RaiseCanExecuteChanged();
+        ShiftAllTimestampsCommand.RaiseCanExecuteChanged(); ShiftSelectedLineTimingCommand.RaiseCanExecuteChanged();
     }
 
     private void InvalidateDocumentTimingCommands()
     {
-        ShiftAllTimestampsCommand.Invalidate();
-        ShiftSelectedLineTimingCommand.Invalidate();
+        ShiftAllTimestampsCommand.RaiseCanExecuteChanged();
+        ShiftSelectedLineTimingCommand.RaiseCanExecuteChanged();
     }
 
     private bool HasStagedRowEdits()
@@ -729,19 +734,15 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
 
     private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
-        field = value;
-        OnPropertyChanged(name);
+        if (!SetProperty(ref field, value, name)) return false;
         if (name is nameof(TitleOverride) or nameof(ArtistOverride))
         {
             OnPropertyChanged(nameof(IsDirty));
-            UndoCommand?.Invalidate();
+            UndoCommand?.RaiseCanExecuteChanged();
         }
-        SaveCommand?.Invalidate();
+        SaveCommand?.RaiseCanExecuteChanged();
         return true;
     }
-
-    private void OnPropertyChanged(string? name) => PropertyChanged?.Invoke(this, new(name));
 
     public void Dispose()
     {

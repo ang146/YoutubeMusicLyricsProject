@@ -1,6 +1,7 @@
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LyricsDisplayer.App.Tests;
 
@@ -717,7 +718,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
 
         var saved = fixture.Library.LoadForEditing(viewModel.EditorTrack).Asset!;
         Assert.That(saved.LrcContent, Is.EqualTo("[01:12.000]Hello\n"));
-        using var reopened = new BuiltInLyricsEditorViewModel(saved, fixture.Library, fixture.Playback);
+        using var reopened = NewEditorViewModel(saved, fixture.Library, fixture.Playback);
         Assert.Multiple(() =>
         {
             Assert.That(reopened.Rows.Single().Timestamps[0], Is.EqualTo("01:12.000"));
@@ -877,7 +878,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
         var saved = fixture.Library.LoadForEditing(viewModel.EditorTrack).Asset!;
         Assert.That(saved.LrcContent, Is.EqualTo("[00:01.000]\n"));
 
-        using var reopened = new BuiltInLyricsEditorViewModel(saved, fixture.Library, fixture.Playback);
+        using var reopened = NewEditorViewModel(saved, fixture.Library, fixture.Playback);
         Assert.Multiple(() =>
         {
             Assert.That(reopened.Rows.Count, Is.EqualTo(1));
@@ -1349,7 +1350,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
         var saved = fixture.Library.LoadForEditing(viewModel.EditorTrack).Asset!;
         Assert.That(saved.LrcContent, Is.EqualTo("[00:30.000][00:20.000][00:15.000]Hello\n"));
 
-        using var reopened = new BuiltInLyricsEditorViewModel(saved, fixture.Library, fixture.Playback);
+        using var reopened = NewEditorViewModel(saved, fixture.Library, fixture.Playback);
         Assert.Multiple(() =>
         {
             Assert.That(reopened.Rows.Single().Timestamps.Take(3),
@@ -1440,7 +1441,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             const string source = "[00:01.000]First\n[00:02.000]Second";
             File.WriteAllText(imported.LyricsPath, source);
             var asset = library.LoadForEditing(track.Record).Asset!;
-            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library,
+            using var viewModel = NewEditorViewModel(asset, library,
                 new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library));
 
             if (severity == EditorValidationSeverity.Warning)
@@ -1487,7 +1488,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             const string original = "[ti:Song]\nFirst\nSecond";
             File.WriteAllText(imported.LyricsPath, original);
             var asset = library.LoadForEditing(track.Record).Asset!;
-            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library,
+            using var viewModel = NewEditorViewModel(asset, library,
                 new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library));
             Assert.That(viewModel.HasValidationDiagnostics, Is.False);
 
@@ -1526,7 +1527,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             playback.Apply(CreateMessage(1, "track-a", 1_000));
             var sourceAsset = library.LoadForEditing(trackA.Record).Asset!;
             var originalLrcBytes = File.ReadAllBytes(sourceAsset.LyricsPath);
-            using var viewModel = new BuiltInLyricsEditorViewModel(sourceAsset, library, playback);
+            using var viewModel = NewEditorViewModel(sourceAsset, library, playback);
 
             viewModel.TitleOverride = "Custom Song Title";
             viewModel.ArtistOverride = "Custom Artist";
@@ -1567,7 +1568,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             });
 
             playback.Apply(CreateMessage(3, "track-a", 3_000));
-            using var reopened = new BuiltInLyricsEditorViewModel(reloadedA, library, playback);
+            using var reopened = NewEditorViewModel(reloadedA, library, playback);
             Assert.Multiple(() =>
             {
                 Assert.That(reopened.TitleOverride, Is.EqualTo("Track A Updated While B Plays"));
@@ -1621,7 +1622,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             var asset = library.LoadForEditing(track.Record).Asset!;
             var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library);
             playback.Apply(CreateMessage(1, "track-a", 1_000));
-            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library, playback);
+            using var viewModel = NewEditorViewModel(asset, library, playback);
             var originalLrcBytes = File.ReadAllBytes(asset.LyricsPath);
 
             viewModel.TitleOverride = "Combined Title";
@@ -1660,7 +1661,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             var track = ImportTrack(library, "track-a");
             var asset = library.LoadForEditing(track.Record).Asset!;
             var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library);
-            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library, playback);
+            using var viewModel = NewEditorViewModel(asset, library, playback);
             viewModel.TitleOverride = "Keep Me";
 
             using (new FileStream(asset.SidecarPath, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -1691,7 +1692,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             Assert.That(library.Initialise().Completed, Is.True);
             var track = ImportTrack(library, "track-a");
             var asset = library.LoadForEditing(track.Record).Asset!;
-            using var viewModel = new BuiltInLyricsEditorViewModel(asset, library,
+            using var viewModel = NewEditorViewModel(asset, library,
                 new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(), library));
             viewModel.TitleOverride = "Pending title";
             viewModel.Rows[0].LyricsText = "Changed lyric";
@@ -1764,9 +1765,14 @@ public sealed class BuiltInLyricsEditorViewModelTests
         var asset = new EditorAssetSnapshot(record, sidecar, "", "", content, "lrc-hash", "sidecar-hash", false);
         var library = new LyricsLibrary(new LibraryPaths("", "", "", "", false));
         var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock());
-        var viewModel = new BuiltInLyricsEditorViewModel(asset, library, playback);
+        var viewModel = NewEditorViewModel(asset, library, playback);
         return new(viewModel, library, playback);
     }
+
+    private static BuiltInLyricsEditorViewModel NewEditorViewModel(EditorAssetSnapshot asset,
+        LyricsLibrary library, PlaybackStateCoordinator playback) =>
+        new(asset, library, playback, TestCommandFactory.Instance,
+            NullLogger<BuiltInLyricsEditorViewModel>.Instance);
 
     private static EditorFixture CreatePlaybackViewModel(string content, long playbackPositionMs)
     {
@@ -1782,7 +1788,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
             var asset = library.LoadForEditing(track.Record).Asset!;
             var playback = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(new FixedTimeSource()), library);
             playback.Apply(CreateMessage(1, "track-a", playbackPositionMs));
-            var viewModel = new BuiltInLyricsEditorViewModel(asset, library, playback);
+            var viewModel = NewEditorViewModel(asset, library, playback);
             return new(viewModel, library, playback, root);
         }
         catch

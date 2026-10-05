@@ -1,10 +1,15 @@
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
 
 public abstract class EditableViewModelBase : ViewModelBase
 {
     private bool _isDirty;
+
+    protected EditableViewModelBase() { }
+
+    protected EditableViewModelBase(ILogger logger) : base(logger) { }
 
     public bool IsDirty => _isDirty;
 

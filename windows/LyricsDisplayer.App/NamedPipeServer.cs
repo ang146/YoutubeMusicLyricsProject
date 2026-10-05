@@ -1,12 +1,12 @@
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
-using LyricsDisplayer.Core.Logging;
 using LyricsDisplayer.Core.Protocol;
+using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
 
-public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoordinator playbackState)
+public sealed class NamedPipeServer(ILogger<NamedPipeServer> logger, PlaybackStateCoordinator playbackState)
 {
     public event Action<string>? ConnectionStatusChanged;
     public event Action<PlaybackSnapshotMessage>? SnapshotAccepted;
@@ -14,7 +14,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        logger.Write("Information", "NamedPipe", $"Named Pipe server started: {ProtocolConstants.PipeName}.");
+        logger.LogInformation("Named Pipe server started: {PipeName}.", ProtocolConstants.PipeName);
         ConnectionStatusChanged?.Invoke("Waiting for NativeHost");
 
         while (!cancellationToken.IsCancellationRequested)
@@ -31,7 +31,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
             {
                 await pipe.WaitForConnectionAsync(cancellationToken);
                 connected = true;
-                logger.Write("Information", "NamedPipe", "NativeHost connected.");
+                logger.LogInformation("NativeHost connected.");
                 ConnectionStatusChanged?.Invoke("Connected");
 
                 using var reader = new StreamReader(pipe, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false,
@@ -53,15 +53,14 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
             }
             catch (Exception exception) when (exception is IOException or DecoderFallbackException)
             {
-                logger.Write("Warning", "NamedPipe", $"Pipe receive error: {exception.Message}");
+                logger.LogWarning(exception, "Pipe receive error.");
             }
             finally
             {
                 if (connected && !cancellationToken.IsCancellationRequested)
                 {
                     playbackState.SourceDisconnected();
-                    logger.Write("Information", "NamedPipe",
-                        "NativeHost disconnected; local playback clock frozen.");
+                    logger.LogInformation("NativeHost disconnected; local playback clock frozen.");
                     ConnectionStatusChanged?.Invoke("Disconnected; waiting for NativeHost");
                 }
             }
@@ -72,7 +71,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
     {
         if (!ProtocolSerializer.TryParse(json, out var message, out var error))
         {
-            logger.Write("Warning", "Protocol", $"Rejected pipe message: {error}");
+            logger.LogWarning("Rejected pipe message: {Error}", error);
             return;
         }
 
@@ -80,7 +79,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
         {
             var lyricsDecision = playbackState.ApplyLyricsDetailed(lyrics);
             if (lyricsDecision == LyricsApplyDecision.Rejected)
-                logger.Write("Warning", "Lyrics", "Ignored lyrics for a non-current track/session or stale sequence.");
+                logger.LogWarning("Ignored lyrics for a non-current track/session or stale sequence.");
             else
                 LyricsChanged?.Invoke();
             return;
@@ -88,7 +87,7 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
 
         if (message is not PlaybackSnapshotMessage snapshot)
         {
-            logger.Write("Warning", "Protocol", $"Unexpected pipe message type '{message!.Envelope.MessageType}'.");
+            logger.LogWarning("Unexpected pipe message type '{MessageType}'.", message!.Envelope.MessageType);
             return;
         }
 
@@ -96,9 +95,9 @@ public sealed class NamedPipeServer(SessionFileLogger logger, PlaybackStateCoord
         var decision = playbackState.Apply(snapshot);
         if (decision is SnapshotDecision.RejectedDuplicate or SnapshotDecision.RejectedStale)
         {
-            logger.Write("Warning", "Sequence",
-                $"Rejected {decision.ToString().Replace("Rejected", string.Empty).ToLowerInvariant()} snapshot " +
-                $"for session {snapshot.Envelope.SourceSessionId}, sequence {snapshot.Envelope.Sequence}.");
+            logger.LogWarning("Rejected {Decision} snapshot for session {SessionId}, sequence {Sequence}.",
+                decision.ToString().Replace("Rejected", string.Empty).ToLowerInvariant(),
+                snapshot.Envelope.SourceSessionId, snapshot.Envelope.Sequence);
             return;
         }
 

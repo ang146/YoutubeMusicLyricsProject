@@ -8,7 +8,10 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
-using Application = System.Windows.Application;
+using LyricsDisplayer.Core.Settings;
+using LyricsDisplayer.Infrastructure.Commands;
+using LyricsDisplayer.Infrastructure.Factories;
+using Microsoft.Extensions.Logging;
 using MessageBox = System.Windows.MessageBox;
 
 namespace LyricsDisplayer;
@@ -16,14 +19,21 @@ namespace LyricsDisplayer;
 public partial class MainWindow : Window
 {
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly ILogger<MainWindow> _logger;
+    private readonly IApplicationLifetimeState _lifetime;
+    private readonly LyricsLibrary _library;
     private readonly PlaybackStateCoordinator _playbackState;
     private readonly NamedPipeServer _server;
     private readonly DispatcherTimer _positionRefreshTimer;
     private readonly DispatcherTimer _manualScrollResumeTimer;
     private readonly LyricsOverlayController _overlay;
-    private readonly MainLyricsWindowViewModel _viewModel;
-    private readonly DebugSettingsPageViewModel _debugSettingsPageViewModel;
+    private readonly IMainLyricsViewModel _viewModel;
+    private readonly IDebugSettingsPageViewModel _debugSettingsPageViewModel;
     private readonly SettingsWindowService _settingsWindowService;
+    private readonly IActiveLrcFileWatcherFactory _lrcWatcherFactory;
+    private readonly IGlobalHotkeyServiceFactory _hotkeyFactory;
+    private readonly ITrayLifecycleServiceFactory _trayFactory;
+    private readonly IBuiltInLyricsEditorFactory _editorFactory;
     private readonly MainLyricsAutoFollowPolicy _autoFollowPolicy = new();
     private PlaybackTrackIdentity? _autoFollowTrackIdentity;
     private ScrollViewer? _lyricsScrollViewer;
@@ -33,8 +43,7 @@ public partial class MainWindow : Window
     private TrayLifecycleService? _tray;
     private ActiveLrcFileWatcher? _activeLrcWatcher;
     private BuiltInLyricsEditorWindow? _editorWindow;
-    private EditorCommand _openBuiltInEditorCommand = null!;
-    private EditorCommand _openSettingsCommand = null!;
+    private IRelayCommand _openBuiltInEditorCommand = null!;
     private readonly ExternalLrcOpener _externalLrcOpener;
     private string? _watchedLocalTrackId;
     private string? _watchedLrcPath;
@@ -46,38 +55,37 @@ public partial class MainWindow : Window
 
     private readonly record struct PlaybackTrackIdentity(string Source, string SourceTrackId);
 
-    public MainWindow()
+    public MainWindow(ILogger<MainWindow> logger, IApplicationLifetimeState lifetime, LyricsLibrary library,
+        IOverlaySettingsStore settingsStore, PlaybackStateCoordinator playbackState, NamedPipeServer server,
+        LyricsOverlayController overlay, SettingsWindowService settingsWindowService,
+        ExternalLrcOpener externalLrcOpener, IDebugSettingsPageViewModel debugSettingsPageViewModel,
+        IMainLyricsViewModelFactory mainViewModelFactory, IActiveLrcFileWatcherFactory lrcWatcherFactory,
+        IGlobalHotkeyServiceFactory hotkeyFactory, ITrayLifecycleServiceFactory trayFactory,
+        IBuiltInLyricsEditorFactory editorFactory)
     {
         InitializeComponent();
-        var app = (App)Application.Current;
-        var logger = app.Logger;
-        _debugSettingsPageViewModel = new DebugSettingsPageViewModel(
-            app.LyricsLibrary.Paths.LibraryPath,
-            app.LyricsLibrary.Paths.IndexPath,
-            Path.GetDirectoryName(logger.CurrentPath),
-            app.CrashReports.CrashDirectory);
-        var settingsViewModel = new SettingsViewModel(_debugSettingsPageViewModel);
-        _settingsWindowService = new SettingsWindowService(() => new SettingsWindow(settingsViewModel));
-        _externalLrcOpener = new ExternalLrcOpener(log: logger.Write);
-        _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
-            app.LyricsLibrary, logger.Write);
+        _logger = logger;
+        _lifetime = lifetime;
+        _library = library;
+        _debugSettingsPageViewModel = debugSettingsPageViewModel;
+        _settingsWindowService = settingsWindowService;
+        _externalLrcOpener = externalLrcOpener;
+        _playbackState = playbackState;
+        _server = server;
+        _overlay = overlay;
+        _lrcWatcherFactory = lrcWatcherFactory;
+        _hotkeyFactory = hotkeyFactory;
+        _trayFactory = trayFactory;
+        _editorFactory = editorFactory;
         _playbackState.LocalMetadataChanged += OnLocalMetadataChanged;
-        _server = new NamedPipeServer(logger, _playbackState);
-        _overlay = new LyricsOverlayController(
-            () => new LyricsOverlayWindow(),
-            app.SettingsStore,
-            DesktopWorkAreaProvider.GetVisibleWorkAreas,
-            logger.Write);
         _overlay.VisibilityChanged += OnOverlayVisibilityChanged;
         _overlay.OpenControlPanelRequested += OpenLyricsWindow;
         _overlay.OpenExternalLyricsRequested += OpenCurrentLrcExternally;
         _overlay.OpenBuiltInEditorRequested += ExecuteOpenBuiltInEditor;
         _overlay.TimingCommandRequested += OnOverlayTimingCommand;
-        _openBuiltInEditorCommand = new("application.open-built-in-editor", _ => OpenBuiltInEditor(),
-            _ => CanOpenBuiltInEditor(), EditorHotkeyScope.Application);
-        _openSettingsCommand = new("application.open-settings", _ => _settingsWindowService.Open(),
-            scope: EditorHotkeyScope.Application);
-        _viewModel = new MainLyricsWindowViewModel(_openBuiltInEditorCommand, _openSettingsCommand);
+        _viewModel = mainViewModelFactory.Create(OpenBuiltInEditor, CanOpenBuiltInEditor,
+            _settingsWindowService.Open);
+        _openBuiltInEditorCommand = _viewModel.OpenBuiltInEditorCommand;
         _viewModel.CurrentLineChanged += OnCurrentLineChanged;
         DataContext = _viewModel;
         _openBuiltInEditorCommand.CanExecuteChanged += (_, _) =>
@@ -103,7 +111,7 @@ public partial class MainWindow : Window
         Activated += OnActivated;
         Closing += OnClosing;
         SizeChanged += OnMainWindowSizeChanged;
-        _hideToTrayOnClose = app.SettingsStore.LoadCloseControlPanelToTray();
+        _hideToTrayOnClose = settingsStore.LoadCloseControlPanelToTray();
         DisplayLyrics();
     }
 
@@ -113,27 +121,22 @@ public partial class MainWindow : Window
         if (_globalHotkeys is not null) return;
         _serverTask = RunServerSafelyAsync();
         _positionRefreshTimer.Start();
-        var logger = ((App)Application.Current).Logger;
-        _globalHotkeys = new GlobalHotkeyService(
-            new Win32GlobalHotkeyPlatform(new WindowInteropHelper(this).Handle),
+        _globalHotkeys = _hotkeyFactory.Create(new WindowInteropHelper(this).Handle,
             _overlay.ToggleVisibility,
-            () => _overlay.SetClickThrough(!_overlay.Interaction.ClickThrough),
-            logger.Write);
+            () => _overlay.SetClickThrough(!_overlay.Interaction.ClickThrough));
         _globalHotkeys.Start();
         if (_globalHotkeys.RegisteredIds.Count != 2)
-            logger.Write("Warning", "Hotkeys", "One or more global shortcuts are already in use and could not be registered.");
-        _tray = new TrayLifecycleService(new WindowsTrayIcon(), OpenLyricsWindow,
-            ToggleOverlayFromTray, ExitApplication);
+            _logger.LogWarning("One or more global shortcuts are already in use and could not be registered.");
+        _tray = _trayFactory.Create(OpenLyricsWindow, ToggleOverlayFromTray, ExitApplication);
         _tray.Start(_overlay.IsVisible);
         QueueCurrentLineAutoCenter();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        var app = (App)Application.Current;
-        var hideToTray = !app.Lifetime.IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
+        var hideToTray = !_lifetime.IsFatalShutdown && ControlPanelClosePolicy.ShouldHideToTray(
             _hideToTrayOnClose, _allowApplicationExit);
-        _applicationExitPending = app.Lifetime.IsFatalShutdown || !hideToTray;
+        _applicationExitPending = _lifetime.IsFatalShutdown || !hideToTray;
         if (_editorWindow is { } editor && !editor.RequestCloseFromApplication())
         {
             e.Cancel = true;
@@ -147,8 +150,7 @@ public partial class MainWindow : Window
             _applicationExitPending = false;
             ResetAutoFollowForHiddenWindow();
             Hide();
-            app.Logger.Write("Information", "Application",
-                "Main Lyrics Window hidden to the system tray.");
+            _logger.LogInformation("Main Lyrics Window hidden to the system tray.");
             return;
         }
         _settingsWindowService.CloseForApplicationExit();
@@ -173,7 +175,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            ((App)Application.Current).Logger.Write("Error", "NamedPipe", $"Server stopped unexpectedly: {exception}");
+            _logger.LogError(exception, "Named Pipe server stopped unexpectedly.");
             await Dispatcher.InvokeAsync(() =>
             {
                 const string status = "Connection error; see application logs";
@@ -187,7 +189,7 @@ public partial class MainWindow : Window
     {
         SynchronizeActiveLrcWatcher();
         UpdateExternalLrcAvailability();
-        _openBuiltInEditorCommand.Invalidate();
+        _openBuiltInEditorCommand.RaiseCanExecuteChanged();
         RefreshLocalPosition();
         UpdateDebugDiagnostics();
         UpdateOverlayTimingAvailability();
@@ -242,8 +244,7 @@ public partial class MainWindow : Window
         if (target is null) return;
         var result = _playbackState.AdjustCurrentLineTiming(target, deltaMs);
         if (!result.Succeeded)
-            ((App)Application.Current).Logger.Write("Warning", "Timing",
-                result.Error ?? "The current lyric timestamp could not be saved.");
+            _logger.LogWarning("{Message}", result.Error ?? "The current lyric timestamp could not be saved.");
         DisplayLyrics();
     }
 
@@ -260,8 +261,7 @@ public partial class MainWindow : Window
     private void ShowTimingResult(LyricsDisplayer.Core.Library.TimingAdjustmentResult result)
     {
         if (!result.Succeeded)
-            ((App)Application.Current).Logger.Write("Warning", "Timing",
-                result.Error ?? "Timing adjustment could not be saved.");
+            _logger.LogWarning("{Message}", result.Error ?? "Timing adjustment could not be saved.");
         DisplayLyrics();
     }
 
@@ -445,13 +445,12 @@ public partial class MainWindow : Window
         }
 
         string path;
-        try { path = ((App)Application.Current).LyricsLibrary.ResolveLyricsPath(record); }
+        try { path = _library.ResolveLyricsPath(record); }
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
         {
             if (_watchedLocalTrackId is not null) StopWatchingActiveLrc();
             _viewModel.SetExternalLyricsStatus("The current local LRC path is unavailable.");
-            ((App)Application.Current).Logger.Write("Warning", "ExternalLyrics",
-                $"Could not resolve active LRC path ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Could not resolve active LRC path.");
             return;
         }
 
@@ -466,18 +465,16 @@ public partial class MainWindow : Window
         var generation = _externalLrcGeneration;
         try
         {
-            _activeLrcWatcher = new ActiveLrcFileWatcher(path,
+            _activeLrcWatcher = _lrcWatcherFactory.Create(path,
                 _playbackState.CurrentLocalLyrics?.LrcContentHash,
-                observation => OnActiveLrcObservation(record.LocalTrackId, generation, observation),
-                ((App)Application.Current).Logger.Write);
+                observation => OnActiveLrcObservation(record.LocalTrackId, generation, observation));
             _activeLrcWatcher.CheckNow();
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
                                             NotSupportedException or System.Security.SecurityException)
         {
             _viewModel.SetExternalLyricsStatus("File watching is unavailable; the file will be checked when the app is activated.");
-            ((App)Application.Current).Logger.Write("Warning", "ExternalLyrics",
-                $"Could not watch active LRC ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Could not watch active LRC.");
         }
     }
 
@@ -553,7 +550,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                var path = ((App)Application.Current).LyricsLibrary.ResolveLyricsPath(record);
+                var path = _library.ResolveLyricsPath(record);
                 canOpen = File.Exists(path);
             }
             catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
@@ -574,12 +571,11 @@ public partial class MainWindow : Window
         }
 
         string path;
-        try { path = ((App)Application.Current).LyricsLibrary.ResolveLyricsPath(record); }
+        try { path = _library.ResolveLyricsPath(record); }
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
         {
             _viewModel.SetExternalLyricsStatus("The current local LRC path is unavailable.");
-            ((App)Application.Current).Logger.Write("Warning", "ExternalLyrics",
-                $"Could not resolve active LRC path ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Could not resolve active LRC path.");
             UpdateExternalLrcAvailability();
             return;
         }
@@ -598,7 +594,7 @@ public partial class MainWindow : Window
     private bool CanOpenBuiltInEditor()
     {
         if (_editorWindow is not null || _playbackState.ActiveLocalLyricsRecord is not { } record) return false;
-        return ((App)Application.Current).LyricsLibrary.LoadForEditing(record).Status ==
+        return _library.LoadForEditing(record).Status ==
                LyricsDisplayer.Core.Library.EditorAssetStatus.Ready;
     }
 
@@ -615,23 +611,21 @@ public partial class MainWindow : Window
             return;
         }
         if (_playbackState.ActiveLocalLyricsRecord is not { } record) return;
-        var app = (App)Application.Current;
-        var loaded = app.LyricsLibrary.LoadForEditing(record);
-        if (loaded.Status != LyricsDisplayer.Core.Library.EditorAssetStatus.Ready || loaded.Asset is null)
+        var creation = _editorFactory.Create(record);
+        if (!creation.Succeeded || creation.Window is null)
         {
-            MessageBox.Show(this, loaded.Error ?? "The current local LRC is not available for editing.",
+            MessageBox.Show(this, creation.Error ?? "The current local LRC is not available for editing.",
                 "Built-in Lyrics Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
-            _openBuiltInEditorCommand.Invalidate();
+            _openBuiltInEditorCommand.RaiseCanExecuteChanged();
             return;
         }
 
-        var viewModel = new BuiltInLyricsEditorViewModel(loaded.Asset, app.LyricsLibrary, _playbackState);
-        var window = new BuiltInLyricsEditorWindow(viewModel);
+        var window = creation.Window;
         // Keep the main window hidden when opened from the overlay, but retain a stable owner
         // relationship so ShowDialog does not disable the independent desktop overlay window.
         window.Owner = this;
         _editorWindow = window;
-        _openBuiltInEditorCommand.Invalidate();
+        _openBuiltInEditorCommand.RaiseCanExecuteChanged();
         var topmostSuppressionStarted = false;
         try
         {
@@ -641,12 +635,12 @@ public partial class MainWindow : Window
         }
         finally
         {
-            var shuttingDown = _applicationExitPending || app.Lifetime.IsFatalShutdown ||
-                               app.Dispatcher.HasShutdownStarted || app.Dispatcher.HasShutdownFinished;
+            var shuttingDown = _applicationExitPending || _lifetime.IsFatalShutdown ||
+                               Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished;
             if (topmostSuppressionStarted && !shuttingDown)
                 _overlay.SetEditorModalTopmostSuppressed(false);
             _editorWindow = null;
-            _openBuiltInEditorCommand.Invalidate();
+            _openBuiltInEditorCommand.RaiseCanExecuteChanged();
             UpdateExternalLrcAvailability();
         }
     }

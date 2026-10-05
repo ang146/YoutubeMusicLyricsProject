@@ -5,7 +5,7 @@ using System.Security;
 
 namespace LyricsDisplayer;
 
-internal sealed class ExternalLrcOpener
+public sealed class ExternalLrcOpener
 {
     private readonly Action<string> _launch;
     private readonly Action<string, string, string>? _log;

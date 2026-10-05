@@ -256,6 +256,20 @@ The Main Lyrics Window and Desktop Lyrics Overlay context menu both expose this 
 
 Command identity and command execution are separate from input bindings. This separation allows future user-configurable hotkeys without rewriting feature logic. Global/application/editor shortcut scopes may be introduced later; Milestone 11 only needs the editor command/binding architecture described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
 
+### Application composition, ViewModels, and commands
+
+`App.xaml` does not use `StartupUri`. `App.xaml.cs` creates one `ApplicationCompositionRoot`, initializes it, and asks it for the root `MainWindow`. The root owns a Unity container, registrations, lifetimes, and root resolution. The application does not use the Generic Host. Ordinary windows, ViewModels, and services receive dependencies through constructors; Unity `Resolve<T>()` stays inside the composition root and focused factories.
+
+The long-lived registrations include the existing `SessionFileLogger` backend and its Microsoft `ILoggerFactory` adapter, application lifetime state, settings store, lyrics library, playback coordinator, Named Pipe server, overlay controller, command factory/exception handler, and the Settings service. The Settings ViewModel and its Debug page ViewModel are shared for the lifetime of the Settings service so diagnostics and selected-section state survive closing and reopening the one managed Settings window. The overlay controller creates and retains its WPF view lazily. WPF windows are not registered as application-wide singletons.
+
+Each application-level ViewModel exposes a meaningful consumer contract (`IMainLyricsViewModel`, `ISettingsViewModel`, `IDebugSettingsPageViewModel`, or `IBuiltInLyricsEditorViewModel`). Parent Views and consumers use those contracts rather than concrete ViewModel implementations. `ViewModelBase` accepts `ILogger` and exposes it as protected `Logger`; concrete ViewModels receive `ILogger<ConcreteViewModel>` and pass that instance to the base, preserving its concrete logging category. Small row projections with no logging responsibility may use the null logger. `EditableViewModelBase` forwards the same logger cleanly.
+
+Runtime factories are used where construction needs session-specific values or must preserve managed UI lifecycles: the editor factory accepts the fixed `LocalTrackRecord` and builds a modal editor session; the Settings factory recreates a closed window while the Settings service preserves its one-window behavior; the overlay view factory supports the controller's lazy view lifetime; and hotkey, tray, and active-LRC watcher factories accept HWNDs, callbacks, paths, and fingerprints that are only known at runtime. The Main Lyrics ViewModel factory creates its application-scoped commands using callbacks owned by the resolved Main Window. Simple records and document row projections remain local constructions instead of receiving factories without a lifecycle need.
+
+Application commands are created through `ICommandFactory`. `RelayCommand` and `AsyncRelayCommand` expose stable command identity and explicit `RaiseCanExecuteChanged()` invalidation; they do not depend on global `CommandManager` requery. The async implementation is non-reentrant, exposes `IsExecuting`, and disables itself until completion. Command failures are logged and passed to `IExceptionHandler`: recoverable failures are presented without closing the application, while explicitly fatal failures are rethrown to the existing WPF/AppDomain fatal boundary. Fatal crash reports remain separate from ordinary command error presentation and continue using the existing crash-report service.
+
+ViewModel unit tests instantiate the concrete type with substitutes or `NullLogger` when logging is not under test. Tests of consumers substitute the relevant `IXxxViewModel` contract without starting Unity. A focused composition smoke test resolves the production nonvisual service/ViewModel graph using the same registrations as startup.
+
 ### Desktop overlay window-state invariant
 
 The Desktop Lyrics Overlay is a floating, application-managed surface, not a conventional application window. Its only supported state is `WindowState.Normal`; minimized and maximized states are prevented or immediately normalized. Native Windows caption movement and Snap placement are not used for moving lyrics. During a drag, the cursor selects the target monitor and the full overlay rectangle is constrained to that monitor's usable work area (`MONITORINFO.rcWork`), including taskbar exclusions. Crossing onto another monitor immediately switches the movement constraint to that monitor. Mixed-DPI movement keeps cursor/work-area/window positioning in physical screen pixels and converts WPF size/grab offsets with the target monitor's scale; a window larger than the destination work area is reduced only as much as needed to fit. Native edge/corner resizing stays pinned to the monitor where the resize started and is clamped to its work area, while position lock continues to disable movement without disabling resize. Overlay geometry is persisted only from a normal floating state, and show/recovery normalizes the state and reapplies validated saved geometry inside a current work area before displaying the singleton window.
@@ -1242,9 +1256,9 @@ Useful entries include:
 
 Avoid repeatedly writing full lyrics payloads to logs during normal operation.
 
-M12's next application-infrastructure refactor standardises typed/category logging for App ViewModels and services. The intended consumption pattern is constructor injection of `ILogger<ConcreteType>`; ViewModels pass that logger to `ViewModelBase`, which exposes a protected non-generic `Logger` while retaining the concrete logger category. Meaningful lifecycle, command, operation, and state-transition events should be logged; high-frequency playback ticks, every `PropertyChanged`, and every renderer refresh should not be logged.
+The App's standard logging abstractions adapt to the existing rotating `SessionFileLogger`; they do not create a second storage system. ViewModels and important services receive category-specific `ILogger<T>` through the composition root. Meaningful lifecycle, command, operation, and state-transition events are logged; high-frequency playback ticks, every `PropertyChanged`, and every renderer refresh are not.
 
-Commands will be created through a shared command factory and route execution failures through application exception handling. The global fatal reporter remains the last-resort boundary rather than the normal error path for recoverable command/service failures.
+Commands are created through the shared command factory and route execution failures through recoverable application exception handling. The global fatal reporter remains the last-resort boundary rather than the normal error path for recoverable command/service failures.
 
 ## 15.8 Application Fatal Exception Reporting
 
@@ -1572,16 +1586,7 @@ In progress. Tasks 1–6 are implemented and manually accepted:
 * live **Settings > Debug** page for track/storage/transport/playback/lyrics-provider diagnostics, log/crash-folder actions, and prettified raw playback/lyrics snapshots
 * Built-in Editor timing-authoring consolidation: live playback/current-lyric display, direct whole-document timestamp shifts, selected-row timestamp shifts, and compact **Set Time** playback authoring
 
-Repository-level `AGENTS.md` now records the mandatory coding-agent conventions. The remaining M12 work includes an application-infrastructure cleanup before more features are layered on top:
-
-* introduce a Unity composition root and explicit constructor injection
-* add `IXxxViewModel` contracts and remove scattered direct ViewModel construction
-* use factories for runtime/session/window creation where creation parameters or lifecycle justify them
-* generalise `EditorCommand` into shared `RelayCommand` / `AsyncRelayCommand` infrastructure behind `ICommandFactory`
-* standardise typed/category logging and application-level exception handling so recoverable command failures do not normally fall through to the fatal dispatcher handler
-* add NSubstitute for isolated consumer tests and composition smoke tests
-* consolidate shared lyrics context-menu/application commands
-* finish concrete cross-surface integration polish
+Repository-level `AGENTS.md` records the mandatory coding-agent conventions. The application-infrastructure refactor is implemented: Unity composition and constructor injection, ViewModel contracts, justified runtime factories, shared relay-command infrastructure, typed logging on the existing backend, layered recoverable/fatal exception handling, NSubstitute-based isolated tests, and a production-registration smoke test are in place. Remaining M12 work is limited to final acceptance and any concrete cross-surface integration polish found during review.
 
 The App-side ViewModel foundation uses ordinary typed backing fields. Generic `SetProperty` raises only the changed property's notification; dependent-property notifications stay explicit, and command invalidation remains an explicit operation rather than a global requery. Domain logic remains in Core and application services.
 

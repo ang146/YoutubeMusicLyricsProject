@@ -4,20 +4,20 @@ using System.Security.Cryptography;
 
 namespace LyricsDisplayer;
 
-internal enum ActiveLrcFileObservationKind
+public enum ActiveLrcFileObservationKind
 {
     Content,
     Missing,
     Unavailable
 }
 
-internal sealed record ActiveLrcFileObservation(
+public sealed record ActiveLrcFileObservation(
     ActiveLrcFileObservationKind Kind,
     string? Fingerprint = null,
     string? Error = null);
 
 /// <summary>Watches only one active LRC and coalesces filesystem notifications into stable fingerprints.</summary>
-internal sealed class ActiveLrcFileWatcher : IDisposable
+public sealed class ActiveLrcFileWatcher : IDisposable
 {
     internal static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(300);
     internal static readonly TimeSpan DefaultRetryDelay = TimeSpan.FromMilliseconds(125);

@@ -2,6 +2,9 @@ using System.Collections.Specialized;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
+using Microsoft.Extensions.Logging.Abstractions;
+using LyricsDisplayer.Infrastructure.Commands;
+using NSubstitute;
 
 namespace LyricsDisplayer.App.Tests;
 
@@ -11,7 +14,7 @@ public sealed class MainLyricsWindowViewModelTests
     [Test]
     public void EffectiveMetadataUpdatesHeaderAndHidesUnavailableArtist()
     {
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
         var propertyChanges = new List<string?>();
         viewModel.PropertyChanged += (_, args) => propertyChanges.Add(args.PropertyName);
 
@@ -58,7 +61,7 @@ public sealed class MainLyricsWindowViewModelTests
         };
         var lyrics = TimedLyrics(documentLines);
         var timeline = new LyricsTimeline(documentLines);
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
         var currentLineChanges = new List<MainLyricsLineViewModel?>();
         var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
         viewModel.CurrentLineChanged += currentLineChanges.Add;
@@ -111,7 +114,7 @@ public sealed class MainLyricsWindowViewModelTests
             .ToArray();
         var lyrics = TimedLyrics(documentLines);
         var timeline = new LyricsTimeline(documentLines);
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
         var currentLineChanges = new List<int?>();
         var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
         viewModel.CurrentLineChanged += line => currentLineChanges.Add(line?.DocumentIndex);
@@ -144,7 +147,7 @@ public sealed class MainLyricsWindowViewModelTests
             .ToArray();
         var lyrics = TimedLyrics(documentLines);
         var timeline = new LyricsTimeline(documentLines);
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
         var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
         viewModel.Lines.CollectionChanged += (_, args) => collectionChanges.Add(args);
 
@@ -170,7 +173,7 @@ public sealed class MainLyricsWindowViewModelTests
         var lines = new[] { Line(1_000, "A"), Line(2_000, "B") };
         var lyrics = TimedLyrics(lines);
         var timeline = new LyricsTimeline(lines);
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
         var collectionChanges = new List<NotifyCollectionChangedEventArgs>();
         var currentLineChanges = 0;
         viewModel.Lines.CollectionChanged += (_, args) => collectionChanges.Add(args);
@@ -197,7 +200,7 @@ public sealed class MainLyricsWindowViewModelTests
     {
         var oldLines = new[] { Line(1_000, "Old one"), Line(2_000, "Old two") };
         var oldTimeline = new LyricsTimeline(oldLines);
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
         var currentLineChanges = new List<MainLyricsLineViewModel?>();
         viewModel.CurrentLineChanged += currentLineChanges.Add;
         viewModel.UpdateLyricsPresentation(TimedLyrics(oldLines), oldTimeline.Evaluate(2_000), oldTimeline.OrderedLines);
@@ -223,7 +226,7 @@ public sealed class MainLyricsWindowViewModelTests
     {
         var lyrics = new LyricsSnapshotPayload("track", true, false, "local", [], null,
             ["First", string.Empty, "Last"]);
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
 
         viewModel.UpdateLyricsPresentation(lyrics, LyricsTimeline.Empty.Evaluate(0), []);
 
@@ -239,7 +242,7 @@ public sealed class MainLyricsWindowViewModelTests
     [Test]
     public void PendingUnavailableUntimedAndMissingStatesRemainDistinct()
     {
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
         var emptyTimeline = LyricsTimeline.Empty.Evaluate(0);
 
         viewModel.UpdateLyricsPresentation(null, emptyTimeline, []);
@@ -276,7 +279,7 @@ public sealed class MainLyricsWindowViewModelTests
         var lines = new[] { Line(1_000, "A"), Line(2_000, "B") };
         var lyrics = TimedLyrics(lines);
         var timeline = new LyricsTimeline(lines);
-        var viewModel = new MainLyricsWindowViewModel(new EditorCommand("editor", _ => { }));
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
 
         viewModel.UpdateLyricsPresentation(lyrics, timeline.Evaluate(1_100), timeline.OrderedLines);
         var presentation = viewModel.Presentation;
@@ -295,10 +298,11 @@ public sealed class MainLyricsWindowViewModelTests
     public void EditorEntryUsesTheExistingApplicationCommandAndEnablement()
     {
         var canExecute = false;
+        var command = Substitute.For<IRelayCommand>();
+        command.CanExecute(Arg.Any<object?>()).Returns(_ => canExecute);
         var executed = 0;
-        var command = new EditorCommand("application.open-built-in-editor", _ => executed++, _ => canExecute,
-            EditorHotkeyScope.Application);
-        var viewModel = new MainLyricsWindowViewModel(command);
+        command.When(item => item.Execute(Arg.Any<object?>())).Do(_ => executed++);
+        var viewModel = CreateViewModel(command);
 
         Assert.Multiple(() =>
         {
@@ -314,6 +318,9 @@ public sealed class MainLyricsWindowViewModelTests
 
     private static LyricsSnapshotPayload TimedLyrics(IReadOnlyList<LyricsLine> lines) =>
         new("track", true, true, "local", lines, null);
+
+    private static MainLyricsWindowViewModel CreateViewModel(IRelayCommand openBuiltInEditorCommand) =>
+        new(openBuiltInEditorCommand, null, NullLogger<MainLyricsWindowViewModel>.Instance);
 
     private static LyricsLine Line(long startMs, string text) => new(startMs, startMs, text);
 

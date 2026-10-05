@@ -1,0 +1,121 @@
+<UserControl x:Class="LyricsDisplayer.DebugSettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="26">
+            <TextBlock Text="Debug" FontSize="26" FontWeight="SemiBold" />
+
+            <GroupBox Header="Track" Margin="0,18,0,0">
+                <StackPanel Margin="12">
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Playback source" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding PlaybackSource}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Source track ID" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding SourceTrackId}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Effective title" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding EffectiveTitle}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Effective artist" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding EffectiveArtist}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Local track ID" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding LocalTrackId}" TextWrapping="Wrap" />
+                    </Grid>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Storage" Margin="0,14,0,0">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Lyrics library" Foreground="#FF6B7280" />
+                    <TextBlock Text="{Binding LibraryPath}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                    <TextBlock Text="SQLite index" Foreground="#FF6B7280" />
+                    <TextBlock Text="{Binding IndexPath}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Transport" Margin="0,14,0,0">
+                <StackPanel Margin="12">
+                    <TextBlock Text="NativeHost connection" Foreground="#FF6B7280" />
+                    <TextBlock Text="{Binding TransportStatus}" Margin="0,2,0,0" />
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Playback" Margin="0,14,0,0">
+                <StackPanel Margin="12">
+                    <TextBlock Text="State" Foreground="#FF6B7280" />
+                    <TextBlock Text="{Binding PlaybackState}" Margin="0,2,0,0" />
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Lyrics / Provider" Margin="0,14,0,0">
+                <StackPanel Margin="12">
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Lyrics source" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding LyricsSource}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Availability" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding LyricsAvailability}" />
+                    </Grid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Timing" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding LyricsTiming}" />
+                    </Grid>
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Loaded from" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding LyricsLoadedFrom}" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Text="Local association" Foreground="#FF6B7280" />
+                        <TextBlock Grid.Column="1" Text="{Binding LocalAssociationStatus}" TextWrapping="Wrap" />
+                    </Grid>
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Logs" Margin="0,14,0,0">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Application logs" Foreground="#FF6B7280" />
+                    <TextBlock Text="{Binding LogsDirectory}" TextWrapping="Wrap" Margin="0,2,0,6" />
+                    <Button Content="Open Logs Folder" Command="{Binding OpenLogsFolderCommand}"
+                            HorizontalAlignment="Left" Padding="10,5" />
+                    <TextBlock Text="Crash reports" Foreground="#FF6B7280" Margin="0,14,0,0" />
+                    <TextBlock Text="{Binding CrashReportsDirectory}" TextWrapping="Wrap" Margin="0,2,0,6" />
+                    <Button Content="Open Crash Reports Folder" Command="{Binding OpenCrashReportsFolderCommand}"
+                            HorizontalAlignment="Left" Padding="10,5" />
+                    <TextBlock Text="{Binding FolderActionStatus}" Foreground="#FF6B7280" Margin="0,8,0,0" />
+                </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Raw playback snapshot" Margin="0,14,0,0">
+                <TextBox Text="{Binding RawPlaybackJson, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                         TextWrapping="NoWrap" FontFamily="Consolas" FontSize="11" Height="180"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         Margin="10" Padding="8" />
+            </GroupBox>
+
+            <GroupBox Header="Raw lyrics snapshot" Margin="0,14,0,0">
+                <TextBox Text="{Binding RawLyricsJson, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                         TextWrapping="NoWrap" FontFamily="Consolas" FontSize="11" Height="180"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                         Margin="10" Padding="8" />
+            </GroupBox>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

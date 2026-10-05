@@ -22,7 +22,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _manualScrollResumeTimer;
     private readonly LyricsOverlayController _overlay;
     private readonly MainLyricsWindowViewModel _viewModel;
-    private readonly SettingsWindowService _settingsWindowService = new();
+    private readonly DebugSettingsPageViewModel _debugSettingsPageViewModel;
+    private readonly SettingsWindowService _settingsWindowService;
     private readonly MainLyricsAutoFollowPolicy _autoFollowPolicy = new();
     private PlaybackTrackIdentity? _autoFollowTrackIdentity;
     private ScrollViewer? _lyricsScrollViewer;
@@ -50,6 +51,13 @@ public partial class MainWindow : Window
         InitializeComponent();
         var app = (App)Application.Current;
         var logger = app.Logger;
+        _debugSettingsPageViewModel = new DebugSettingsPageViewModel(
+            app.LyricsLibrary.Paths.LibraryPath,
+            app.LyricsLibrary.Paths.IndexPath,
+            Path.GetDirectoryName(logger.CurrentPath),
+            app.CrashReports.CrashDirectory);
+        var settingsViewModel = new SettingsViewModel(_debugSettingsPageViewModel);
+        _settingsWindowService = new SettingsWindowService(() => new SettingsWindow(settingsViewModel));
         _externalLrcOpener = new ExternalLrcOpener(log: logger.Write);
         _playbackState = new PlaybackStateCoordinator(new SnapshotStateTracker(), new PlaybackClock(),
             app.LyricsLibrary, logger.Write);
@@ -74,7 +82,11 @@ public partial class MainWindow : Window
         DataContext = _viewModel;
         _openBuiltInEditorCommand.CanExecuteChanged += (_, _) =>
             _overlay.SetBuiltInEditorAvailability(_openBuiltInEditorCommand.CanExecute(null));
-        _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() => _viewModel.SetConnectionStatus(status));
+        _server.ConnectionStatusChanged += status => Dispatcher.InvokeAsync(() =>
+        {
+            _viewModel.SetConnectionStatus(status);
+            _debugSettingsPageViewModel.SetTransportStatus(status);
+        });
         _server.SnapshotAccepted += _ => Dispatcher.InvokeAsync(DisplayLyrics);
         _server.LyricsChanged += () => Dispatcher.InvokeAsync(DisplayLyrics);
         _positionRefreshTimer = new DispatcherTimer(DispatcherPriority.Render)
@@ -162,7 +174,12 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             ((App)Application.Current).Logger.Write("Error", "NamedPipe", $"Server stopped unexpectedly: {exception}");
-            await Dispatcher.InvokeAsync(() => _viewModel.SetConnectionStatus("Connection error; see application logs"));
+            await Dispatcher.InvokeAsync(() =>
+            {
+                const string status = "Connection error; see application logs";
+                _viewModel.SetConnectionStatus(status);
+                _debugSettingsPageViewModel.SetTransportStatus(status);
+            });
         }
     }
 
@@ -172,8 +189,17 @@ public partial class MainWindow : Window
         UpdateExternalLrcAvailability();
         _openBuiltInEditorCommand.Invalidate();
         RefreshLocalPosition();
+        UpdateDebugDiagnostics();
         UpdateOverlayTimingAvailability();
     }
+
+    private void UpdateDebugDiagnostics() => _debugSettingsPageViewModel.UpdateRuntimeState(
+        _playbackState.Current,
+        _playbackState.CurrentLyrics,
+        _playbackState.ActiveLocalLyricsRecord,
+        _playbackState.EffectiveMetadata,
+        _playbackState.LyricsLoadedFrom,
+        _playbackState.LocalAssociationStatus);
 
     private void RefreshLocalPosition()
     {
@@ -202,8 +228,11 @@ public partial class MainWindow : Window
         if (trackChanged) QueueCurrentLineAutoCenter();
     }
 
-    private void OnLocalMetadataChanged() =>
-        Dispatcher.InvokeAsync(() => _viewModel.SetEffectiveMetadata(_playbackState.EffectiveMetadata));
+    private void OnLocalMetadataChanged() => Dispatcher.InvokeAsync(() =>
+    {
+        _viewModel.SetEffectiveMetadata(_playbackState.EffectiveMetadata);
+        UpdateDebugDiagnostics();
+    });
 
     private void AdjustCurrentLineTiming(long deltaMs)
     {

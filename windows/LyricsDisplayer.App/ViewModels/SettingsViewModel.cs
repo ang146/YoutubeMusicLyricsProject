@@ -10,27 +10,39 @@ public enum SettingsPageId
     Debug
 }
 
-public sealed record SettingsPageViewModel(SettingsPageId Id, string Title);
+public interface ISettingsPageViewModel
+{
+    SettingsPageId Id { get; }
+    string Title { get; }
+}
+
+public sealed record SettingsPageViewModel(SettingsPageId Id, string Title) : ISettingsPageViewModel;
 
 public sealed class SettingsViewModel : ViewModelBase
 {
-    private SettingsPageViewModel _selectedPage = null!;
+    private ISettingsPageViewModel _selectedPage = null!;
 
-    public IReadOnlyList<SettingsPageViewModel> Pages { get; } =
-    [
-        new(SettingsPageId.General, "General"),
-        new(SettingsPageId.LyricsOverlay, "Lyrics Overlay"),
-        new(SettingsPageId.LyricsWindow, "Lyrics Window"),
-        new(SettingsPageId.MediaController, "Media Controller"),
-        new(SettingsPageId.Editor, "Editor"),
-        new(SettingsPageId.Debug, "Debug")
-    ];
+    public DebugSettingsPageViewModel DebugPage { get; }
+    public IReadOnlyList<ISettingsPageViewModel> Pages { get; }
 
-    public SettingsPageViewModel SelectedPage
+    public ISettingsPageViewModel SelectedPage
     {
         get => _selectedPage;
         set => SetProperty(ref _selectedPage, value ?? throw new ArgumentNullException(nameof(value)));
     }
 
-    public SettingsViewModel() => SelectedPage = Pages[0];
+    public SettingsViewModel(DebugSettingsPageViewModel? debugPage = null)
+    {
+        DebugPage = debugPage ?? new DebugSettingsPageViewModel();
+        Pages =
+        [
+            new SettingsPageViewModel(SettingsPageId.General, "General"),
+            new SettingsPageViewModel(SettingsPageId.LyricsOverlay, "Lyrics Overlay"),
+            new SettingsPageViewModel(SettingsPageId.LyricsWindow, "Lyrics Window"),
+            new SettingsPageViewModel(SettingsPageId.MediaController, "Media Controller"),
+            new SettingsPageViewModel(SettingsPageId.Editor, "Editor"),
+            DebugPage
+        ];
+        SelectedPage = Pages[0];
+    }
 }

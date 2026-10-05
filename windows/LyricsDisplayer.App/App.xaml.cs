@@ -32,6 +32,7 @@ public partial class App : System.Windows.Application
     }
 
     public SessionFileLogger Logger { get; private set; } = null!;
+    public CrashReportService CrashReports => _crashReports;
     public LyricsLibrary LyricsLibrary { get; private set; } = null!;
     public ApplicationSettingsStore SettingsStore { get; private set; } = null!;
     public IApplicationLifetimeState Lifetime => _lifetimeState;

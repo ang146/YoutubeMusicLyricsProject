@@ -377,6 +377,102 @@ public sealed class EditorDocumentBuffer
         return true;
     }
 
+    public bool ShiftAllTimestamps(long deltaMs, out string? error)
+    {
+        error = null;
+        if (deltaMs == 0) return true;
+
+        var updatedRows = new Dictionary<Guid, EditorLyricRow>();
+        var foundTimestamp = false;
+        foreach (var row in Document.Rows)
+        {
+            var timestamps = row.Timestamps.ToArray();
+            var rowChanged = false;
+            for (var index = 0; index < timestamps.Length; index++)
+            {
+                var timestamp = timestamps[index];
+                if (string.IsNullOrWhiteSpace(timestamp.Value)) continue;
+                foundTimestamp = true;
+                if (!EditorDocumentCodec.TryParseTimestamp(timestamp.Value, out var timestampMs))
+                {
+                    error = $"Cannot shift invalid timestamp '{timestamp.Value}'.";
+                    return false;
+                }
+                if (!LrcTimestampRewriter.TryShiftTimestamp(timestampMs, deltaMs, row.LyricsText,
+                        out var adjustedMs, out error))
+                    return false;
+                if (adjustedMs == timestampMs) continue;
+                timestamps[index] = timestamp with { Value = EditorDocumentCodec.FormatTimestamp(adjustedMs) };
+                rowChanged = true;
+            }
+
+            if (rowChanged) updatedRows.Add(row.Id, row with { Timestamps = timestamps });
+        }
+
+        if (!foundTimestamp)
+        {
+            error = "The document contains no usable timestamps to shift.";
+            return false;
+        }
+        if (updatedRows.Count == 0) return true;
+
+        Change(document => document with
+        {
+            PhysicalLines = document.PhysicalLines.Select(line =>
+                line.LyricRow is { } row && updatedRows.TryGetValue(row.Id, out var updated)
+                    ? line with
+                    {
+                        LyricRow = updated,
+                        IsModified = !string.Equals(EditorDocumentCodec.SerializeLyricRow(updated),
+                            line.RawText, StringComparison.Ordinal)
+                    }
+                    : line).ToArray()
+        });
+        return true;
+    }
+
+    public bool ShiftRowTimestamps(Guid rowId, long deltaMs, out string? error)
+    {
+        error = null;
+        var row = FindRow(Document, rowId);
+        if (row is null)
+        {
+            error = "Select a lyric row to shift.";
+            return false;
+        }
+
+        var timestamps = row.Timestamps.ToArray();
+        var foundTimestamp = false;
+        var changed = false;
+        for (var index = 0; index < timestamps.Length; index++)
+        {
+            var timestamp = timestamps[index];
+            if (string.IsNullOrWhiteSpace(timestamp.Value)) continue;
+            foundTimestamp = true;
+            if (!EditorDocumentCodec.TryParseTimestamp(timestamp.Value, out var timestampMs))
+            {
+                error = $"Cannot shift invalid timestamp '{timestamp.Value}'.";
+                return false;
+            }
+            if (!LrcTimestampRewriter.TryShiftTimestamp(timestampMs, deltaMs, row.LyricsText,
+                    out var adjustedMs, out error))
+                return false;
+            if (adjustedMs == timestampMs) continue;
+            timestamps[index] = timestamp with { Value = EditorDocumentCodec.FormatTimestamp(adjustedMs) };
+            changed = true;
+        }
+
+        if (!foundTimestamp)
+        {
+            error = "The selected lyric row contains no usable timestamps to shift.";
+            return false;
+        }
+        if (!changed) return true;
+
+        Change(document => UpdateRow(document, rowId, existing => existing with { Timestamps = timestamps }));
+        return true;
+    }
+
     public void SetTitleOverride(string? title) => SetMetadata(UserTrackMetadata.Normalise(title, Metadata.Artist));
     public void SetArtistOverride(string? artist) => SetMetadata(UserTrackMetadata.Normalise(Metadata.Title, artist));
     public void ClearTitleOverride() => SetTitleOverride(null);

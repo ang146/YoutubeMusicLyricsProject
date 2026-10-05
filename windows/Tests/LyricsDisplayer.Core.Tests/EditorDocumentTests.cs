@@ -374,6 +374,82 @@ public sealed class EditorDocumentTests
     }
 
     [Test]
+    public void ShiftAllTimestampsUsesOneUndoUnitAndKeepsProtectedZeroAnchorsAtZero()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(
+            "[00:00.000]\n[00:01.000]Line\n[00:02.000]More\n"),
+            UserTrackMetadata.Normalise(null, null));
+
+        Assert.That(buffer.ShiftAllTimestamps(-500, out var error), Is.True, error);
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:00.000]\n[00:00.500]Line\n[00:01.500]More\n"));
+        Assert.That(buffer.CanUndo, Is.True);
+
+        buffer.Undo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:00.000]\n[00:01.000]Line\n[00:02.000]More\n"));
+        Assert.That(buffer.CanUndo, Is.False, "A whole-document shift creates exactly one undo unit.");
+        buffer.Redo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:00.000]\n[00:00.500]Line\n[00:01.500]More\n"));
+    }
+
+    [Test]
+    public void ShiftAllTimestampsRejectsAnyNegativeOrdinaryTimestampAtomically()
+    {
+        const string original = "[00:01.000]Earlier lyric\n[00:00.300]Ordinary lyric\n[00:02.000]Later\n";
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(original),
+            UserTrackMetadata.Normalise(null, null));
+
+        Assert.That(buffer.ShiftAllTimestamps(-500, out var error), Is.False);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.EqualTo(LrcTimestampRewriter.NegativeTimestampError));
+            Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(original),
+                "No earlier timestamps may be partially shifted when a later timestamp is unsafe.");
+            Assert.That(buffer.CanUndo, Is.False);
+            Assert.That(buffer.IsDirty, Is.False);
+        });
+    }
+
+    [Test]
+    public void ShiftSelectedRowChangesAllOccurrencesAndCreatesOneUndoUnit()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("[00:10.000][00:20.000]Line\n"),
+            UserTrackMetadata.Normalise(null, null));
+        var row = buffer.Document.Rows.Single();
+
+        Assert.That(buffer.ShiftRowTimestamps(row.Id, -100, out var error), Is.True, error);
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:09.900][00:19.900]Line\n"));
+        Assert.That(buffer.CanUndo, Is.True);
+        buffer.Undo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:10.000][00:20.000]Line\n"));
+        Assert.That(buffer.CanUndo, Is.False);
+        buffer.Redo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:09.900][00:19.900]Line\n"));
+    }
+
+    [Test]
+    public void ShiftSelectedRowRejectsAnyNegativeOrdinaryTimestampAtomically()
+    {
+        const string original = "[00:01.000][00:00.300]Line\n[00:02.000]Other\n";
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(original),
+            UserTrackMetadata.Normalise(null, null));
+        var row = buffer.Document.Rows[0];
+
+        Assert.That(buffer.ShiftRowTimestamps(row.Id, -500, out var error), Is.False);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.EqualTo(LrcTimestampRewriter.NegativeTimestampError));
+            Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(original));
+            Assert.That(buffer.CanUndo, Is.False);
+            Assert.That(buffer.IsDirty, Is.False);
+        });
+    }
+
+    [Test]
     public void RepeatedCurrentTimeAppendsUndoAndRedoOneOccurrenceAtATimeAndRoundTrips()
     {
         var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("Line\n"),

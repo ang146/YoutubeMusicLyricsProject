@@ -33,6 +33,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -67,16 +68,60 @@
             </DockPanel>
         </Grid>
 
-        <DockPanel Grid.Row="1" Margin="0,0,0,8">
-            <Button DockPanel.Dock="Right" Content="Set Current Time as Timestamp"
-                    Command="{Binding SetTimestampFromPlaybackCommand}" Padding="10,5" />
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="{Binding PlaybackPositionText}" FontFamily="Consolas" FontSize="15" />
-                <TextBlock Text="{Binding PlaybackIdentityMessage}" Margin="18,0,0,0" VerticalAlignment="Center" />
-            </StackPanel>
-        </DockPanel>
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{Binding PlaybackLiveText}" FontFamily="Consolas" FontSize="15"
+                       VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                       Margin="0,0,12,0" />
+            <Button Grid.Column="1" Content="Set Time" Command="{Binding SetTimestampFromPlaybackCommand}"
+                    Padding="10,5" />
+        </Grid>
 
-        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
+        <GroupBox Grid.Row="2" Header="Timing Authoring" Margin="0,0,0,8">
+            <StackPanel Margin="8">
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Shift All Timestamps" VerticalAlignment="Center"
+                               FontWeight="SemiBold" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="-0.5s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="-500" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="-0.1s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="-100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.1s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.5s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="500" Padding="8,4" />
+                    </StackPanel>
+                </Grid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Selected Line" VerticalAlignment="Center"
+                               FontWeight="SemiBold" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="-0.5s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="-500" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="-0.1s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="-100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.1s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.5s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="500" Padding="8,4" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </GroupBox>
+
+        <WrapPanel Grid.Row="3" Margin="0,0,0,8">
             <Button Content="Undo" Command="{Binding UndoCommand}" Padding="9,4" Margin="0,0,6,0" />
             <Button Content="Redo" Command="{Binding RedoCommand}" Padding="9,4" Margin="0,0,14,0" />
             <Button Content="Insert Above" Command="{Binding InsertRowAboveCommand}" Padding="9,4" Margin="0,0,6,0" />
@@ -85,10 +130,10 @@
             <Button Content="Delete Row" Command="{Binding DeleteRowCommand}" Padding="9,4" />
         </WrapPanel>
 
-        <TextBlock Grid.Row="3" Text="{Binding ExternalConflict}" Foreground="#FF9C1C1C"
+        <TextBlock Grid.Row="4" Text="{Binding ExternalConflict}" Foreground="#FF9C1C1C"
                    TextWrapping="Wrap" Margin="0,0,0,6" />
 
-        <DataGrid x:Name="LyricsGrid" Grid.Row="4" ItemsSource="{Binding Rows}"
+        <DataGrid x:Name="LyricsGrid" Grid.Row="5" ItemsSource="{Binding Rows}"
                   AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                   CanUserSortColumns="False" SelectionMode="Single" SelectionUnit="Cell"
                   HeadersVisibility="All" RowHeaderWidth="48"
@@ -101,7 +146,7 @@
                   BeginningEdit="OnBeginningEdit">
             <DataGrid.ContextMenu>
                 <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                    <MenuItem Header="Set Current Time as Timestamp" Command="{Binding SetTimestampFromPlaybackCommand}" />
+                    <MenuItem Header="Set Time" Command="{Binding SetTimestampFromPlaybackCommand}" />
                     <Separator />
                     <MenuItem Header="Insert Row Above" Command="{Binding InsertRowAboveCommand}" />
                     <MenuItem Header="Insert Row Below" Command="{Binding InsertRowBelowCommand}" />
@@ -114,14 +159,14 @@
             </DataGrid.ContextMenu>
         </DataGrid>
 
-        <DockPanel Grid.Row="5" Margin="0,8,0,6">
+        <DockPanel Grid.Row="6" Margin="0,8,0,6">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <TextBlock Text="Preserved entries: " VerticalAlignment="Center" />
                 <TextBlock Text="{Binding PreservedEntries.Count}" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Text="{Binding Status}" Foreground="#FF9C1C1C" TextWrapping="Wrap" />
         </DockPanel>
-        <DockPanel Grid.Row="6">
+        <DockPanel Grid.Row="7">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
                 <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="Close" Click="OnCloseClick" Padding="18,6" IsCancel="True" />

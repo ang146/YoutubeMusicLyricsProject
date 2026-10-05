@@ -33,6 +33,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -76,7 +77,41 @@
             </StackPanel>
         </DockPanel>
 
-        <WrapPanel Grid.Row="2" Margin="0,0,0,8">
+        <GroupBox Grid.Row="2" Header="Timing Authoring" Margin="0,0,0,8"
+                  ToolTip="Playback-dependent actions require playback to match this EditorTrack. Save or undo pending edits before actions that rewrite the LRC.">
+            <StackPanel Margin="8">
+                <WrapPanel>
+                    <TextBlock Text="{Binding GlobalOffsetText}" VerticalAlignment="Center" FontWeight="SemiBold"
+                               Margin="0,0,12,6" />
+                    <Button Content="-0.5s Earlier" Command="{Binding AdjustGlobalOffsetCommand}"
+                            CommandParameter="-500" Padding="8,4" Margin="0,0,5,6" />
+                    <Button Content="-0.1s Earlier" Command="{Binding AdjustGlobalOffsetCommand}"
+                            CommandParameter="-100" Padding="8,4" Margin="0,0,5,6" />
+                    <Button Content="Reset" Command="{Binding ResetGlobalOffsetCommand}"
+                            Padding="8,4" Margin="0,0,5,6" />
+                    <Button Content="+0.1s Later" Command="{Binding AdjustGlobalOffsetCommand}"
+                            CommandParameter="100" Padding="8,4" Margin="0,0,5,6" />
+                    <Button Content="+0.5s Later" Command="{Binding AdjustGlobalOffsetCommand}"
+                            CommandParameter="500" Padding="8,4" Margin="0,0,14,6" />
+                    <Button Content="Bake" Command="{Binding BakeGlobalOffsetCommand}"
+                            Padding="8,4" Margin="0,0,0,6" />
+                </WrapPanel>
+                <WrapPanel>
+                    <TextBlock Text="Current line" VerticalAlignment="Center" FontWeight="SemiBold"
+                               Margin="0,0,12,0" />
+                    <Button Content="-0.5s Earlier" Command="{Binding AdjustCurrentLineTimingCommand}"
+                            CommandParameter="-500" Padding="8,4" Margin="0,0,5,0" />
+                    <Button Content="-0.1s Earlier" Command="{Binding AdjustCurrentLineTimingCommand}"
+                            CommandParameter="-100" Padding="8,4" Margin="0,0,5,0" />
+                    <Button Content="+0.1s Later" Command="{Binding AdjustCurrentLineTimingCommand}"
+                            CommandParameter="100" Padding="8,4" Margin="0,0,5,0" />
+                    <Button Content="+0.5s Later" Command="{Binding AdjustCurrentLineTimingCommand}"
+                            CommandParameter="500" Padding="8,4" />
+                </WrapPanel>
+            </StackPanel>
+        </GroupBox>
+
+        <WrapPanel Grid.Row="3" Margin="0,0,0,8">
             <Button Content="Undo" Command="{Binding UndoCommand}" Padding="9,4" Margin="0,0,6,0" />
             <Button Content="Redo" Command="{Binding RedoCommand}" Padding="9,4" Margin="0,0,14,0" />
             <Button Content="Insert Above" Command="{Binding InsertRowAboveCommand}" Padding="9,4" Margin="0,0,6,0" />
@@ -85,10 +120,10 @@
             <Button Content="Delete Row" Command="{Binding DeleteRowCommand}" Padding="9,4" />
         </WrapPanel>
 
-        <TextBlock Grid.Row="3" Text="{Binding ExternalConflict}" Foreground="#FF9C1C1C"
+        <TextBlock Grid.Row="4" Text="{Binding ExternalConflict}" Foreground="#FF9C1C1C"
                    TextWrapping="Wrap" Margin="0,0,0,6" />
 
-        <DataGrid x:Name="LyricsGrid" Grid.Row="4" ItemsSource="{Binding Rows}"
+        <DataGrid x:Name="LyricsGrid" Grid.Row="5" ItemsSource="{Binding Rows}"
                   AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
                   CanUserSortColumns="False" SelectionMode="Single" SelectionUnit="Cell"
                   HeadersVisibility="All" RowHeaderWidth="48"
@@ -114,14 +149,14 @@
             </DataGrid.ContextMenu>
         </DataGrid>
 
-        <DockPanel Grid.Row="5" Margin="0,8,0,6">
+        <DockPanel Grid.Row="6" Margin="0,8,0,6">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <TextBlock Text="Preserved entries: " VerticalAlignment="Center" />
                 <TextBlock Text="{Binding PreservedEntries.Count}" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Text="{Binding Status}" Foreground="#FF9C1C1C" TextWrapping="Wrap" />
         </DockPanel>
-        <DockPanel Grid.Row="6">
+        <DockPanel Grid.Row="7">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
                 <Button x:Name="SaveButton" Content="Save" Command="{Binding SaveCommand}" Padding="18,6" Margin="0,0,8,0" />
                 <Button Content="Close" Click="OnCloseClick" Padding="18,6" IsCancel="True" />

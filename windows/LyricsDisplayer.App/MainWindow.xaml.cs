@@ -220,12 +220,13 @@ public partial class MainWindow : Window
         var timeline = _playbackState.HasClockState
             ? _playbackState.GetTimelinePosition()
             : LyricsDisplayer.Core.Timeline.LyricsTimeline.Empty.Evaluate(0);
-        var lyrics = _playbackState.CurrentLyrics?.Payload;
+        var lyrics = _playbackState.PresentationLyrics;
         var timelineLines = _playbackState.GetTimelineOrderedLines();
+        var localFileMissing = _playbackState.IsCurrentLocalLrcMissing &&
+                               !_playbackState.IsEditorPreviewActive;
         _viewModel.UpdateLyricsPresentation(lyrics, timeline, timelineLines,
-            _playbackState.IsCurrentLocalLrcMissing);
-        _overlay.Update(_playbackState.HasClockState ? lyrics : null, timeline,
-            _playbackState.IsCurrentLocalLrcMissing, timelineLines);
+            localFileMissing);
+        _overlay.Update(_playbackState.HasClockState ? lyrics : null, timeline, localFileMissing, timelineLines);
         if (trackChanged) QueueCurrentLineAutoCenter();
     }
 

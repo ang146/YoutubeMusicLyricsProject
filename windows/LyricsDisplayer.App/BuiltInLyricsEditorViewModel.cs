@@ -3,6 +3,8 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using LyricsDisplayer.Core.Library;
+using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Core.Timeline;
 
 namespace LyricsDisplayer;
 
@@ -88,16 +90,17 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     public string Status { get => _status; private set => Set(ref _status, value); }
     public string? ExternalConflict { get => _externalConflict; private set => Set(ref _externalConflict, value); }
     public bool ExternalFileMissing { get => _externalMissing; private set => Set(ref _externalMissing, value); }
-    public string PlaybackPositionText => _playback.HasClockState
-        ? $"Playback: {EditorDocumentCodec.FormatTimestamp(_playbackPosition)}"
-        : "Playback: unavailable";
-    public bool PlaybackMatchesEditorTrack => _playbackMatches;
-    public string PlaybackIdentityMessage => _playbackMatches
-        ? "Playback matches this editor track."
-        : "Set Current Time is disabled because another track is playing.";
-    public string GlobalOffsetText => _playbackMatches && _playback.CanAdjustTiming
-        ? $"Global offset: {FormatOffset(_playback.GlobalOffsetMs)}"
-        : "Global offset: unavailable";
+    public string PlaybackLiveText
+    {
+        get
+        {
+            var position = _playback.HasClockState
+                ? EditorDocumentCodec.FormatTimestamp(Math.Max(0, _playbackPosition))
+                : "--:--.---";
+            var lyric = _playbackMatches ? GetCurrentEditorLyric() : string.Empty;
+            return $"{position} | {lyric}";
+        }
+    }
     public int TimestampColumnCount => Math.Max(1,
         _buffer.Document.Rows.Select(row => row.Timestamps.Count).DefaultIfEmpty(0).Max() + 1);
     public EditorSelection Selection => _selection;
@@ -116,10 +119,8 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     public EditorCommand DeleteRowCommand { get; }
     public EditorCommand ClearCellCommand { get; }
     public EditorCommand SetTimestampFromPlaybackCommand { get; }
-    public EditorCommand AdjustGlobalOffsetCommand { get; }
-    public EditorCommand ResetGlobalOffsetCommand { get; }
-    public EditorCommand BakeGlobalOffsetCommand { get; }
-    public EditorCommand AdjustCurrentLineTimingCommand { get; }
+    public EditorCommand ShiftAllTimestampsCommand { get; }
+    public EditorCommand ShiftSelectedLineTimingCommand { get; }
     public EditorCommand CommitMetadataCommand { get; }
     public EditorCommand ClearTitleOverrideCommand { get; }
     public EditorCommand ClearArtistOverrideCommand { get; }
@@ -162,11 +163,9 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         ClearCellCommand = new("editor.cell.clear", ClearCell,
             parameter => CanClearCell(parameter as EditorSelection ?? Selection));
         SetTimestampFromPlaybackCommand = new("editor.timestamp.from-playback", _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
-        AdjustGlobalOffsetCommand = new("editor.timing.global-adjust", AdjustGlobalOffset, CanAdjustGlobalOffset);
-        ResetGlobalOffsetCommand = new("editor.timing.global-reset", _ => ResetGlobalOffset(), _ => CanResetGlobalOffset());
-        BakeGlobalOffsetCommand = new("editor.timing.global-bake", _ => BakeGlobalOffset(), _ => CanBakeGlobalOffset());
-        AdjustCurrentLineTimingCommand = new("editor.timing.current-line-adjust", AdjustCurrentLineTiming,
-            CanAdjustCurrentLineTiming);
+        ShiftAllTimestampsCommand = new("editor.timing.shift-all", ShiftAllTimestamps, CanShiftAllTimestamps);
+        ShiftSelectedLineTimingCommand = new("editor.timing.shift-selected", ShiftSelectedLineTiming,
+            CanShiftSelectedLineTiming);
         CommitMetadataCommand = new("editor.metadata.commit", _ => CommitMetadata());
         ClearTitleOverrideCommand = new("editor.metadata.clear-title", _ =>
         {
@@ -281,10 +280,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         _playbackMatches = _playback.HasClockState && current is not null &&
             _playback.ActiveLocalLyricsRecord?.LocalTrackId == EditorTrack.LocalTrackId &&
             EditorTrack.SourceAssociations.Any(item => item.Source == source && item.SourceTrackId == sourceTrackId);
-        OnPropertyChanged(nameof(PlaybackPositionText));
-        OnPropertyChanged(nameof(PlaybackMatchesEditorTrack));
-        OnPropertyChanged(nameof(PlaybackIdentityMessage));
-        OnPropertyChanged(nameof(GlobalOffsetText));
+        OnPropertyChanged(nameof(PlaybackLiveText));
         InvalidateCommands();
     }
 
@@ -339,9 +335,10 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
             TitleOverride = saved.Sidecar.UserMetadata.Title ?? string.Empty;
             ArtistOverride = saved.Sidecar.UserMetadata.Artist ?? string.Empty;
             _playback.ApplySavedEditorMetadata(saved.Record, saved.Sidecar);
+            _playback.ReloadExternalLocalLyrics(saved.Record.LocalTrackId, saved.LrcHash);
             ExternalConflict = null;
             ExternalFileMissing = false;
-            Status = "Saved. Metadata overrides are active now; runtime lyrics update through the active LRC watcher.";
+            Status = "Saved. Metadata and lyrics are active now.";
             RefreshFromBuffer(keepSelection: true);
             SaveCompleted?.Invoke();
             return;
@@ -469,143 +466,50 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         RefreshFromBuffer(keepSelection: true);
     }
 
-    private void AdjustGlobalOffset(object? parameter)
+    private void ShiftAllTimestamps(object? parameter)
     {
-        RefreshPlayback();
-        if (!CanAdjustGlobalOffset(parameter) || !TryGetTimingDelta(parameter, out var deltaMs)) return;
-
-        var result = _playback.AdjustTiming(deltaMs);
-        if (!result.Succeeded)
+        if (!TryGetTimingDelta(parameter, out var deltaMs)) return;
+        CommitStagedEdits();
+        if (!_buffer.ShiftAllTimestamps(deltaMs, out var error))
         {
-            SetTimingFailure(result);
+            Status = error ?? "The document timestamps could not be shifted.";
             return;
         }
 
-        if (!RefreshAssetBaselineAfterOffsetChange())
-        {
-            RefreshPlayback();
-            return;
-        }
         Status = string.Empty;
-        RefreshPlayback();
+        RefreshFromBuffer(keepSelection: true);
     }
 
-    private bool CanAdjustGlobalOffset(object? parameter) =>
-        CanUsePlaybackTiming && _playback.CanAdjustTiming && TryGetTimingDelta(parameter, out _);
+    private bool CanShiftAllTimestamps(object? parameter) =>
+        TryGetTimingDelta(parameter, out _) && Rows.Any(row =>
+            row.Timestamps.Any(value => !string.IsNullOrWhiteSpace(value)));
 
-    private void ResetGlobalOffset()
+    private void ShiftSelectedLineTiming(object? parameter)
     {
-        RefreshPlayback();
-        if (!CanResetGlobalOffset()) return;
+        if (!TryGetTimingDelta(parameter, out var deltaMs) || _selection.SelectedRowId is not { } rowId) return;
 
-        var result = _playback.ResetTiming();
-        if (!result.Succeeded)
+        var selectedRow = Rows.FirstOrDefault(candidate => candidate.EditorLineId == rowId);
+        if (selectedRow is null || !selectedRow.Timestamps.Any(value => !string.IsNullOrWhiteSpace(value))) return;
+
+        CommitStagedEdits();
+        if (!_buffer.ShiftRowTimestamps(rowId, deltaMs, out var error))
         {
-            SetTimingFailure(result);
+            Status = error ?? "The selected lyric row timestamps could not be shifted.";
             return;
         }
 
-        if (!RefreshAssetBaselineAfterOffsetChange())
-        {
-            RefreshPlayback();
-            return;
-        }
         Status = string.Empty;
-        RefreshPlayback();
+        RefreshFromBuffer(keepSelection: true);
     }
 
-    private bool CanResetGlobalOffset() =>
-        CanUsePlaybackTiming && _playback.CanAdjustTiming && _playback.GlobalOffsetMs != 0;
-
-    private void BakeGlobalOffset()
+    private bool CanShiftSelectedLineTiming(object? parameter)
     {
-        RefreshPlayback();
-        if (!CanBakeGlobalOffset()) return;
-        if (_playback.CaptureTimingAdjustmentTarget() is not { } target ||
-            target.LocalTrackId != EditorTrack.LocalTrackId) return;
-
-        var result = _playback.BakeTiming(target);
-        if (!result.Succeeded)
-        {
-            SetTimingFailure(result);
-            return;
-        }
-
-        ReloadAfterLrcTimingChange();
-    }
-
-    private bool CanBakeGlobalOffset() =>
-        CanUsePlaybackTiming && !IsDirty &&
-        _playback.CaptureTimingAdjustmentTarget() is
-            { GlobalOffsetMs: not 0, LocalTrackId: var localTrackId } &&
-        localTrackId == EditorTrack.LocalTrackId;
-
-    private void AdjustCurrentLineTiming(object? parameter)
-    {
-        RefreshPlayback();
-        if (!CanAdjustCurrentLineTiming(parameter) || !TryGetTimingDelta(parameter, out var deltaMs)) return;
-        if (_playback.CaptureCurrentLineTimingTarget() is not { } target ||
-            target.Document.Record.LocalTrackId != EditorTrack.LocalTrackId) return;
-
-        var result = _playback.AdjustCurrentLineTiming(target, deltaMs);
-        if (!result.Succeeded)
-        {
-            SetTimingFailure(result);
-            return;
-        }
-
-        ReloadAfterLrcTimingChange();
-    }
-
-    private bool CanAdjustCurrentLineTiming(object? parameter) =>
-        CanUsePlaybackTiming && !IsDirty && _playback.CanAdjustCurrentLineTiming &&
-        TryGetTimingDelta(parameter, out _);
-
-    private bool CanUsePlaybackTiming => _playbackMatches && ExternalConflict is null && !ExternalFileMissing &&
-        _playback.CurrentLocalLyrics?.Record.LocalTrackId == EditorTrack.LocalTrackId;
-
-    private bool RefreshAssetBaselineAfterOffsetChange()
-    {
-        var result = _library.LoadForEditing(EditorTrack);
-        if (result.Status != EditorAssetStatus.Ready || result.Asset is not { } refreshed)
-        {
-            ExternalConflict = result.Error ?? "The EditorTrack assets could not be reloaded after the timing change.";
-            Status = ExternalConflict;
+        if (!TryGetTimingDelta(parameter, out _) || _selection.SelectedRowId is not { } rowId)
             return false;
-        }
 
-        if (!string.Equals(refreshed.LrcHash, _asset.LrcHash, StringComparison.Ordinal) ||
-            refreshed.Sidecar.SchemaVersion != _asset.Sidecar.SchemaVersion ||
-            !string.Equals(refreshed.Sidecar.LocalTrackId, _asset.Sidecar.LocalTrackId, StringComparison.Ordinal) ||
-            !refreshed.Sidecar.SourceAssociations.SequenceEqual(_asset.Sidecar.SourceAssociations) ||
-            refreshed.Sidecar.UserMetadata != _asset.Sidecar.UserMetadata ||
-            refreshed.Sidecar.Lyrics != _asset.Sidecar.Lyrics)
-        {
-            ExternalConflict = "The LRC or non-timing sidecar data changed externally.";
-            Status = ExternalConflict;
-            return false;
-        }
-
-        _asset = refreshed;
-        return true;
+        var row = Rows.FirstOrDefault(candidate => candidate.EditorLineId == rowId);
+        return row is not null && row.Timestamps.Any(value => !string.IsNullOrWhiteSpace(value));
     }
-
-    private void ReloadAfterLrcTimingChange()
-    {
-        var result = _library.LoadForEditing(EditorTrack);
-        if (result.Status != EditorAssetStatus.Ready || result.Asset is not { } refreshed)
-        {
-            Status = result.Error ?? "The timing change succeeded, but the updated LRC could not be reloaded.";
-            return;
-        }
-
-        Reload(refreshed);
-        Status = string.Empty;
-        RefreshPlayback();
-    }
-
-    private void SetTimingFailure(TimingAdjustmentResult result) =>
-        Status = result.Error ?? $"Timing operation failed: {result.Status}.";
 
     private static bool TryGetTimingDelta(object? parameter, out long deltaMs)
     {
@@ -625,11 +529,56 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         }
     }
 
-    private static string FormatOffset(long offsetMs) => offsetMs switch
+    private string GetCurrentEditorLyric()
     {
-        > 0 => $"+{offsetMs} ms",
-        _ => $"{offsetMs} ms"
-    };
+        var evaluationPosition = LyricsTimingAdjustment.GetEvaluationPosition(
+            _playbackPosition, _playback.GlobalOffsetMs);
+        long latestStartMs = long.MinValue;
+        var currentText = string.Empty;
+        foreach (var row in Rows)
+        foreach (var value in row.Timestamps)
+        {
+            if (!EditorDocumentCodec.TryParseTimestamp(value, out var startMs) ||
+                startMs > evaluationPosition || startMs < latestStartMs)
+                continue;
+            latestStartMs = startMs;
+            currentText = row.LyricsText;
+        }
+        return currentText;
+    }
+
+    private void PublishEditorPreview()
+    {
+        var occurrences = new List<(long StartMs, int Order, string Text)>();
+        var untimedLines = new List<string>();
+        var order = 0;
+        foreach (var row in Rows)
+        {
+            var hadTimedOccurrence = false;
+            foreach (var value in row.Timestamps)
+            {
+                if (!EditorDocumentCodec.TryParseTimestamp(value, out var startMs)) continue;
+                occurrences.Add((startMs, order++, row.LyricsText));
+                hadTimedOccurrence = true;
+            }
+            if (!hadTimedOccurrence && row.LyricsText.Length > 0)
+                untimedLines.Add(row.LyricsText);
+        }
+
+        var ordered = occurrences.OrderBy(item => item.StartMs).ThenBy(item => item.Order).ToArray();
+        var durationMs = EditorTrack.SourceAssociations
+            .Select(association => association.Metadata.DurationMs)
+            .DefaultIfEmpty(0).Max();
+        var lines = ordered.Select((item, index) =>
+        {
+            var endMs = index + 1 < ordered.Length
+                ? ordered[index + 1].StartMs
+                : durationMs > item.StartMs ? durationMs : item.StartMs;
+            return new LyricsLine(item.StartMs, Math.Max(item.StartMs, endMs), item.Text);
+        }).ToArray();
+        _playback.SetEditorPreview(EditorTrack, lines, untimedLines);
+        OnPropertyChanged(nameof(PlaybackLiveText));
+    }
 
     private bool CanSetTimestampFromPlayback(object? _)
     {
@@ -691,12 +640,13 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         {
             if (_buffer.Document.PhysicalLines[index].LyricRow is not { } row) continue;
             var viewRow = new EditorRowViewModel(row, columns, Rows.Count + 1);
-            viewRow.PropertyChanged += (_, _) =>
+            viewRow.PropertyChanged += (_, args) =>
             {
                 OnPropertyChanged(nameof(IsDirty));
                 SaveCommand.Invalidate();
                 ClearCellCommand.Invalidate();
-                InvalidateLrcTimingCommands();
+                if (args.PropertyName == nameof(EditorRowViewModel.LyricsText))
+                    PublishEditorPreview();
             };
             viewRow.Timestamps.CollectionChanged += (_, _) =>
             {
@@ -704,7 +654,8 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
                 SaveCommand.Invalidate();
                 ClearCellCommand.Invalidate();
                 SetTimestampFromPlaybackCommand.Invalidate();
-                InvalidateLrcTimingCommands();
+                InvalidateDocumentTimingCommands();
+                PublishEditorPreview();
             };
             Rows.Add(viewRow);
         }
@@ -722,6 +673,7 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         OnPropertyChanged(nameof(EffectiveArtist));
         OnPropertyChanged(nameof(Selection));
         InvalidateCommands();
+        PublishEditorPreview();
     }
 
     private void RefreshValidationProjection()
@@ -751,22 +703,13 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         SaveCommand.Invalidate(); UndoCommand.Invalidate(); RedoCommand.Invalidate();
         InsertRowAboveCommand.Invalidate(); InsertRowBelowCommand.Invalidate(); AppendRowCommand.Invalidate();
         DeleteRowCommand.Invalidate(); ClearCellCommand.Invalidate(); SetTimestampFromPlaybackCommand.Invalidate();
-        AdjustGlobalOffsetCommand.Invalidate(); ResetGlobalOffsetCommand.Invalidate();
-        BakeGlobalOffsetCommand.Invalidate(); AdjustCurrentLineTimingCommand.Invalidate();
+        ShiftAllTimestampsCommand.Invalidate(); ShiftSelectedLineTimingCommand.Invalidate();
     }
 
-    private void InvalidateLrcTimingCommands()
+    private void InvalidateDocumentTimingCommands()
     {
-        BakeGlobalOffsetCommand.Invalidate();
-        AdjustCurrentLineTimingCommand.Invalidate();
-    }
-
-    private void InvalidatePlaybackTimingCommands()
-    {
-        AdjustGlobalOffsetCommand.Invalidate();
-        ResetGlobalOffsetCommand.Invalidate();
-        BakeGlobalOffsetCommand.Invalidate();
-        AdjustCurrentLineTimingCommand.Invalidate();
+        ShiftAllTimestampsCommand.Invalidate();
+        ShiftSelectedLineTimingCommand.Invalidate();
     }
 
     private bool HasStagedRowEdits()
@@ -792,10 +735,8 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
         if (name is nameof(TitleOverride) or nameof(ArtistOverride))
         {
             OnPropertyChanged(nameof(IsDirty));
-            InvalidateLrcTimingCommands();
+            UndoCommand?.Invalidate();
         }
-        else if (name is nameof(ExternalConflict) or nameof(ExternalFileMissing))
-            InvalidatePlaybackTimingCommands();
         SaveCommand?.Invalidate();
         return true;
     }
@@ -806,5 +747,6 @@ public sealed class BuiltInLyricsEditorViewModel : INotifyPropertyChanged, IDisp
     {
         if (_disposed) return;
         _disposed = true;
+        _playback.ClearEditorPreview(EditorTrack.LocalTrackId);
     }
 }

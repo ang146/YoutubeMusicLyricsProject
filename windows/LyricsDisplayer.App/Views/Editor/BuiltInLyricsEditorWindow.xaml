@@ -68,46 +68,56 @@
             </DockPanel>
         </Grid>
 
-        <DockPanel Grid.Row="1" Margin="0,0,0,8">
-            <Button DockPanel.Dock="Right" Content="Set Current Time as Timestamp"
-                    Command="{Binding SetTimestampFromPlaybackCommand}" Padding="10,5" />
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="{Binding PlaybackPositionText}" FontFamily="Consolas" FontSize="15" />
-                <TextBlock Text="{Binding PlaybackIdentityMessage}" Margin="18,0,0,0" VerticalAlignment="Center" />
-            </StackPanel>
-        </DockPanel>
+        <Grid Grid.Row="1" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="{Binding PlaybackLiveText}" FontFamily="Consolas" FontSize="15"
+                       VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                       Margin="0,0,12,0" />
+            <Button Grid.Column="1" Content="Set Time" Command="{Binding SetTimestampFromPlaybackCommand}"
+                    Padding="10,5" />
+        </Grid>
 
-        <GroupBox Grid.Row="2" Header="Timing Authoring" Margin="0,0,0,8"
-                  ToolTip="Playback-dependent actions require playback to match this EditorTrack. Save or undo pending edits before actions that rewrite the LRC.">
+        <GroupBox Grid.Row="2" Header="Timing Authoring" Margin="0,0,0,8">
             <StackPanel Margin="8">
-                <WrapPanel>
-                    <TextBlock Text="{Binding GlobalOffsetText}" VerticalAlignment="Center" FontWeight="SemiBold"
-                               Margin="0,0,12,6" />
-                    <Button Content="-0.5s Earlier" Command="{Binding AdjustGlobalOffsetCommand}"
-                            CommandParameter="-500" Padding="8,4" Margin="0,0,5,6" />
-                    <Button Content="-0.1s Earlier" Command="{Binding AdjustGlobalOffsetCommand}"
-                            CommandParameter="-100" Padding="8,4" Margin="0,0,5,6" />
-                    <Button Content="Reset" Command="{Binding ResetGlobalOffsetCommand}"
-                            Padding="8,4" Margin="0,0,5,6" />
-                    <Button Content="+0.1s Later" Command="{Binding AdjustGlobalOffsetCommand}"
-                            CommandParameter="100" Padding="8,4" Margin="0,0,5,6" />
-                    <Button Content="+0.5s Later" Command="{Binding AdjustGlobalOffsetCommand}"
-                            CommandParameter="500" Padding="8,4" Margin="0,0,14,6" />
-                    <Button Content="Bake" Command="{Binding BakeGlobalOffsetCommand}"
-                            Padding="8,4" Margin="0,0,0,6" />
-                </WrapPanel>
-                <WrapPanel>
-                    <TextBlock Text="Current line" VerticalAlignment="Center" FontWeight="SemiBold"
-                               Margin="0,0,12,0" />
-                    <Button Content="-0.5s Earlier" Command="{Binding AdjustCurrentLineTimingCommand}"
-                            CommandParameter="-500" Padding="8,4" Margin="0,0,5,0" />
-                    <Button Content="-0.1s Earlier" Command="{Binding AdjustCurrentLineTimingCommand}"
-                            CommandParameter="-100" Padding="8,4" Margin="0,0,5,0" />
-                    <Button Content="+0.1s Later" Command="{Binding AdjustCurrentLineTimingCommand}"
-                            CommandParameter="100" Padding="8,4" Margin="0,0,5,0" />
-                    <Button Content="+0.5s Later" Command="{Binding AdjustCurrentLineTimingCommand}"
-                            CommandParameter="500" Padding="8,4" />
-                </WrapPanel>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Shift All Timestamps" VerticalAlignment="Center"
+                               FontWeight="SemiBold" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="-0.5s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="-500" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="-0.1s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="-100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.1s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.5s" Command="{Binding ShiftAllTimestampsCommand}"
+                                CommandParameter="500" Padding="8,4" />
+                    </StackPanel>
+                </Grid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="170" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Selected Line" VerticalAlignment="Center"
+                               FontWeight="SemiBold" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="-0.5s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="-500" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="-0.1s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="-100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.1s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="100" Padding="8,4" Margin="0,0,5,0" />
+                        <Button Content="+0.5s" Command="{Binding ShiftSelectedLineTimingCommand}"
+                                CommandParameter="500" Padding="8,4" />
+                    </StackPanel>
+                </Grid>
             </StackPanel>
         </GroupBox>
 
@@ -136,7 +146,7 @@
                   BeginningEdit="OnBeginningEdit">
             <DataGrid.ContextMenu>
                 <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
-                    <MenuItem Header="Set Current Time as Timestamp" Command="{Binding SetTimestampFromPlaybackCommand}" />
+                    <MenuItem Header="Set Time" Command="{Binding SetTimestampFromPlaybackCommand}" />
                     <Separator />
                     <MenuItem Header="Insert Row Above" Command="{Binding InsertRowAboveCommand}" />
                     <MenuItem Header="Insert Row Below" Command="{Binding InsertRowBelowCommand}" />

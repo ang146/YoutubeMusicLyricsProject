@@ -1129,157 +1129,174 @@ public sealed class BuiltInLyricsEditorViewModelTests
     }
 
     [Test]
-    public void GlobalOffsetEditorCommandsUseExistingValuesAndResetWithoutRewritingTheLrc()
+    public void ShiftAllTimestampsIsOneUndoableDocumentEditAndSavesToTheLrc()
     {
-        using var fixture = CreatePlaybackViewModel("[00:01.000]Line\n", 1_000);
+        using var fixture = CreatePlaybackViewModel("[00:01.000]First\n[00:02.000]Second\n", 1_500);
         var viewModel = fixture.ViewModel;
-        var originalLrc = File.ReadAllText(fixture.Library.ResolveLyricsPath(viewModel.EditorTrack));
-        var localTrackId = viewModel.EditorTrack.LocalTrackId;
+        var lyricPath = fixture.Library.ResolveLyricsPath(viewModel.EditorTrack);
 
-        foreach (var (delta, expected) in new (string Delta, long Offset)[]
-                 { ("-500", -500), ("-100", -600), ("100", -500), ("500", 0) })
-        {
-            Assert.That(viewModel.AdjustGlobalOffsetCommand.CanExecute(delta), Is.True);
-            viewModel.AdjustGlobalOffsetCommand.Execute(delta);
-            Assert.That(fixture.Playback.GlobalOffsetMs, Is.EqualTo(expected));
-        }
-
-        Assert.That(viewModel.ResetGlobalOffsetCommand.CanExecute(null), Is.False);
-        viewModel.AdjustGlobalOffsetCommand.Execute("500");
-        Assert.That(viewModel.ResetGlobalOffsetCommand.CanExecute(null), Is.True);
-        viewModel.ResetGlobalOffsetCommand.Execute(null);
+        Assert.That(fixture.Playback.PresentationLyrics!.Lines.Select(line => line.StartMs),
+            Is.EqualTo(new long[] { 1_000, 2_000 }));
+        Assert.That(viewModel.ShiftAllTimestampsCommand.CanExecute("100"), Is.True);
+        viewModel.ShiftAllTimestampsCommand.Execute("100");
 
         Assert.Multiple(() =>
         {
-            Assert.That(fixture.Playback.GlobalOffsetMs, Is.Zero);
-            Assert.That(fixture.Library.Lookup(localTrackId).Document!.GlobalOffsetMs, Is.Zero);
-            Assert.That(File.ReadAllText(fixture.Library.ResolveLyricsPath(viewModel.EditorTrack)), Is.EqualTo(originalLrc));
+            Assert.That(viewModel.Rows.SelectMany(row => row.Timestamps).Where(value => value.Length > 0),
+                Is.EqualTo(new[] { "00:01.100", "00:02.100" }));
+            Assert.That(fixture.Playback.PresentationLyrics!.Lines.Select(line => line.StartMs),
+                Is.EqualTo(new long[] { 1_100, 2_100 }), "Unsaved document timing is previewed by runtime.");
+            Assert.That(viewModel.IsDirty, Is.True);
+            Assert.That(viewModel.CanUndo, Is.True);
+        });
+        viewModel.UndoCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[0].Timestamps[0], Is.EqualTo("00:01.000"));
+            Assert.That(viewModel.Rows[1].Timestamps[0], Is.EqualTo("00:02.000"));
             Assert.That(viewModel.IsDirty, Is.False);
-        });
-    }
-
-    [Test]
-    public void CurrentLineTimingCommandUsesExistingCoordinatorAndRefreshesEditorRows()
-    {
-        using var fixture = CreatePlaybackViewModel("[00:02.000]Line\n", 2_000);
-        var viewModel = fixture.ViewModel;
-
-        Assert.That(viewModel.AdjustCurrentLineTimingCommand.CanExecute("-100"), Is.True);
-        viewModel.AdjustCurrentLineTimingCommand.Execute("-100");
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo("00:01.900"));
-            Assert.That(File.ReadAllText(fixture.Library.ResolveLyricsPath(viewModel.EditorTrack)),
-                Does.Contain("[00:01.900]Line"));
-            Assert.That(viewModel.IsDirty, Is.False);
-        });
-    }
-
-    [Test]
-    public void BakeCommandUsesExistingBakeValidationAndResetsGlobalOffsetOnSuccess()
-    {
-        using var fixture = CreatePlaybackViewModel("[00:02.000]Line\n", 2_000);
-        var viewModel = fixture.ViewModel;
-        var localTrackId = viewModel.EditorTrack.LocalTrackId;
-        viewModel.AdjustGlobalOffsetCommand.Execute("500");
-
-        Assert.That(viewModel.BakeGlobalOffsetCommand.CanExecute(null), Is.True);
-        viewModel.BakeGlobalOffsetCommand.Execute(null);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(File.ReadAllText(fixture.Library.ResolveLyricsPath(viewModel.EditorTrack)),
-                Does.Contain("[00:02.500]Line"));
-            Assert.That(viewModel.Rows.Single().Timestamps[0], Is.EqualTo("00:02.500"));
-            Assert.That(fixture.Library.Lookup(localTrackId).Document!.GlobalOffsetMs, Is.Zero);
-            Assert.That(fixture.Playback.GlobalOffsetMs, Is.Zero);
-            Assert.That(viewModel.IsDirty, Is.False);
-        });
-    }
-
-    [Test]
-    public void BakeCommandPreservesExistingValidationWhenOffsetWouldCreateNegativeTimestamp()
-    {
-        using var fixture = CreatePlaybackViewModel("[00:00.300]Line\n", 300);
-        var viewModel = fixture.ViewModel;
-        var path = fixture.Library.ResolveLyricsPath(viewModel.EditorTrack);
-        var originalLrc = File.ReadAllText(path);
-
-        viewModel.AdjustGlobalOffsetCommand.Execute("-500");
-        Assert.That(viewModel.BakeGlobalOffsetCommand.CanExecute(null), Is.True);
-        viewModel.BakeGlobalOffsetCommand.Execute(null);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(File.ReadAllText(path), Is.EqualTo(originalLrc));
-            Assert.That(fixture.Playback.GlobalOffsetMs, Is.EqualTo(-500));
-            Assert.That(viewModel.Status, Is.Not.Empty,
-                "The existing timing service should report its negative-timestamp validation result.");
-            Assert.That(viewModel.IsDirty, Is.False);
-        });
-    }
-
-    [Test]
-    public void PlaybackTimingCommandsStayBoundToTheFixedEditorTrack()
-    {
-        using var fixture = CreatePlaybackViewModel("[00:10.000]Line\n", 12_000);
-        var viewModel = fixture.ViewModel;
-        var editorTrackId = viewModel.EditorTrack.LocalTrackId;
-        viewModel.AdjustGlobalOffsetCommand.Execute("500");
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(viewModel.BakeGlobalOffsetCommand.CanExecute(null), Is.True);
-            Assert.That(viewModel.AdjustCurrentLineTimingCommand.CanExecute("100"), Is.True);
+            Assert.That(fixture.Playback.PresentationLyrics!.Lines.Select(line => line.StartMs),
+                Is.EqualTo(new long[] { 1_000, 2_000 }));
         });
 
-        fixture.Playback.Apply(CreateMessage(2, "track-b", 20_000));
-        viewModel.RefreshPlayback();
-        Assert.Multiple(() =>
-        {
-            Assert.That(viewModel.BakeGlobalOffsetCommand.CanExecute(null), Is.False);
-            Assert.That(viewModel.AdjustCurrentLineTimingCommand.CanExecute("100"), Is.False);
-            Assert.That(viewModel.AdjustGlobalOffsetCommand.CanExecute("100"), Is.False);
-            Assert.That(viewModel.EditorTrack.LocalTrackId, Is.EqualTo(editorTrackId));
-        });
-
-        fixture.Playback.Apply(CreateMessage(3, "track-a", 12_000));
-        viewModel.RefreshPlayback();
-        Assert.Multiple(() =>
-        {
-            Assert.That(viewModel.BakeGlobalOffsetCommand.CanExecute(null), Is.True);
-            Assert.That(viewModel.AdjustCurrentLineTimingCommand.CanExecute("100"), Is.True);
-            Assert.That(viewModel.AdjustGlobalOffsetCommand.CanExecute("100"), Is.True);
-        });
-    }
-
-    [Test]
-    public void GlobalOffsetCanChangeWithoutLosingPendingEditorEditsButLrcTimingEditsAreDisabled()
-    {
-        using var fixture = CreatePlaybackViewModel("[00:02.000]Line\n", 2_000);
-        var viewModel = fixture.ViewModel;
-        var row = viewModel.Rows.Single();
-        row.LyricsText = "Pending local edit";
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(viewModel.AdjustGlobalOffsetCommand.CanExecute("100"), Is.True);
-            Assert.That(viewModel.BakeGlobalOffsetCommand.CanExecute(null), Is.False);
-            Assert.That(viewModel.AdjustCurrentLineTimingCommand.CanExecute("100"), Is.False);
-        });
-
-        viewModel.AdjustGlobalOffsetCommand.Execute("100");
-        Assert.That(viewModel.IsDirty, Is.True);
+        viewModel.RedoCommand.Execute(null);
+        Assert.That(fixture.Playback.PresentationLyrics!.Lines.Select(line => line.StartMs),
+            Is.EqualTo(new long[] { 1_100, 2_100 }));
         viewModel.SaveCommand.Execute(null);
 
         var saved = fixture.Library.LoadForEditing(viewModel.EditorTrack).Asset!;
         Assert.Multiple(() =>
         {
-            Assert.That(saved.LrcContent, Does.Contain("Pending local edit"));
-            Assert.That(saved.Sidecar.GlobalOffsetMs, Is.EqualTo(100));
+            Assert.That(File.ReadAllText(lyricPath), Does.Contain("[00:01.100]First"));
+            Assert.That(saved.LrcContent, Does.Contain("[00:02.100]Second"));
             Assert.That(viewModel.IsDirty, Is.False);
         });
+    }
+
+    [Test]
+    public void DiscardingEditorPreviewRestoresSavedRuntimeLyrics()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:01.000]Saved line\n", 1_500);
+        var viewModel = fixture.ViewModel;
+        viewModel.ShiftAllTimestampsCommand.Execute("500");
+
+        Assert.That(fixture.Playback.PresentationLyrics!.Lines.Single().StartMs, Is.EqualTo(1_500));
+        viewModel.Dispose();
+
+        Assert.That(fixture.Playback.PresentationLyrics!.Lines.Single().StartMs, Is.EqualTo(1_000));
+    }
+
+    [Test]
+    public void RuntimeEditorPreviewIsHiddenOnTrackMismatchAndReturnsWithItsFixedTrack()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:01.000]Saved line\n", 1_500);
+        var viewModel = fixture.ViewModel;
+        viewModel.Rows.Single().LyricsText = "Unsaved preview";
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Playback.PresentationLyrics!.Lines.Single().Text, Is.EqualTo("Unsaved preview"));
+            Assert.That(fixture.Playback.CanAdjustCurrentLineTiming, Is.False,
+                "Runtime current-line file edits must not target the saved document under an editor preview.");
+        });
+
+        fixture.Playback.Apply(CreateMessage(2, "track-b", 2_000));
+        viewModel.RefreshPlayback();
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Playback.IsEditorPreviewActive, Is.False);
+            Assert.That(fixture.Playback.PresentationLyrics?.Lines.Any(line => line.Text == "Unsaved preview"),
+                Is.Not.True);
+        });
+
+        fixture.Playback.Apply(CreateMessage(3, "track-a", 1_500));
+        viewModel.RefreshPlayback();
+        Assert.Multiple(() =>
+        {
+            Assert.That(fixture.Playback.IsEditorPreviewActive, Is.True);
+            Assert.That(fixture.Playback.PresentationLyrics!.Lines.Single().Text, Is.EqualTo("Unsaved preview"));
+        });
+    }
+
+    [Test]
+    public void SelectedLineShiftUsesSelectedRowAndDoesNotDependOnPlaybackSelection()
+    {
+        using var fixture = CreatePlaybackViewModel(
+            "[00:01.000]First\n[00:10.000][00:20.000]Second\n[00:30.000]Third\n", 30_500);
+        var viewModel = fixture.ViewModel;
+        var selected = viewModel.Rows[1];
+        viewModel.SelectCell(selected.EditorLineId, EditorColumn.Lyrics);
+
+        Assert.That(viewModel.ShiftSelectedLineTimingCommand.CanExecute("-500"), Is.True);
+        viewModel.ShiftSelectedLineTimingCommand.Execute("-500");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[0].Timestamps[0], Is.EqualTo("00:01.000"));
+            Assert.That(viewModel.Rows[1].Timestamps.Take(2), Is.EqualTo(new[] { "00:09.500", "00:19.500" }));
+            Assert.That(viewModel.Rows[2].Timestamps[0], Is.EqualTo("00:30.000"));
+            Assert.That(viewModel.IsDirty, Is.True);
+            Assert.That(viewModel.CanUndo, Is.True);
+            Assert.That(viewModel.Selection, Is.EqualTo(new EditorSelection(selected.EditorLineId, EditorColumn.Lyrics)),
+                "The Selected Line command preserves the user's row selection.");
+            Assert.That(fixture.Playback.PresentationLyrics!.Lines.Select(line => line.StartMs),
+                Is.EqualTo(new long[] { 1_000, 9_500, 19_500, 30_000 }),
+                "The runtime preview reflects the edited row timestamps.");
+        });
+
+        viewModel.UndoCommand.Execute(null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.Rows[1].Timestamps.Take(2), Is.EqualTo(new[] { "00:10.000", "00:20.000" }));
+            Assert.That(viewModel.IsDirty, Is.False);
+            Assert.That(fixture.Playback.PresentationLyrics!.Lines.Select(line => line.StartMs),
+                Is.EqualTo(new long[] { 1_000, 10_000, 20_000, 30_000 }));
+        });
+        viewModel.RedoCommand.Execute(null);
+        Assert.That(viewModel.Rows[1].Timestamps.Take(2), Is.EqualTo(new[] { "00:09.500", "00:19.500" }));
+
+        fixture.Playback.Apply(CreateMessage(2, "track-b", 20_000));
+        viewModel.RefreshPlayback();
+        Assert.That(viewModel.ShiftSelectedLineTimingCommand.CanExecute("100"), Is.True,
+            "Selected document timing remains independent from which track is playing.");
+        viewModel.ShiftSelectedLineTimingCommand.Execute("100");
+        Assert.That(viewModel.Rows[1].Timestamps.Take(2), Is.EqualTo(new[] { "00:09.600", "00:19.600" }));
+        Assert.That(viewModel.Selection, Is.EqualTo(new EditorSelection(selected.EditorLineId, EditorColumn.Lyrics)));
+    }
+
+    [Test]
+    public void SelectedLineShiftRejectsNegativeTimestampAtomicallyFromLyricCellSelection()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:01.000][00:00.300]Line\n", 1_000);
+        var viewModel = fixture.ViewModel;
+        var row = viewModel.Rows.Single();
+        viewModel.SelectCell(row.EditorLineId, EditorColumn.Lyrics);
+
+        Assert.That(viewModel.ShiftSelectedLineTimingCommand.CanExecute("-500"), Is.True);
+        viewModel.ShiftSelectedLineTimingCommand.Execute("-500");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.Timestamps.Take(2), Is.EqualTo(new[] { "00:01.000", "00:00.300" }));
+            Assert.That(viewModel.Status, Is.EqualTo(LrcTimestampRewriter.NegativeTimestampError));
+            Assert.That(viewModel.IsDirty, Is.False);
+            Assert.That(viewModel.CanUndo, Is.False);
+            Assert.That(viewModel.Selection, Is.EqualTo(new EditorSelection(row.EditorLineId, EditorColumn.Lyrics)));
+        });
+    }
+
+    [Test]
+    public void PlaybackLiveLineUsesUnsavedLyricsAndHidesTextWhenTrackDoesNotMatch()
+    {
+        using var fixture = CreatePlaybackViewModel("[00:01.000]Original line\n", 1_500);
+        var viewModel = fixture.ViewModel;
+        Assert.That(viewModel.PlaybackLiveText, Is.EqualTo("00:01.500 | Original line"));
+
+        viewModel.Rows.Single().LyricsText = "Unsaved lyric text";
+        Assert.That(viewModel.PlaybackLiveText, Is.EqualTo("00:01.500 | Unsaved lyric text"));
+
+        fixture.Playback.Apply(CreateMessage(2, "track-b", 2_000));
+        viewModel.RefreshPlayback();
+        Assert.That(viewModel.PlaybackLiveText, Is.EqualTo("00:02.000 | "));
     }
 
     [Test]

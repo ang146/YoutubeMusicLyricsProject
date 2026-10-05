@@ -36,6 +36,36 @@ public static partial class LrcTimestampRewriter
                          content[(occurrence.CharacterIndex + occurrence.Length)..]);
     }
 
+    /// <summary>Applies the shared safe-shift rules to one parsed timestamp occurrence.</summary>
+    public static bool TryShiftTimestamp(long timestampMs, long deltaMs, string lyricsText,
+        out long adjustedTimestampMs, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(lyricsText);
+        adjustedTimestampMs = timestampMs;
+        error = null;
+        try
+        {
+            adjustedTimestampMs = checked(timestampMs + deltaMs);
+        }
+        catch (OverflowException)
+        {
+            adjustedTimestampMs = timestampMs;
+            error = TimestampOverflowError;
+            return false;
+        }
+
+        if (adjustedTimestampMs >= 0) return true;
+        if (deltaMs < 0 && timestampMs == 0 && LrcLineSemantics.IsZeroTimeIntroOrBreakAnchor(lyricsText))
+        {
+            adjustedTimestampMs = 0;
+            return true;
+        }
+
+        adjustedTimestampMs = timestampMs;
+        error = NegativeTimestampError;
+        return false;
+    }
+
     public static LrcTimestampRewriteResult Rewrite(string content, long deltaMs)
     {
         ArgumentNullException.ThrowIfNull(content);
@@ -50,7 +80,6 @@ public static partial class LrcTimestampRewriter
             {
                 var lastTimestamp = matches[^1];
                 var lyricsText = line[(lastTimestamp.Index + lastTimestamp.Length)..];
-                var isZeroTimeAnchor = LrcLineSemantics.IsZeroTimeIntroOrBreakAnchor(lyricsText);
 
                 foreach (Match match in matches)
                 {
@@ -59,22 +88,8 @@ public static partial class LrcTimestampRewriter
                         if (overflow) return new(false, Error: TimestampOverflowError);
                         continue;
                     }
-                    long adjusted;
-                    try
-                    {
-                        adjusted = checked(timestampMs + deltaMs);
-                    }
-                    catch (OverflowException)
-                    {
-                        return new(false, Error: TimestampOverflowError);
-                    }
-                    if (adjusted < 0)
-                    {
-                        if (deltaMs < 0 && timestampMs == 0 && isZeroTimeAnchor)
-                            adjusted = 0;
-                        else
-                            return new(false, Error: NegativeTimestampError);
-                    }
+                    if (!TryShiftTimestamp(timestampMs, deltaMs, lyricsText, out var adjusted, out var shiftError))
+                        return new(false, Error: shiftError);
                     replacements.Add((lineStart + match.Index, match.Length, Format(adjusted)));
                 }
             }

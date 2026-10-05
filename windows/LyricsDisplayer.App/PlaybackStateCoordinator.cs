@@ -8,6 +8,12 @@ namespace LyricsDisplayer;
 
 public sealed class PlaybackStateCoordinator
 {
+    private sealed record EditorLyricsPreview(
+        LocalTrackRecord Record,
+        IReadOnlyList<LyricsLine> Lines,
+        IReadOnlyList<string> UntimedLines,
+        LyricsTimeline Timeline);
+
     private readonly SnapshotStateTracker _stateTracker;
     private readonly PlaybackClock _playbackClock;
     private long _trackSequenceFloor;
@@ -16,6 +22,9 @@ public sealed class PlaybackStateCoordinator
     private readonly Action<string, string, string>? _log;
     private LyricsTimeline _lyricsTimeline = LyricsTimeline.Empty;
     private LocalTrackRecord? _activeLocalLyricsRecord;
+    private EditorLyricsPreview? _editorLyricsPreview;
+    private LyricsSnapshotPayload? _cachedEditorPreviewPayload;
+    private string? _cachedEditorPreviewSourceTrackId;
     private bool _hasActiveLocalAssociation;
     private bool _externalLrcUsable;
 
@@ -58,18 +67,42 @@ public sealed class PlaybackStateCoordinator
 
     public bool HasClockState => _playbackClock.HasState;
 
-    public IReadOnlyList<LyricsLine> GetTimelineOrderedLines() => _lyricsTimeline.OrderedLines;
+    public bool IsEditorPreviewActive => ActiveEditorLyricsPreview is not null;
+
+    /// <summary>The lyrics currently presented by the runtime, including a matching editor preview.</summary>
+    public LyricsSnapshotPayload? PresentationLyrics
+    {
+        get
+        {
+            if (ActiveEditorLyricsPreview is not { } preview || Current is not { } current)
+                return CurrentLyrics?.Payload;
+            var sourceTrackId = current.Payload.Track.SourceTrackId;
+            if (_cachedEditorPreviewPayload is null ||
+                !string.Equals(_cachedEditorPreviewSourceTrackId, sourceTrackId, StringComparison.Ordinal))
+            {
+                _cachedEditorPreviewSourceTrackId = sourceTrackId;
+                _cachedEditorPreviewPayload = new(sourceTrackId, true, preview.Lines.Count > 0,
+                    preview.Record.LyricsSource, preview.Lines, preview.Record.Attribution,
+                    preview.Lines.Count == 0 ? preview.UntimedLines : null);
+            }
+            return _cachedEditorPreviewPayload;
+        }
+    }
+
+    public IReadOnlyList<LyricsLine> GetTimelineOrderedLines() =>
+        ActiveEditorLyricsPreview?.Timeline.OrderedLines ?? _lyricsTimeline.OrderedLines;
 
     public long GlobalOffsetMs => CurrentLocalLyrics?.GlobalOffsetMs ?? 0;
 
     public bool CanAdjustTiming => IsCurrentLocalLrcUsable && CurrentLocalLyrics!.IsTimed && _library is not null;
 
-    public bool CanAdjustCurrentLineTiming => _library is not null &&
+    public bool CanAdjustCurrentLineTiming => !IsEditorPreviewActive && _library is not null &&
         IsCurrentLocalLrcUsable && CurrentLocalLyrics is { IsLrcWritable: true, LrcContentHash: not null } &&
         GetTimelinePosition().CurrentIndex is not null;
 
     public CurrentLineTimingTarget? CaptureCurrentLineTimingTarget()
     {
+        if (IsEditorPreviewActive) return null;
         var document = CurrentLocalLyrics;
         var index = GetTimelinePosition().CurrentIndex;
         return document is { IsLrcWritable: true, LrcContentHash: not null } &&
@@ -161,8 +194,51 @@ public sealed class PlaybackStateCoordinator
     }
 
     public LyricsTimelinePosition GetTimelinePosition() =>
-        _lyricsTimeline.Evaluate(LyricsTimingAdjustment.GetEvaluationPosition(
+        (ActiveEditorLyricsPreview?.Timeline ?? _lyricsTimeline).Evaluate(LyricsTimingAdjustment.GetEvaluationPosition(
             _playbackClock.GetPositionMs(), GlobalOffsetMs));
+
+    /// <summary>Temporarily publishes the editor's in-memory document to playback presentation.</summary>
+    public void SetEditorPreview(LocalTrackRecord record, IReadOnlyList<LyricsLine> lines,
+        IReadOnlyList<string> untimedLines)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(lines);
+        ArgumentNullException.ThrowIfNull(untimedLines);
+        var lineSnapshot = lines.ToArray();
+        var untimedSnapshot = untimedLines.ToArray();
+        _editorLyricsPreview = new(record, lineSnapshot, untimedSnapshot, new LyricsTimeline(lineSnapshot));
+        _cachedEditorPreviewPayload = null;
+        _cachedEditorPreviewSourceTrackId = null;
+    }
+
+    public void ClearEditorPreview(string localTrackId)
+    {
+        if (_editorLyricsPreview is { } preview &&
+            string.Equals(preview.Record.LocalTrackId, localTrackId, StringComparison.Ordinal))
+        {
+            _editorLyricsPreview = null;
+            _cachedEditorPreviewPayload = null;
+            _cachedEditorPreviewSourceTrackId = null;
+        }
+    }
+
+    private EditorLyricsPreview? ActiveEditorLyricsPreview
+    {
+        get
+        {
+            if (_editorLyricsPreview is not { } preview || Current is not { } current ||
+                !string.Equals(_activeLocalLyricsRecord?.LocalTrackId, preview.Record.LocalTrackId,
+                    StringComparison.Ordinal))
+                return null;
+
+            return preview.Record.SourceAssociations.Any(association =>
+                string.Equals(association.Source, current.Envelope.Source, StringComparison.Ordinal) &&
+                string.Equals(association.SourceTrackId, current.Payload.Track.SourceTrackId,
+                    StringComparison.Ordinal))
+                ? preview
+                : null;
+        }
+    }
 
     public TimingAdjustmentResult AdjustTiming(long deltaMs)
     {

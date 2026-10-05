@@ -45,6 +45,7 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
     public ObservableCollection<MainLyricsLineViewModel> Lines { get; } = [];
     public LyricsPresentationState Presentation => _presentation;
     public ICommand OpenBuiltInEditorCommand { get; }
+    public ICommand? OpenSettingsCommand { get; }
     public MainLyricsLineViewModel? CurrentLine => _currentLine;
     public string EffectiveTitle => string.IsNullOrWhiteSpace(_effectiveMetadata?.Title)
         ? "Lyrics Displayer"
@@ -91,10 +92,11 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase
 
     public event Action<MainLyricsLineViewModel?>? CurrentLineChanged;
 
-    public MainLyricsWindowViewModel(ICommand openBuiltInEditorCommand)
+    public MainLyricsWindowViewModel(ICommand openBuiltInEditorCommand, ICommand? openSettingsCommand = null)
     {
         OpenBuiltInEditorCommand = openBuiltInEditorCommand ??
             throw new ArgumentNullException(nameof(openBuiltInEditorCommand));
+        OpenSettingsCommand = openSettingsCommand;
     }
 
     public void UpdateLyricsPresentation(

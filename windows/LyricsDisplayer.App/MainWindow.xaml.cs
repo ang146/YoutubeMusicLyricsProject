@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _manualScrollResumeTimer;
     private readonly LyricsOverlayController _overlay;
     private readonly MainLyricsWindowViewModel _viewModel;
+    private readonly SettingsWindowService _settingsWindowService = new();
     private readonly MainLyricsAutoFollowPolicy _autoFollowPolicy = new();
     private PlaybackTrackIdentity? _autoFollowTrackIdentity;
     private ScrollViewer? _lyricsScrollViewer;
@@ -32,6 +33,7 @@ public partial class MainWindow : Window
     private ActiveLrcFileWatcher? _activeLrcWatcher;
     private BuiltInLyricsEditorWindow? _editorWindow;
     private EditorCommand _openBuiltInEditorCommand = null!;
+    private EditorCommand _openSettingsCommand = null!;
     private readonly ExternalLrcOpener _externalLrcOpener;
     private string? _watchedLocalTrackId;
     private string? _watchedLrcPath;
@@ -65,7 +67,9 @@ public partial class MainWindow : Window
         _overlay.TimingCommandRequested += OnOverlayTimingCommand;
         _openBuiltInEditorCommand = new("application.open-built-in-editor", _ => OpenBuiltInEditor(),
             _ => CanOpenBuiltInEditor(), EditorHotkeyScope.Application);
-        _viewModel = new MainLyricsWindowViewModel(_openBuiltInEditorCommand);
+        _openSettingsCommand = new("application.open-settings", _ => _settingsWindowService.Open(),
+            scope: EditorHotkeyScope.Application);
+        _viewModel = new MainLyricsWindowViewModel(_openBuiltInEditorCommand, _openSettingsCommand);
         _viewModel.CurrentLineChanged += OnCurrentLineChanged;
         DataContext = _viewModel;
         _openBuiltInEditorCommand.CanExecuteChanged += (_, _) =>
@@ -135,6 +139,7 @@ public partial class MainWindow : Window
                 "Main Lyrics Window hidden to the system tray.");
             return;
         }
+        _settingsWindowService.CloseForApplicationExit();
         _positionRefreshTimer.Stop();
         StopManualScrollResumeTimer();
         CancelPendingAutoCenter();

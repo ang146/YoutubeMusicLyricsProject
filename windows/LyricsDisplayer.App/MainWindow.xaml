@@ -40,6 +40,7 @@
                 <Button Content="Open LRC Externally" IsEnabled="{Binding CanOpenExternalLyrics}"
                         ToolTip="{Binding ExternalLyricsStatus}"
                         Click="OnOpenLrcExternally" Padding="12,7" />
+                <Button Content="Settings" Command="{Binding OpenSettingsCommand}" Padding="12,7" />
             </WrapPanel>
         </Grid>
 

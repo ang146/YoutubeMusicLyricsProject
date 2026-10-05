@@ -146,6 +146,30 @@ public sealed class PlaybackStateCoordinatorTests
         Assert.That(coordinator.GetLocalPositionMs(), Is.EqualTo(21_000));
     }
 
+    [Test]
+    public void RawLyricsSnapshotIsClearedWhenTrackOrSourceIdentityChanges()
+    {
+        var coordinator = CreateCoordinator(out _);
+        coordinator.Apply(CreateMessage(SessionOne, 1, source: "source-a"));
+        var firstLyrics = CreateLyricsMessage(SessionOne, 2, "track-a", "source-a", "raw track-a");
+        coordinator.ApplyLyricsDetailed(firstLyrics);
+        Assert.That(coordinator.CurrentRawLyricsSnapshot, Is.SameAs(firstLyrics));
+
+        coordinator.Apply(CreateMessage(SessionOne, 3, "track-b", source: "source-a"));
+        Assert.That(coordinator.CurrentRawLyricsSnapshot, Is.Null);
+
+        var secondLyrics = CreateLyricsMessage(SessionOne, 4, "track-b", "source-a", "raw track-b");
+        coordinator.ApplyLyricsDetailed(secondLyrics);
+        Assert.That(coordinator.CurrentRawLyricsSnapshot, Is.SameAs(secondLyrics));
+
+        coordinator.Apply(CreateMessage(SessionOne, 5, "track-b", source: "source-b"));
+        Assert.That(coordinator.CurrentRawLyricsSnapshot, Is.Null);
+
+        var sourceLyrics = CreateLyricsMessage(SessionOne, 6, "track-b", "source-b", "raw source-b");
+        coordinator.ApplyLyricsDetailed(sourceLyrics);
+        Assert.That(coordinator.CurrentRawLyricsSnapshot, Is.SameAs(sourceLyrics));
+    }
+
     private static PlaybackStateCoordinator CreateCoordinator(out FakeMonotonicTimeSource time)
     {
         time = new FakeMonotonicTimeSource();
@@ -159,15 +183,25 @@ public sealed class PlaybackStateCoordinatorTests
         long positionMs = 10_000,
         long durationMs = 100_000,
         bool playing = true,
-        double playbackRate = 1.0)
+        double playbackRate = 1.0,
+        string source = "youtubeMusic")
     {
-        var metadata = new EnvelopeMetadata(1, "playbackSnapshot", "youtubeMusic", session, sequence,
+        var metadata = new EnvelopeMetadata(1, "playbackSnapshot", source, session, sequence,
             DateTimeOffset.Parse("2026-09-09T05:30:00Z"));
         var payload = new PlaybackSnapshotPayload(
             new TrackInfo(trackId, "title", "artist", null, durationMs),
             new PlaybackState(positionMs, playing, playbackRate),
             new LyricsInfo(false, false, null, []));
         return new PlaybackSnapshotMessage(metadata, payload, "{}");
+    }
+
+    private static LyricsSnapshotMessage CreateLyricsMessage(string session, long sequence, string trackId,
+        string source, string rawJson)
+    {
+        var metadata = new EnvelopeMetadata(1, "lyricsSnapshot", source, session, sequence,
+            DateTimeOffset.Parse("2026-09-09T05:30:00Z"));
+        var payload = new LyricsSnapshotPayload(trackId, true, true, "provider", [], null);
+        return new LyricsSnapshotMessage(metadata, payload, rawJson);
     }
 
     private sealed class FakeMonotonicTimeSource : IMonotonicTimeSource

@@ -196,6 +196,7 @@ public partial class MainWindow : Window
     private void UpdateDebugDiagnostics() => _debugSettingsPageViewModel.UpdateRuntimeState(
         _playbackState.Current,
         _playbackState.CurrentLyrics,
+        _playbackState.CurrentRawLyricsSnapshot,
         _playbackState.ActiveLocalLyricsRecord,
         _playbackState.EffectiveMetadata,
         _playbackState.LyricsLoadedFrom,

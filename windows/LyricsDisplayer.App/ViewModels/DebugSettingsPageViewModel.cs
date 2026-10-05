@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
 using System.Windows.Input;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
@@ -10,6 +11,7 @@ namespace LyricsDisplayer;
 public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageViewModel
 {
     private const string Unavailable = "Not available";
+    private static readonly JsonSerializerOptions PrettyPrintJsonOptions = new() { WriteIndented = true };
     private readonly string _libraryPath;
     private readonly string _indexPath;
     private readonly string _logsDirectory;
@@ -17,6 +19,7 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageVie
     private readonly Action<string> _openFolder;
     private PlaybackSnapshotMessage? _playbackSnapshot;
     private LyricsSnapshotMessage? _lyricsSnapshot;
+    private LyricsSnapshotMessage? _rawLyricsSnapshot;
     private LocalTrackRecord? _localTrack;
     private EffectiveTrackMetadata? _effectiveMetadata;
     private string _lyricsLoadedFrom = Unavailable;
@@ -63,12 +66,10 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageVie
         : _playbackSnapshot is { } playback
             ? playback.Payload.Lyrics.Timed ? "Timed" : "Untimed"
             : Unavailable;
-    public string RawPlaybackJson => _playbackSnapshot?.RawJson is { Length: > 0 } json
-        ? json
-        : "No playback snapshot is currently available.";
-    public string RawLyricsJson => _lyricsSnapshot?.RawJson is { Length: > 0 } json
-        ? json
-        : "No raw lyrics snapshot is currently available.";
+    public string RawPlaybackJson => FormatRawJsonForDisplay(_playbackSnapshot?.RawJson,
+        "No playback snapshot is currently available.");
+    public string RawLyricsJson => FormatRawJsonForDisplay(_rawLyricsSnapshot?.RawJson,
+        "No raw lyrics snapshot is currently available.");
 
     public ICommand OpenLogsFolderCommand { get; }
     public ICommand OpenCrashReportsFolderCommand { get; }
@@ -91,12 +92,14 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageVie
     public void SetTransportStatus(string status) => TransportStatus = status;
 
     public void UpdateRuntimeState(PlaybackSnapshotMessage? playback,
-        LyricsSnapshotMessage? lyrics, LocalTrackRecord? localTrack,
+        LyricsSnapshotMessage? lyrics, LyricsSnapshotMessage? rawLyricsSnapshot,
+        LocalTrackRecord? localTrack,
         EffectiveTrackMetadata? effectiveMetadata, string lyricsLoadedFrom,
         string localAssociationStatus)
     {
         if (ReferenceEquals(_playbackSnapshot, playback) &&
             ReferenceEquals(_lyricsSnapshot, lyrics) &&
+            ReferenceEquals(_rawLyricsSnapshot, rawLyricsSnapshot) &&
             ReferenceEquals(_localTrack, localTrack) &&
             Equals(_effectiveMetadata, effectiveMetadata) &&
             _lyricsLoadedFrom == lyricsLoadedFrom &&
@@ -105,6 +108,7 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageVie
 
         _playbackSnapshot = playback;
         _lyricsSnapshot = lyrics;
+        _rawLyricsSnapshot = rawLyricsSnapshot;
         _localTrack = localTrack;
         _effectiveMetadata = effectiveMetadata;
         _lyricsLoadedFrom = lyricsLoadedFrom;
@@ -143,6 +147,21 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, ISettingsPageVie
     private static bool IsConfigured(string path) => !string.IsNullOrWhiteSpace(path);
 
     private static string DisplayPath(string path) => IsConfigured(path) ? path : Unavailable;
+
+    private static string FormatRawJsonForDisplay(string? rawJson, string unavailableMessage)
+    {
+        if (string.IsNullOrEmpty(rawJson)) return unavailableMessage;
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawJson);
+            return JsonSerializer.Serialize(document.RootElement, PrettyPrintJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return rawJson;
+        }
+    }
 
     private static void OpenFolderInShell(string path) =>
         Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });

@@ -34,11 +34,17 @@ public sealed class DebugSettingsPageViewModelTests
         var propertyChanges = new List<string?>();
         viewModel.PropertyChanged += (_, args) => propertyChanges.Add(args.PropertyName);
         var playback = Playback("track-a", "raw playback A");
-        var lyrics = Lyrics("track-a", "raw lyrics A");
+        var lyrics = Lyrics("track-a", string.Empty);
+        var rawLyrics = Lyrics("track-a", "raw lyrics A");
         var localTrack = new LocalTrackRecord("local-a", new UserTrackMetadata(null, null),
             "song.lrc", "song.json", null, null, []);
 
-        viewModel.UpdateRuntimeState(playback, lyrics, localTrack,
+        viewModel.UpdateRuntimeState(playback, lyrics, null, localTrack,
+            new EffectiveTrackMetadata("Effective title", "Effective artist"), "Local Library", "Found");
+        Assert.That(viewModel.RawLyricsJson, Is.EqualTo("No raw lyrics snapshot is currently available."));
+        propertyChanges.Clear();
+
+        viewModel.UpdateRuntimeState(playback, lyrics, rawLyrics, localTrack,
             new EffectiveTrackMetadata("Effective title", "Effective artist"), "Local Library", "Found");
         viewModel.SetTransportStatus("Connected");
 
@@ -63,8 +69,9 @@ public sealed class DebugSettingsPageViewModelTests
             Assert.That(propertyChanges, Does.Contain(nameof(viewModel.TransportStatus)));
         });
 
-        viewModel.UpdateRuntimeState(Playback("track-b", "raw playback B"), null, null,
-            new EffectiveTrackMetadata("Next title", "Next artist"), "YouTube Music (runtime)", "Not checked");
+        var localLyrics = Lyrics("track-b", string.Empty);
+        viewModel.UpdateRuntimeState(Playback("track-b", "raw playback B"), localLyrics, null, null,
+            new EffectiveTrackMetadata("Next title", "Next artist"), "Local Library", "Found");
 
         Assert.Multiple(() =>
         {
@@ -72,9 +79,70 @@ public sealed class DebugSettingsPageViewModelTests
             Assert.That(viewModel.LocalTrackId, Is.EqualTo("Not available"));
             Assert.That(viewModel.EffectiveTitle, Is.EqualTo("Next title"));
             Assert.That(viewModel.LyricsSource, Is.EqualTo("test-provider"));
-            Assert.That(viewModel.LyricsLoadedFrom, Is.EqualTo("YouTube Music (runtime)"));
+            Assert.That(viewModel.LyricsLoadedFrom, Is.EqualTo("Local Library"));
             Assert.That(viewModel.RawPlaybackJson, Is.EqualTo("raw playback B"));
             Assert.That(viewModel.RawLyricsJson, Is.EqualTo("No raw lyrics snapshot is currently available."));
+        });
+    }
+
+    [Test]
+    public void RawSnapshotJsonIsIndentedForDisplayWithoutChangingStoredJson()
+    {
+        const string playbackRawJson = """{"outer":{"value":1},"enabled":true}""";
+        const string lyricsRawJson = """{"payload":{"sourceTrackId":"track-a","lines":["first","second"]}}""";
+        var playback = Playback("track-a", playbackRawJson);
+        var lyrics = Lyrics("track-a", string.Empty);
+        var rawLyrics = Lyrics("track-a", lyricsRawJson);
+        var viewModel = new DebugSettingsPageViewModel();
+
+        viewModel.UpdateRuntimeState(playback, lyrics, rawLyrics, null, null, "Local Library", "Found");
+
+        var playbackJsonForDisplay = viewModel.RawPlaybackJson.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var lyricsJsonForDisplay = viewModel.RawLyricsJson.Replace("\r\n", "\n", StringComparison.Ordinal);
+        Assert.Multiple(() =>
+        {
+            Assert.That(playbackJsonForDisplay, Is.EqualTo(
+                """
+                {
+                  "outer": {
+                    "value": 1
+                  },
+                  "enabled": true
+                }
+                """));
+            Assert.That(lyricsJsonForDisplay, Is.EqualTo(
+                """
+                {
+                  "payload": {
+                    "sourceTrackId": "track-a",
+                    "lines": [
+                      "first",
+                      "second"
+                    ]
+                  }
+                }
+                """));
+            Assert.That(playback.RawJson, Is.EqualTo(playbackRawJson));
+            Assert.That(rawLyrics.RawJson, Is.EqualTo(lyricsRawJson));
+        });
+    }
+
+    [Test]
+    public void InvalidRawSnapshotTextIsDisplayedUnchanged()
+    {
+        const string playbackRawJson = "playback payload {not-json";
+        const string lyricsRawJson = "lyrics payload {also-not-json";
+        var playback = Playback("track-a", playbackRawJson);
+        var lyrics = Lyrics("track-a", string.Empty);
+        var rawLyrics = Lyrics("track-a", lyricsRawJson);
+        var viewModel = new DebugSettingsPageViewModel();
+
+        viewModel.UpdateRuntimeState(playback, lyrics, rawLyrics, null, null, "Local Library", "Found");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewModel.RawPlaybackJson, Is.EqualTo(playbackRawJson));
+            Assert.That(viewModel.RawLyricsJson, Is.EqualTo(lyricsRawJson));
         });
     }
 

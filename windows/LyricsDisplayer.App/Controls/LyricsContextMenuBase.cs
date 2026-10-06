@@ -13,7 +13,6 @@ public abstract class LyricsContextMenuBase : ContextMenu
 {
     protected LyricsContextMenuBase(string surfaceActionsPath)
     {
-        var path = string.IsNullOrWhiteSpace(surfaceActionsPath) ? string.Empty : surfaceActionsPath + ".";
         var dataContextPath = string.IsNullOrWhiteSpace(surfaceActionsPath)
             ? "PlacementTarget.DataContext"
             : $"PlacementTarget.DataContext.{surfaceActionsPath}";
@@ -24,11 +23,11 @@ public abstract class LyricsContextMenuBase : ContextMenu
 
         Items.Add(Action("OpenLrcExternally"));
         var external = (MenuItem)Items[^1];
-        external.SetBinding(ToolTipProperty, new Binding(path + "ExternalLyricsStatus"));
+        external.SetBinding(ToolTipProperty, new Binding("ExternalLyricsStatus"));
         Items.Add(Action("OpenBuiltInEditor"));
         Items.Add(new Separator());
-        Items.Add(TimingSubmenu("Current Line", path, "AdjustCurrentLine"));
-        Items.Add(TimingSubmenu("All Lyrics", path, "ShiftAll"));
+        Items.Add(TimingSubmenu("Current Line", "AdjustCurrentLine"));
+        Items.Add(TimingSubmenu("All Lyrics", "ShiftAll"));
     }
 
     private MenuItem Action(string name)
@@ -39,21 +38,21 @@ public abstract class LyricsContextMenuBase : ContextMenu
         return menuItem;
     }
 
-    private static MenuItem TimingSubmenu(string header, string path, string prefix)
+    private static MenuItem TimingSubmenu(string header, string prefix)
     {
         var submenu = new MenuItem { Header = header };
-        submenu.Items.Add(TimingItem(path, prefix + "Minus500", "-0.5s"));
-        submenu.Items.Add(TimingItem(path, prefix + "Minus100", "-0.1s"));
-        submenu.Items.Add(TimingItem(path, prefix + "Plus100", "+0.1s"));
-        submenu.Items.Add(TimingItem(path, prefix + "Plus500", "+0.5s"));
+        submenu.Items.Add(TimingItem(prefix + "Minus500", "-0.5s"));
+        submenu.Items.Add(TimingItem(prefix + "Minus100", "-0.1s"));
+        submenu.Items.Add(TimingItem(prefix + "Plus100", "+0.1s"));
+        submenu.Items.Add(TimingItem(prefix + "Plus500", "+0.5s"));
         return submenu;
     }
 
-    private static MenuItem TimingItem(string path, string definition, string fallbackHeader)
+    private static MenuItem TimingItem(string definition, string fallbackHeader)
     {
         var item = new MenuItem { Header = fallbackHeader };
-        item.SetBinding(MenuItem.HeaderProperty, new Binding(path + definition + ".Header"));
-        item.SetBinding(MenuItem.CommandProperty, new Binding(path + definition + ".Command"));
+        item.SetBinding(MenuItem.HeaderProperty, new Binding(definition + ".Header"));
+        item.SetBinding(MenuItem.CommandProperty, new Binding(definition + ".Command"));
         return item;
     }
 }

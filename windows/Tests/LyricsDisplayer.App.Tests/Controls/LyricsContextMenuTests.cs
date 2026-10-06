@@ -32,6 +32,34 @@ public sealed class LyricsContextMenuTests
     }
 
     [Test]
+    public void MainMenuBindingsAreRelativeToResolvedSurfaceActionsDataContext()
+    {
+        var menu = new MainLyricsContextMenu();
+        var topLevelItems = menu.Items.OfType<MenuItem>().ToArray();
+        var currentLine = topLevelItems.Single(item => Equals(item.Header, "Current Line"));
+        var allLyrics = topLevelItems.Single(item => Equals(item.Header, "All Lyrics"));
+        var currentLineAction = currentLine.Items.OfType<MenuItem>().First();
+        var allLyricsAction = allLyrics.Items.OfType<MenuItem>().ElementAt(2);
+        var settings = topLevelItems.Single(item => Equals(item.Header, "Settings"));
+        var externalLyrics = topLevelItems.First();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(BindingPath(currentLineAction, MenuItem.HeaderProperty),
+                Is.EqualTo("AdjustCurrentLineMinus500.Header"));
+            Assert.That(BindingPath(currentLineAction, MenuItem.CommandProperty),
+                Is.EqualTo("AdjustCurrentLineMinus500.Command"));
+            Assert.That(BindingPath(allLyricsAction, MenuItem.HeaderProperty),
+                Is.EqualTo("ShiftAllPlus100.Header"));
+            Assert.That(BindingPath(allLyricsAction, MenuItem.CommandProperty),
+                Is.EqualTo("ShiftAllPlus100.Command"));
+            Assert.That(BindingPath(settings, MenuItem.CommandProperty), Is.EqualTo("OpenSettingsCommand"));
+            Assert.That(BindingPath(externalLyrics, FrameworkElement.ToolTipProperty),
+                Is.EqualTo("ExternalLyricsStatus"));
+        });
+    }
+
+    [Test]
     public void OverlayMenuAddsItsCommandsAroundTheSameSharedGroups()
     {
         var menu = new OverlayLyricsContextMenu();
@@ -88,4 +116,7 @@ public sealed class LyricsContextMenuTests
             foreach (var child in AllItems(item)) yield return child;
         }
     }
+
+    private static string? BindingPath(DependencyObject target, DependencyProperty property) =>
+        BindingOperations.GetBinding(target, property)?.Path.Path;
 }

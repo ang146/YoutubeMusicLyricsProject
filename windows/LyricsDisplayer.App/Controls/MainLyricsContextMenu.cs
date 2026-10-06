@@ -12,7 +12,7 @@ public sealed class MainLyricsContextMenu : LyricsContextMenuBase
     {
         Items.Add(new Separator());
         var settings = new MenuItem { Header = "Settings" };
-        settings.SetBinding(MenuItem.CommandProperty, new Binding("SurfaceActions.OpenSettingsCommand"));
+        settings.SetBinding(MenuItem.CommandProperty, new Binding("OpenSettingsCommand"));
         Items.Add(settings);
     }
 }

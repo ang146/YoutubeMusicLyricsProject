@@ -40,14 +40,11 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
     private int? _currentIdentityDocumentIndex;
     private int? _currentIdentityTimelineIndex;
     private string _connectionStatus = "Waiting for playback source";
-    private string _externalLyricsStatus = "No current local LRC";
-    private bool _canOpenExternalLyrics;
     private EffectiveTrackMetadata? _effectiveMetadata;
 
     public ObservableCollection<MainLyricsLineViewModel> Lines { get; } = [];
     public LyricsPresentationState Presentation => _presentation;
-    public IRelayCommand OpenBuiltInEditorCommand { get; }
-    public IRelayCommand? OpenSettingsCommand { get; }
+    public IMainLyricsSurfaceActionsViewModel SurfaceActions { get; }
     public MainLyricsLineViewModel? CurrentLine => _currentLine;
     public string EffectiveTitle => string.IsNullOrWhiteSpace(_effectiveMetadata?.Title)
         ? "Lyrics Displayer"
@@ -81,25 +78,13 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
         get => _connectionStatus;
         private set => SetProperty(ref _connectionStatus, value);
     }
-    public bool CanOpenExternalLyrics
-    {
-        get => _canOpenExternalLyrics;
-        private set => SetProperty(ref _canOpenExternalLyrics, value);
-    }
-    public string ExternalLyricsStatus
-    {
-        get => _externalLyricsStatus;
-        private set => SetProperty(ref _externalLyricsStatus, value);
-    }
 
     public event Action<MainLyricsLineViewModel?>? CurrentLineChanged;
 
-    public MainLyricsWindowViewModel(IRelayCommand openBuiltInEditorCommand, IRelayCommand? openSettingsCommand,
+    public MainLyricsWindowViewModel(IMainLyricsSurfaceActionsViewModel surfaceActions,
         ILogger<MainLyricsWindowViewModel> logger) : base(logger)
     {
-        OpenBuiltInEditorCommand = openBuiltInEditorCommand ??
-            throw new ArgumentNullException(nameof(openBuiltInEditorCommand));
-        OpenSettingsCommand = openSettingsCommand;
+        SurfaceActions = surfaceActions ?? throw new ArgumentNullException(nameof(surfaceActions));
         Logger.LogDebug("Main Lyrics Window ViewModel initialized.");
     }
 
@@ -140,10 +125,6 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
         OnPropertyChanged(nameof(EffectiveArtist));
         OnPropertyChanged(nameof(HasEffectiveArtist));
     }
-
-    public void SetCanOpenExternalLyrics(bool value) => CanOpenExternalLyrics = value;
-
-    public void SetExternalLyricsStatus(string value) => ExternalLyricsStatus = value;
 
     private void ApplyPresentation(LyricsPresentationState presentation)
     {

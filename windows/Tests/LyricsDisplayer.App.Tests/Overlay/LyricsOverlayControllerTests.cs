@@ -1,6 +1,9 @@
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
+using LyricsDisplayer.Infrastructure.Commands;
+using Microsoft.Extensions.Logging.Abstractions;
+using NSubstitute;
 using System.Windows;
 
 namespace LyricsDisplayer.App.Tests;
@@ -70,21 +73,39 @@ public sealed class LyricsOverlayControllerTests
     }
 
     [Test]
-    public void ExternalLrcMenuCommandUsesAvailabilityAndRoutesToSharedAction()
+    public void OverlayViewReceivesItsSurfaceSpecificActionModel()
     {
         var harness = new Harness();
-        var opens = 0;
-        harness.Controller.OpenExternalLyricsRequested += () => opens++;
-        harness.Controller.SetExternalLyricsAvailability(false);
+        var actions = Substitute.For<IOverlayLyricsSurfaceActionsViewModel>();
+        harness.Controller.SetLyricsSurfaceActions(actions);
         harness.Controller.Show();
-        Assert.That(harness.View.CanOpenExternalLyrics, Is.False);
-        harness.View.RequestCommand(OverlayCommand.OpenLrcExternally);
-        Assert.That(opens, Is.Zero);
 
-        harness.Controller.SetExternalLyricsAvailability(true);
-        Assert.That(harness.View.CanOpenExternalLyrics, Is.True);
-        harness.View.RequestCommand(OverlayCommand.OpenLrcExternally);
-        Assert.That(opens, Is.EqualTo(1));
+        Assert.That(harness.View.LyricsActions, Is.SameAs(actions));
+    }
+
+    [Test]
+    public void OverlayInteractionServiceRetainsIndependentOverlayState()
+    {
+        var harness = new Harness();
+        var actions = Substitute.For<IOverlayLyricsSurfaceActionsViewModel>();
+        harness.Controller.SetLyricsSurfaceActions(actions);
+        var interaction = (ILyricsOverlayInteractionService)harness.Controller;
+
+        interaction.SetContentMode(LyricsContentMode.AllLyrics);
+        interaction.SetLocked(true);
+        interaction.SetClickThrough(true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Controller.Interaction.ContentMode, Is.EqualTo(LyricsContentMode.AllLyrics));
+            Assert.That(harness.Controller.Interaction.Locked, Is.True);
+            Assert.That(harness.Controller.Interaction.ClickThrough, Is.True);
+            Assert.That(harness.CreatedViews, Is.Zero,
+                "Overlay interaction remains independently managed until its lazy window is created.");
+        });
+
+        harness.Controller.Show();
+        Assert.That(harness.View.LyricsActions, Is.SameAs(actions));
     }
 
     [Test]
@@ -479,17 +500,18 @@ public sealed class LyricsOverlayControllerTests
     }
 
     [Test]
-    public void ViewCommandsUseTheSameControllerTransitions()
+    public void OverlayInteractionCommandsUseTheSameControllerTransitions()
     {
         var harness = new Harness();
         var opened = 0;
         harness.Controller.OpenControlPanelRequested += () => opened++;
         harness.Controller.Show();
 
-        harness.View.RequestCommand(OverlayCommand.ToggleLocked);
-        harness.View.RequestCommand(OverlayCommand.SetOneLine);
-        harness.View.RequestCommand(OverlayCommand.OpenControlPanel);
-        harness.View.RequestCommand(OverlayCommand.Hide);
+        var interaction = (ILyricsOverlayInteractionService)harness.Controller;
+        interaction.SetLocked(true);
+        interaction.SetContentMode(LyricsContentMode.OneLine);
+        interaction.RequestOpenLyricsWindow();
+        interaction.Hide();
 
         Assert.Multiple(() =>
         {
@@ -599,23 +621,6 @@ public sealed class LyricsOverlayControllerTests
     }
 
     [Test]
-    public void TimingContextCommandsRouteToTheExistingTimingHandler()
-    {
-        var harness = new Harness();
-        var commands = new List<OverlayCommand>();
-        harness.Controller.TimingCommandRequested += commands.Add;
-        harness.Controller.Show();
-        var expected = new[]
-        {
-            OverlayCommand.AdjustCurrentLinePlus100,
-            OverlayCommand.AdjustGlobalPlus500,
-            OverlayCommand.ResetGlobalTiming
-        };
-        foreach (var command in expected) harness.View.RequestCommand(command);
-        Assert.That(commands, Is.EqualTo(expected));
-    }
-
-    [Test]
     public void HorizontalResizeCompletionPersistsWidthAndRecoversWhenItWouldHideTheWindow()
     {
         var harness = new Harness(new OverlayPosition(1750, 300));
@@ -703,7 +708,6 @@ public sealed class LyricsOverlayControllerTests
         public double OverlayHeight => Interaction?.Height ?? OverlayPreferences.DefaultHeight;
         public event Action? CloseRequested;
         public event Action<OverlayPosition, double, double>? DragCompleted;
-        public event Action<OverlayCommand>? CommandRequested;
         public event Action<double, double>? OverlaySizeChanged;
         public event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
         public OverlayPosition Position { get; private set; }
@@ -714,9 +718,10 @@ public sealed class LyricsOverlayControllerTests
         public LyricsOverlayPresentationState? LastState { get; private set; }
         public OverlayInteractionState? Interaction { get; private set; }
         public List<LyricsOverlayPresentationState> RenderedStates { get; } = [];
-        public bool CanOpenExternalLyrics { get; private set; }
+        public IOverlayLyricsSurfaceActionsViewModel? LyricsActions { get; private set; }
 
         public void SetPosition(OverlayPosition position) => Position = position;
+        public void SetLyricsSurfaceActions(IOverlayLyricsSurfaceActionsViewModel actions) => LyricsActions = actions;
         public void NormalizeWindowState() => WindowState = WindowState.Normal;
         public void CompleteGeometryRecovery() => GeometryRecoveryRequired = false;
         public bool EffectiveTopmost { get; private set; }
@@ -725,8 +730,6 @@ public sealed class LyricsOverlayControllerTests
             Interaction = state;
             EffectiveTopmost = effectiveTopmost;
         }
-        public void ApplyExternalLyricsAvailability(bool canOpen) => CanOpenExternalLyrics = canOpen;
-        public void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs) { }
         public void SetLyrics(LyricsOverlayPresentationState state)
         {
             SetLyricsCalls++;
@@ -748,7 +751,6 @@ public sealed class LyricsOverlayControllerTests
             Position = position;
             DragCompleted?.Invoke(position, OverlayWidth, OverlayHeight);
         }
-        public void RequestCommand(OverlayCommand command) => CommandRequested?.Invoke(command);
         public void CompleteResize(double width, double height)
         {
             OverlaySizeChanged?.Invoke(width, height);

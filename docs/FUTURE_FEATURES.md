@@ -54,7 +54,10 @@ Media Controller
 Built-in Lyrics Editor
 ├─ lyrics/timestamp authoring
 ├─ metadata overrides
-└─ all timing-adjustment UI
+└─ full-document and selected-row timing authoring
+
+Shared lyrics-surface context menus
+└─ Current Line / All Lyrics immediate authoritative-LRC timing corrections
 
 Settings
 ├─ fixed left navigation + independent right-side page views
@@ -81,9 +84,9 @@ Settings navigation now uses a persistent left sidebar with one independent sect
 
 Developer-oriented information has left the Main Lyrics Window. The Debug page exposes live track/source/storage/transport/playback/lyrics-provider state, library/index/log/crash paths, folder-open actions, and prettified raw playback/lyrics snapshots. The Main Lyrics Window may show compact effective title/artist metadata; richer playback transport remains future Media Controller responsibility.
 
-Timing authoring has converged on the Built-in Lyrics Editor. `Shift All Timestamps` and `Selected Line` directly edit the editor document and participate in dirty/Undo/Redo/Save/Discard. `Set Time` appends the current playback position into the first free T1–T5 slot when playback identity matches the fixed editor track. Playback current lyric remains independent from editor selection. The old Global Offset / Reset / Bake user workflow is superseded and should not be reintroduced.
+Full-document timing authoring has converged on the Built-in Lyrics Editor. `Shift All Timestamps` and `Selected Line` directly edit the editor document and participate in dirty/Undo/Redo/Save/Discard. `Set Time` appends the current playback position into the first free T1–T5 slot when playback identity matches the fixed editor track. Playback current lyric remains independent from editor selection. Shared lyrics-surface context menus expose Current Line and All Lyrics adjustments that persist directly to the current authoritative local LRC; they are not Editor-document authoring controls. There is no runtime offset or Reset action.
 
-The Main Lyrics Window and Desktop Lyrics Overlay should use shared application commands for common lyrics actions and should converge on the same right-click lyrics menu where an action applies to both. Overlay-only interaction settings such as content mode, click-through, lock, drag/resize behaviour remain surface-specific.
+The Main Lyrics Window and Desktop Lyrics Overlay use shared application services/commands for common lyrics actions and separate right-click menus. Shared actions include LRC/editor entry points and Current Line / All Lyrics timing corrections; overlay-only items such as content mode, click-through, lock, drag/resize behaviour, and hide remain surface-specific, while Main Lyrics Window Settings stays Main-only.
 
 ## Application infrastructure conventions
 

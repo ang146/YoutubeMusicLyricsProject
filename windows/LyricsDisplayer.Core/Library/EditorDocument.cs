@@ -370,99 +370,13 @@ public sealed class EditorDocumentBuffer
         return true;
     }
 
-    public bool ShiftAllTimestamps(long deltaMs, out string? error)
+    public bool ApplyTimingAdjustment(EditorDocument adjustedDocument)
     {
-        error = null;
-        if (deltaMs == 0) return true;
-
-        var updatedRows = new Dictionary<Guid, EditorLyricRow>();
-        var foundTimestamp = false;
-        foreach (var row in Document.Rows)
-        {
-            var timestamps = row.Timestamps.ToArray();
-            var rowChanged = false;
-            for (var index = 0; index < timestamps.Length; index++)
-            {
-                var timestamp = timestamps[index];
-                if (string.IsNullOrWhiteSpace(timestamp.Value)) continue;
-                foundTimestamp = true;
-                if (!EditorDocumentCodec.TryParseTimestamp(timestamp.Value, out var timestampMs))
-                {
-                    error = $"Cannot shift invalid timestamp '{timestamp.Value}'.";
-                    return false;
-                }
-                if (!LrcTimestampRewriter.TryShiftTimestamp(timestampMs, deltaMs, row.LyricsText,
-                        out var adjustedMs, out error))
-                    return false;
-                if (adjustedMs == timestampMs) continue;
-                timestamps[index] = timestamp with { Value = EditorDocumentCodec.FormatTimestamp(adjustedMs) };
-                rowChanged = true;
-            }
-
-            if (rowChanged) updatedRows.Add(row.Id, row with { Timestamps = timestamps });
-        }
-
-        if (!foundTimestamp)
-        {
-            error = "The document contains no usable timestamps to shift.";
-            return false;
-        }
-        if (updatedRows.Count == 0) return true;
-
-        Change(document => document with
-        {
-            PhysicalLines = document.PhysicalLines.Select(line =>
-                line.LyricRow is { } row && updatedRows.TryGetValue(row.Id, out var updated)
-                    ? line with
-                    {
-                        LyricRow = updated,
-                        IsModified = !string.Equals(EditorDocumentCodec.SerializeLyricRow(updated),
-                            line.RawText, StringComparison.Ordinal)
-                    }
-                    : line).ToArray()
-        });
-        return true;
-    }
-
-    public bool ShiftRowTimestamps(Guid rowId, long deltaMs, out string? error)
-    {
-        error = null;
-        var row = FindRow(Document, rowId);
-        if (row is null)
-        {
-            error = "Select a lyric row to shift.";
-            return false;
-        }
-
-        var timestamps = row.Timestamps.ToArray();
-        var foundTimestamp = false;
-        var changed = false;
-        for (var index = 0; index < timestamps.Length; index++)
-        {
-            var timestamp = timestamps[index];
-            if (string.IsNullOrWhiteSpace(timestamp.Value)) continue;
-            foundTimestamp = true;
-            if (!EditorDocumentCodec.TryParseTimestamp(timestamp.Value, out var timestampMs))
-            {
-                error = $"Cannot shift invalid timestamp '{timestamp.Value}'.";
-                return false;
-            }
-            if (!LrcTimestampRewriter.TryShiftTimestamp(timestampMs, deltaMs, row.LyricsText,
-                    out var adjustedMs, out error))
-                return false;
-            if (adjustedMs == timestampMs) continue;
-            timestamps[index] = timestamp with { Value = EditorDocumentCodec.FormatTimestamp(adjustedMs) };
-            changed = true;
-        }
-
-        if (!foundTimestamp)
-        {
-            error = "The selected lyric row contains no usable timestamps to shift.";
-            return false;
-        }
-        if (!changed) return true;
-
-        Change(document => UpdateRow(document, rowId, existing => existing with { Timestamps = timestamps }));
+        ArgumentNullException.ThrowIfNull(adjustedDocument);
+        if (string.Equals(EditorDocumentCodec.Serialize(Document),
+                EditorDocumentCodec.Serialize(adjustedDocument), StringComparison.Ordinal))
+            return true;
+        Change(_ => adjustedDocument);
         return true;
     }
 
@@ -503,7 +417,7 @@ public sealed class EditorDocumentBuffer
     }
 
     public bool SetTimestampFromPlayback(EditorSelection selection, bool trackMatches, long playbackPositionMs,
-        long globalOffsetMs, int? nextAvailableIndex = null)
+        int? nextAvailableIndex = null)
     {
         if (!trackMatches || selection.SelectedRowId is not { } rowId || playbackPositionMs < 0) return false;
         var row = FindRow(Document, rowId);
@@ -521,11 +435,7 @@ public sealed class EditorDocumentBuffer
                     requestedIndex > row.Timestamps.Count) return false;
                 if (requestedIndex < row.Timestamps.Count)
                 {
-                    long insertionTime;
-                    try { insertionTime = checked(playbackPositionMs - globalOffsetMs); }
-                    catch (OverflowException) { return false; }
-                    if (insertionTime < 0) return false;
-                    var insertionValue = EditorDocumentCodec.FormatTimestamp(insertionTime);
+                    var insertionValue = EditorDocumentCodec.FormatTimestamp(playbackPositionMs);
                     Change(document => UpdateRow(document, rowId, existing =>
                     {
                         var timestamps = existing.Timestamps.ToList();
@@ -540,13 +450,9 @@ public sealed class EditorDocumentBuffer
                 return false;
             }
         }
-        long rawTime;
-        try { rawTime = checked(playbackPositionMs - globalOffsetMs); }
-        catch (OverflowException) { return false; }
-        if (rawTime < 0) return false;
         var targetIndex = emptyIndex >= 0 ? emptyIndex : row.Timestamps.Count;
         if (targetIndex >= MaximumPlaybackTimestampOccurrences) return false;
-        return SetTimestamp(rowId, targetIndex, EditorDocumentCodec.FormatTimestamp(rawTime));
+        return SetTimestamp(rowId, targetIndex, EditorDocumentCodec.FormatTimestamp(playbackPositionMs));
     }
 
     public void Undo()

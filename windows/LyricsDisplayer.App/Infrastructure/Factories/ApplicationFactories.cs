@@ -9,10 +9,6 @@ namespace LyricsDisplayer.Infrastructure.Factories;
 
 public interface ISettingsWindowFactory { SettingsWindow Create(); }
 public interface ILyricsOverlayViewFactory { ILyricsOverlayView Create(); }
-public interface IMainLyricsViewModelFactory
-{
-    IMainLyricsViewModel Create(Action openEditor, Func<bool> canOpenEditor, Action openSettings);
-}
 public interface IBuiltInLyricsEditorFactory
 {
     EditorWindowCreationResult Create(LocalTrackRecord track);
@@ -44,19 +40,6 @@ public sealed class SettingsWindowFactory(IUnityContainer container) : ISettings
 public sealed class LyricsOverlayViewFactory(IUnityContainer container) : ILyricsOverlayViewFactory
 {
     public ILyricsOverlayView Create() => container.Resolve<ILyricsOverlayView>();
-}
-
-public sealed class MainLyricsViewModelFactory(ICommandFactory commands,
-    ILogger<MainLyricsWindowViewModel> logger) : IMainLyricsViewModelFactory
-{
-    public IMainLyricsViewModel Create(Action openEditor, Func<bool> canOpenEditor, Action openSettings)
-    {
-        var editorCommand = commands.Create("application.open-built-in-editor", _ => openEditor(),
-            _ => canOpenEditor(), CommandScope.Application);
-        var settingsCommand = commands.Create("application.open-settings", _ => openSettings(),
-            scope: CommandScope.Application);
-        return new MainLyricsWindowViewModel(editorCommand, settingsCommand, logger);
-    }
 }
 
 public sealed class BuiltInLyricsEditorFactory(IUnityContainer container, LyricsLibrary library,

@@ -13,6 +13,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
 {
     private readonly LyricsLibrary _library;
     private readonly PlaybackStateCoordinator _playback;
+    private readonly ILyricsTimingAdjustmentService _timingAdjustments;
     private EditorAssetSnapshot _asset;
     private EditorDocumentBuffer _buffer;
     private EditorSelection _selection = new(null, EditorColumn.Lyrics);
@@ -82,12 +83,14 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
     public event Action? SaveCompleted;
 
     public BuiltInLyricsEditorViewModel(EditorAssetSnapshot asset, LyricsLibrary library,
-        PlaybackStateCoordinator playback, ICommandFactory commandFactory,
+        PlaybackStateCoordinator playback, ILyricsTimingAdjustmentService timingAdjustments,
+        ICommandFactory commandFactory,
         ILogger<BuiltInLyricsEditorViewModel> logger) : base(logger)
     {
         _asset = asset ?? throw new ArgumentNullException(nameof(asset));
         _library = library ?? throw new ArgumentNullException(nameof(library));
         _playback = playback ?? throw new ArgumentNullException(nameof(playback));
+        _timingAdjustments = timingAdjustments ?? throw new ArgumentNullException(nameof(timingAdjustments));
         ArgumentNullException.ThrowIfNull(commandFactory);
         _buffer = new(EditorDocumentCodec.Load(asset.LrcContent, asset.LrcHash), asset.Sidecar.UserMetadata);
         _titleOverride = asset.Sidecar.UserMetadata.Title ?? string.Empty;
@@ -412,7 +415,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         CommitMetadata();
         RefreshPlayback();
         if (!_buffer.SetTimestampFromPlayback(_selection, _playbackMatches, _playbackPosition,
-                _playback.GlobalOffsetMs, nextAvailableIndex))
+                nextAvailableIndex))
         {
             Status = "The current playback time cannot be added to this row.";
             return;
@@ -425,9 +428,15 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
     {
         if (!TryGetTimingDelta(parameter, out var deltaMs)) return;
         CommitStagedEdits();
-        if (!_buffer.ShiftAllTimestamps(deltaMs, out var error))
+        var result = _timingAdjustments.ShiftAll(_buffer.Document, deltaMs);
+        if (!result.Succeeded || result.Document is null)
         {
-            Status = error ?? "The document timestamps could not be shifted.";
+            Status = result.Error ?? "The document timestamps could not be shifted.";
+            return;
+        }
+        if (!_buffer.ApplyTimingAdjustment(result.Document))
+        {
+            Status = "The document timestamps could not be shifted.";
             return;
         }
 
@@ -447,9 +456,15 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         if (selectedRow is null || !selectedRow.Timestamps.Any(value => !string.IsNullOrWhiteSpace(value))) return;
 
         CommitStagedEdits();
-        if (!_buffer.ShiftRowTimestamps(rowId, deltaMs, out var error))
+        var result = _timingAdjustments.ShiftLine(_buffer.Document, rowId, deltaMs);
+        if (!result.Succeeded || result.Document is null)
         {
-            Status = error ?? "The selected lyric row timestamps could not be shifted.";
+            Status = result.Error ?? "The selected lyric row timestamps could not be shifted.";
+            return;
+        }
+        if (!_buffer.ApplyTimingAdjustment(result.Document))
+        {
+            Status = "The selected lyric row timestamps could not be shifted.";
             return;
         }
 
@@ -486,8 +501,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
 
     private string GetCurrentEditorLyric()
     {
-        var evaluationPosition = LyricsTimingAdjustment.GetEvaluationPosition(
-            _playbackPosition, _playback.GlobalOffsetMs);
+        var evaluationPosition = _playbackPosition;
         long latestStartMs = long.MinValue;
         var currentText = string.Empty;
         foreach (var row in Rows)
@@ -543,14 +557,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         var viewRow = Rows.FirstOrDefault(item => item.EditorLineId == rowId);
         if (viewRow is null || FindNextAvailableTimestampIndex(viewRow) is null) return false;
 
-        try
-        {
-            return checked(_playbackPosition - _playback.GlobalOffsetMs) >= 0;
-        }
-        catch (OverflowException)
-        {
-            return false;
-        }
+        return _playbackPosition >= 0;
     }
 
     private static int? FindNextAvailableTimestampIndex(EditorRowViewModel row)

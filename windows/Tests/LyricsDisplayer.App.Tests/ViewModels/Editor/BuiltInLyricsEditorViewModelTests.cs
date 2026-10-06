@@ -1778,7 +1778,7 @@ public sealed class BuiltInLyricsEditorViewModelTests
 
     private static BuiltInLyricsEditorViewModel NewEditorViewModel(EditorAssetSnapshot asset,
         LyricsLibrary library, PlaybackStateCoordinator playback) =>
-        new(asset, library, playback, TestCommandFactory.Instance,
+        new(asset, library, playback, new LyricsTimingAdjustmentService(), TestCommandFactory.Instance,
             NullLogger<BuiltInLyricsEditorViewModel>.Instance);
 
     private static EditorFixture CreatePlaybackViewModel(string content, long playbackPositionMs)

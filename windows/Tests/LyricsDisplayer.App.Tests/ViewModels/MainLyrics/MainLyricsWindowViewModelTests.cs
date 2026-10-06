@@ -306,21 +306,40 @@ public sealed class MainLyricsWindowViewModelTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(viewModel.OpenBuiltInEditorCommand, Is.SameAs(command));
-            Assert.That(viewModel.OpenBuiltInEditorCommand.CanExecute(null), Is.False);
+            Assert.That(viewModel.SurfaceActions.OpenBuiltInEditor.Command, Is.SameAs(command));
+            Assert.That(viewModel.SurfaceActions.OpenBuiltInEditor.Command.CanExecute(null), Is.False);
         });
 
         canExecute = true;
-        viewModel.OpenBuiltInEditorCommand.Execute(null);
+        viewModel.SurfaceActions.OpenBuiltInEditor.Command.Execute(null);
 
         Assert.That(executed, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void MainLyricsViewModelExposesMainSurfaceActions()
+    {
+        var actions = CreateActions(Substitute.For<IRelayCommand>());
+        var viewModel = new MainLyricsWindowViewModel(actions,
+            NullLogger<MainLyricsWindowViewModel>.Instance);
+
+        Assert.That(viewModel.SurfaceActions, Is.SameAs(actions));
     }
 
     private static LyricsSnapshotPayload TimedLyrics(IReadOnlyList<LyricsLine> lines) =>
         new("track", true, true, "local", lines, null);
 
     private static MainLyricsWindowViewModel CreateViewModel(IRelayCommand openBuiltInEditorCommand) =>
-        new(openBuiltInEditorCommand, null, NullLogger<MainLyricsWindowViewModel>.Instance);
+        new(CreateActions(openBuiltInEditorCommand), NullLogger<MainLyricsWindowViewModel>.Instance);
+
+    private static IMainLyricsSurfaceActionsViewModel CreateActions(IRelayCommand openBuiltInEditorCommand)
+    {
+        var actions = Substitute.For<IMainLyricsSurfaceActionsViewModel>();
+        actions.OpenBuiltInEditor.Returns(_ => new("Open Built-in Editor", openBuiltInEditorCommand));
+        actions.OpenLrcExternally.Returns(_ => new("Open LRC Externally", Substitute.For<IRelayCommand>()));
+        actions.ExternalLyricsStatus.Returns("No current local LRC");
+        return actions;
+    }
 
     private static LyricsLine Line(long startMs, string text) => new(startMs, startMs, text);
 

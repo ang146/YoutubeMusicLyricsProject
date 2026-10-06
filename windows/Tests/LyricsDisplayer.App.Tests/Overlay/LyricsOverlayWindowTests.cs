@@ -175,51 +175,28 @@ public sealed class LyricsOverlayWindowTests
     }
 
     [Test]
-    public void TimingCommandsAreFlatClearAndDisabledByAvailability()
+    public void ContextMenuKeepsItsOverlayOwnedActionsSeparateFromMainSettings()
     {
         var window = new LyricsOverlayWindow();
         try
         {
-            window.ApplyInteractionState(new(false, false, LyricsContentMode.AllLyrics, 900, 300), effectiveTopmost: true);
-            window.ApplyTimingState(currentLineEnabled: false, globalTimingEnabled: false, globalOffsetMs: 0);
-            var commands = new List<OverlayCommand>();
-            window.CommandRequested += commands.Add;
-            var timingItems = window.CurrentLineTimingMenuItemsForTesting
-                .Concat(window.GlobalTimingMenuItemsForTesting).ToArray();
+            var items = window.ContextMenuForTesting.Items.OfType<MenuItem>().ToArray();
+            var headers = items.Select(item => item.Header?.ToString() ?? string.Empty).ToArray();
+            var displayMenu = items.Single(item => Equals(item.Header, "Lyrics Display"));
+            var overlayMenu = items.Single(item => Equals(item.Header, "Overlay"));
 
             Assert.Multiple(() =>
             {
-                Assert.That(window.ContextMenuForTesting.Items.OfType<MenuItem>()
-                    .Any(item => Equals(item.Header, "Adjust Timing")), Is.False);
-                Assert.That(timingItems.All(item => window.ContextMenuForTesting.Items.Contains(item)), Is.True);
-                Assert.That(window.CurrentLineTimingMenuItemsForTesting.All(item => !item.IsEnabled), Is.True);
-                Assert.That(window.GlobalTimingMenuItemsForTesting.All(item => !item.IsEnabled), Is.True);
-                Assert.That(window.CurrentLineTimingMenuItemsForTesting.Select(item => item.Header), Is.EqualTo(new[]
-                {
-                    "Current Line -0.5s (Earlier)", "Current Line -0.1s (Earlier)",
-                    "Current Line +0.1s (Later)", "Current Line +0.5s (Later)"
-                }));
+                Assert.That(headers, Does.Contain("Open Lyrics Window"));
+                Assert.That(headers, Does.Contain("Lyrics Display"));
+                Assert.That(headers, Does.Contain("Overlay"));
+                Assert.That(headers, Does.Contain("Hide Desktop Lyrics"));
+                Assert.That(headers, Does.Not.Contain("Settings"));
+                Assert.That(displayMenu.Items.OfType<MenuItem>().Select(item => item.Header?.ToString()),
+                    Is.EqualTo(new[] { "One Line", "Two Lines", "All Lyrics" }));
+                Assert.That(overlayMenu.Items.OfType<MenuItem>().Select(item => item.Header?.ToString()),
+                    Is.EqualTo(new[] { "Lock Position", "Click Through" }));
             });
-
-            window.ApplyTimingState(currentLineEnabled: true, globalTimingEnabled: false, globalOffsetMs: 500);
-            Assert.Multiple(() =>
-            {
-                Assert.That(window.CurrentLineTimingMenuItemsForTesting.All(item => item.IsEnabled), Is.True);
-                Assert.That(window.GlobalTimingMenuItemsForTesting.All(item => !item.IsEnabled), Is.True);
-            });
-
-            window.ApplyTimingState(currentLineEnabled: false, globalTimingEnabled: true, globalOffsetMs: 500);
-            Assert.Multiple(() =>
-            {
-                Assert.That(window.CurrentLineTimingMenuItemsForTesting.All(item => !item.IsEnabled), Is.True);
-                Assert.That(window.GlobalTimingMenuItemsForTesting.All(item => item.IsEnabled), Is.True);
-            });
-
-            foreach (var item in timingItems)
-                item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, item));
-            Assert.That(commands, Is.EqualTo(Enum.GetValues<OverlayCommand>()
-                .Where(command => command is >= OverlayCommand.AdjustCurrentLineMinus500
-                    and <= OverlayCommand.AdjustGlobalPlus500)));
         }
         finally
         {

@@ -261,7 +261,9 @@ Set Time
 - `Set Time` uses playback only when playback identity matches the fixed editor track.
 - `Set Time` appends to the first free T1–T5 slot and never overwrites an existing occurrence.
 - The live `time | lyric` display may reflect committed unsaved editor text but must not drive selection.
-- The old user-facing Global Offset / Reset / Bake workflow is superseded. Do not reintroduce it.
+- Timing quick adjustments are persistent authoritative-LRC edits; do not introduce or retain a runtime/global offset or Reset command.
+- Main Lyrics Window and Desktop Lyrics Overlay context menus provide **Current Line** and **All Lyrics** quick adjustments. Current Line persistently shifts the exact current occurrence in the active authoritative local LRC; All Lyrics persistently shifts every timestamp in that LRC. They reuse the shared timestamp-adjustment rules and safe conditional save path, not the editor's selected row or a runtime offset.
+- Built-in Editor shifts remain document edits with dirty/Undo/Redo/Save/Discard semantics. Keep playback current lyric and editor row selection independent.
 
 Do not silently sort, repair, interpolate, regionalize, or otherwise rewrite user-authored lyrics.
 

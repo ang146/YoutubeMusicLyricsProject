@@ -98,8 +98,6 @@ public sealed class LocalLyricsCoordinatorTests
             Assert.That(LyricsOverlayPresentationState.FromLyrics(coordinator.CurrentLyrics.Payload,
                 coordinator.GetTimelinePosition()).PrimaryText, Is.EqualTo(LyricsOverlayPresentationState.UntimedLyricsText));
             Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
-            Assert.That(coordinator.CanAdjustTiming, Is.False);
-            Assert.That(coordinator.CaptureTimingAdjustmentTarget(), Is.Null);
             Assert.That(File.ReadAllText(lrc), Is.EqualTo("第一行 ♪\n第二行\n"));
             Assert.That(File.ReadAllText(lrc), Does.Not.Contain("[00:00.000]"));
         });
@@ -285,7 +283,7 @@ public sealed class LocalLyricsCoordinatorTests
     }
 
     [Test]
-    public void ExternalLrcReloadRebuildsTimelineAndPreservesTimingOffset()
+    public void ExternalLrcReloadRebuildsTimelineAndPreservesPlaybackState()
     {
         using var library = InitialiseLibrary();
         var imported = library.Import(TrackInfo("track-a"), Lyrics("track-a", 2).Payload);
@@ -300,8 +298,6 @@ public sealed class LocalLyricsCoordinatorTests
             }
         });
         coordinator.ApplyLyricsDetailed(Lyrics("track-a", 2));
-        Assert.That(coordinator.AdjustTiming(250).Succeeded, Is.True);
-
         File.WriteAllText(lrc, "[00:02.000]Externally edited line\n[00:03.000]Next line\n");
         var fingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(lrc)));
         var update = coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, fingerprint);
@@ -310,7 +306,6 @@ public sealed class LocalLyricsCoordinatorTests
         {
             Assert.That(update, Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
             Assert.That(coordinator.CurrentLyrics!.Payload.Lines[0].Text, Is.EqualTo("Externally edited line"));
-            Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(250));
             Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
             Assert.That(coordinator.Current!.Payload.Playback.PositionMs, Is.EqualTo(1_000));
             Assert.That(coordinator.Current.Payload.Playback.Playing, Is.False);
@@ -333,8 +328,6 @@ public sealed class LocalLyricsCoordinatorTests
         Assert.That(coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, invalidFingerprint),
             Is.EqualTo(ExternalLocalLyricsUpdate.Invalid));
         Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Single().Text, Is.EqualTo(oldLine));
-        Assert.That(coordinator.CanAdjustTiming, Is.False);
-
         File.WriteAllText(lrc, "[00:02.000]Repaired line\n");
         var repairedFingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(lrc)));
         Assert.That(coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, repairedFingerprint),
@@ -371,8 +364,6 @@ public sealed class LocalLyricsCoordinatorTests
                 Playback = playback.Payload.Playback with { PositionMs = 15_000, Playing = false }
             }
         });
-        Assert.That(coordinator.AdjustTiming(500).Succeeded, Is.True);
-
         var updates = new ConcurrentQueue<ExternalLocalLyricsUpdate>();
         using var updateSignal = new SemaphoreSlim(0);
         using var watcher = new ActiveLrcFileWatcher(NullLogger<ActiveLrcFileWatcher>.Instance, lrc, coordinator.CurrentLocalLyrics!.LrcContentHash,
@@ -409,10 +400,8 @@ public sealed class LocalLyricsCoordinatorTests
                 Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Select(line => line.Text), Is.EqualTo(new[] { "A", "B", "C" }));
                 Assert.That(coordinator.GetTimelinePosition().CurrentLine!.Text, Is.EqualTo("A"));
                 Assert.That(coordinator.GetTimelinePosition().NextLine!.Text, Is.EqualTo("B"));
-                Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
                 Assert.That(coordinator.Current!.Payload.Playback.PositionMs, Is.EqualTo(15_000));
                 Assert.That(coordinator.Current.Payload.Playback.Playing, Is.False);
-                Assert.That(coordinator.AdjustTiming(100).Succeeded, Is.False);
                 Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.False);
                 Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.False,
                     "An existing malformed file is not a missing-file state.");
@@ -429,7 +418,6 @@ public sealed class LocalLyricsCoordinatorTests
             Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Select(line => line.Text),
                 Is.EqualTo(new[] { "A corrected", "C" }));
             Assert.That(coordinator.CurrentLyrics.Payload.Lines[1].StartMs, Is.EqualTo(31_000));
-            Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
             Assert.That(coordinator.LocalAssociationStatus, Is.EqualTo("Found"));
             Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
         });
@@ -444,12 +432,10 @@ public sealed class LocalLyricsCoordinatorTests
         var coordinator = Coordinator(library);
         coordinator.Apply(Playback("track-a", 1));
         coordinator.ApplyLyricsDetailed(Lyrics("track-a", 2));
-        Assert.That(coordinator.AdjustTiming(500).Succeeded, Is.True);
         File.Delete(lrc);
 
         Assert.That(coordinator.MarkExternalLocalLyricsMissing(imported.LocalTrackId!), Is.True);
         Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.True);
-        Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
         Assert.That(coordinator.ApplyLyricsDetailed(Lyrics("track-a", 3, text: "Must not replace local")),
             Is.EqualTo(LyricsApplyDecision.IgnoredBecauseLocal));
         Assert.That(File.Exists(lrc), Is.False);
@@ -461,7 +447,6 @@ public sealed class LocalLyricsCoordinatorTests
             Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
         Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Single().Text, Is.EqualTo("Recovered line"));
         Assert.That(coordinator.IsCurrentLocalLrcMissing, Is.False);
-        Assert.That(coordinator.GlobalOffsetMs, Is.EqualTo(500));
     }
 
     [Test]
@@ -508,7 +493,9 @@ public sealed class LocalLyricsCoordinatorTests
 
         Assert.That(coordinator.ReloadExternalLocalLyrics(imported.LocalTrackId!, fingerprint),
             Is.EqualTo(ExternalLocalLyricsUpdate.Reloaded));
-        Assert.That(coordinator.AdjustCurrentLineTiming(100).Succeeded, Is.True);
+        var timing = new CurrentLyricsTimingService(coordinator, library,
+            new LyricsTimingAdjustmentService(), NullLogger<CurrentLyricsTimingService>.Instance);
+        Assert.That(timing.AdjustCurrentLine(100).Succeeded, Is.True);
 
         Assert.That(File.ReadAllText(lrc), Does.Contain("[00:00.200]Fresh source occurrence"));
     }
@@ -534,9 +521,8 @@ public sealed class LocalLyricsCoordinatorTests
         Assert.That(coordinator.CurrentLyrics!.Payload.Lines.Single().Text, Is.EqualTo("Remote line"));
     }
 
-    [TestCase(false)]
-    [TestCase(true)]
-    public async Task AppOwnedCurrentLineAndBakeWritesDoNotTriggerReloadWriteLoops(bool bake)
+    [Test]
+    public async Task AppOwnedCurrentLineWriteDoesNotTriggerReloadWriteLoop()
     {
         using var library = InitialiseLibrary();
         var imported = library.Import(TrackInfo("track-a"), Lyrics("track-a", 2).Payload);
@@ -544,7 +530,6 @@ public sealed class LocalLyricsCoordinatorTests
         var coordinator = Coordinator(library);
         coordinator.Apply(Playback("track-a", 1));
         coordinator.ApplyLyricsDetailed(Lyrics("track-a", 2));
-        if (bake) Assert.That(coordinator.AdjustTiming(500).Succeeded, Is.True);
 
         var observed = new TaskCompletionSource<ActiveLrcFileObservation>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observationCount = 0;
@@ -555,12 +540,9 @@ public sealed class LocalLyricsCoordinatorTests
                 observed.TrySetResult(change);
             }, debounce: TimeSpan.FromMilliseconds(10), retryDelay: TimeSpan.FromMilliseconds(5));
 
-        if (bake)
-        {
-            var target = coordinator.CaptureTimingAdjustmentTarget()!;
-            Assert.That(coordinator.BakeTiming(target).Succeeded, Is.True);
-        }
-        else Assert.That(coordinator.AdjustCurrentLineTiming(100).Succeeded, Is.True);
+        var timing = new CurrentLyricsTimingService(coordinator, library,
+            new LyricsTimingAdjustmentService(), NullLogger<CurrentLyricsTimingService>.Instance);
+        Assert.That(timing.AdjustCurrentLine(100).Succeeded, Is.True);
 
         var change = await observed.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(change.Kind, Is.EqualTo(ActiveLrcFileObservationKind.Content));
@@ -574,9 +556,7 @@ public sealed class LocalLyricsCoordinatorTests
         {
             Assert.That(Interlocked.CompareExchange(ref observationCount, 0, 0), Is.EqualTo(1));
             Assert.That(File.ReadAllBytes(lrc), Is.EqualTo(afterReload));
-            Assert.That(coordinator.GlobalOffsetMs, Is.Zero);
-            if (bake) Assert.That(File.ReadAllText(lrc), Does.Contain("[00:00.600]"));
-            else Assert.That(File.ReadAllText(lrc), Does.Contain("[00:00.200]"));
+            Assert.That(File.ReadAllText(lrc), Does.Contain("[00:00.200]"));
         });
     }
 

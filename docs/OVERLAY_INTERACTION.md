@@ -50,26 +50,30 @@ The Main Lyrics Window and the global shortcut remain independent recovery paths
 
 ## Overlay context menu
 
-The M9 context menu may still contain legacy direct timing quick actions until the M12 shared-context-menu cleanup. Those actions are transitional only. Current timing authoring lives in the Built-in Lyrics Editor through direct whole-document/selected-row timestamp shifts and `Set Time`; the overlay context menu should converge on shared lyrics/window commands rather than re-exposing timing authoring.
+The overlay and Main Lyrics Window build separate WPF context menus from `LyricsContextMenuBase`. They bind to separate concrete surface-action ViewModels that share their common implementation and application services. Shared actions are **Open LRC Externally**, **Open Built-in Editor**, four **Current Line** adjustments (`-0.5s`, `-0.1s`, `+0.1s`, `+0.5s`), and four **All Lyrics** adjustments with the same deltas. Current Line edits the exact current occurrence; All Lyrics edits every timestamp in the active authoritative LRC. Both persist immediately. There is no Reset or runtime offset action.
 
 The target shared/menu direction is:
 
 ```text
-Open Main Window / Lyrics Window
+Open Lyrics Window (Overlay only)
 Open LRC Externally
 Open Built-in Editor
-Lyrics Display > One Line / Two Lines / All Lyrics
-Overlay > Lock Position / Click Through
-Settings
-Show / Hide Media Controller   // when implemented
-Hide Desktop Lyrics
+Current Line > -0.5s / -0.1s / +0.1s / +0.5s
+All Lyrics > -0.5s / -0.1s / +0.1s / +0.5s
+Settings (Main Lyrics Window only)
+
+Lyrics Display > One Line / Two Lines / All Lyrics (Overlay only)
+Overlay > Lock Position / Click Through (Overlay only)
+Hide Desktop Lyrics (Overlay only)
 ```
 
-There is no **Always on Top** menu item: Topmost is an invariant of a visible Desktop Lyrics Overlay. Any remaining M9 timing quick actions are legacy/transitional UI only; the M12 shared-context-menu cleanup should remove them rather than reintroduce separate timing semantics.
+The menu instances remain surface-specific: **Open Lyrics Window**, display mode, lock, click-through, and Hide Desktop Lyrics belong only to the overlay; **Settings** belongs to the Main Lyrics Window. There is no **Always on Top** menu item: Topmost is an invariant of a visible Desktop Lyrics Overlay.
 
-**Open LRC Externally** is enabled for any safely resolved, usable authoritative local LRC, whether timed or untimed, and routes to the same shared app command as other surfaces. Active-file watching and reload behavior are documented in [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
+**Open LRC Externally** is enabled for any safely resolved, usable authoritative local LRC, whether timed or untimed. The shared action model owns this command's availability and status; Main Lyrics Window and overlay menus bind to that same command. Active-file watching and reload behavior are documented in [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
 
-Milestone 11 adds **Open Built-in Editor** as another shared application command entry point. The overlay context menu does not own editor logic; it invokes the same `OpenBuiltInEditorCommand` as the Main Lyrics Window. A future Media Controller may expose the same command.
+Milestone 11 adds **Open Built-in Editor** as another shared application command entry point. Its existing editor-opening eligibility remains authoritative in one command, and both lyrics surfaces bind to that command. The overlay menu does not own editor logic or editor-session state. A future Media Controller may expose the same action.
+
+The timing actions use `ICurrentLyricsTimingService`, which captures current playback identity/occurrence, applies the shared timestamp safety rules, conditionally writes through `LyricsLibrary.SaveEditorAssets`, and reloads current lyrics presentation. Command availability follows the timing, current-file, and editor services through focused change events; it does not depend on MainWindow copying boolean state into the action ViewModels. These are not Editor row-selection commands and do not change playback-driven editor selection.
 
 The menu is available when click-through is on only if the pointer is over lyric text. The explicit command that opens the Main Lyrics Window may activate that ordinary window; automatic lyric updates remain non-activating.
 

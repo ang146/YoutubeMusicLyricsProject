@@ -9,6 +9,9 @@ namespace LyricsDisplayer;
 
 public sealed class PlaybackStateCoordinator
 {
+    private readonly record struct LyricsActionAvailability(bool CanAdjustCurrentLine, bool CanShiftAll,
+        string? LocalTrackId, string? LrcHash, bool EditorPreviewActive);
+
     private sealed record EditorLyricsPreview(
         LocalTrackRecord Record,
         IReadOnlyList<LyricsLine> Lines,
@@ -28,6 +31,8 @@ public sealed class PlaybackStateCoordinator
     private string? _cachedEditorPreviewSourceTrackId;
     private bool _hasActiveLocalAssociation;
     private bool _externalLrcUsable;
+    private LyricsActionAvailability _lastLyricsActionAvailability;
+    private bool _hasLyricsActionAvailability;
 
     public LyricsSnapshotMessage? CurrentLyrics { get; private set; }
     public LyricsSnapshotMessage? CurrentRawLyricsSnapshot { get; private set; }
@@ -54,6 +59,7 @@ public sealed class PlaybackStateCoordinator
     public string LyricsLoadedFrom { get; private set; } = "Pending / unknown";
     public string LocalAssociationStatus { get; private set; } = "Not checked";
     public event Action? LocalMetadataChanged;
+    public event Action? LyricsActionAvailabilityChanged;
 
     public PlaybackStateCoordinator(ILogger<PlaybackStateCoordinator> logger, SnapshotStateTracker stateTracker,
         PlaybackClock playbackClock, LyricsLibrary? library = null)
@@ -93,13 +99,9 @@ public sealed class PlaybackStateCoordinator
     public IReadOnlyList<LyricsLine> GetTimelineOrderedLines() =>
         ActiveEditorLyricsPreview?.Timeline.OrderedLines ?? _lyricsTimeline.OrderedLines;
 
-    public long GlobalOffsetMs => CurrentLocalLyrics?.GlobalOffsetMs ?? 0;
-
-    public bool CanAdjustTiming => IsCurrentLocalLrcUsable && CurrentLocalLyrics!.IsTimed && _library is not null;
-
-    public bool CanAdjustCurrentLineTiming => !IsEditorPreviewActive && _library is not null &&
-        IsCurrentLocalLrcUsable && CurrentLocalLyrics is { IsLrcWritable: true, LrcContentHash: not null } &&
-        GetTimelinePosition().CurrentIndex is not null;
+    public bool CanAdjustCurrentLineTiming => GetTimelinePosition().CurrentIndex is not null &&
+        !IsEditorPreviewActive && _library is not null && IsCurrentLocalLrcUsable &&
+        CurrentLocalLyrics is { IsLrcWritable: true, LrcContentHash: not null };
 
     public CurrentLineTimingTarget? CaptureCurrentLineTimingTarget()
     {
@@ -109,51 +111,6 @@ public sealed class PlaybackStateCoordinator
         return document is { IsLrcWritable: true, LrcContentHash: not null } &&
                _library is not null && _externalLrcUsable && index is not null
             ? new(document, index.Value) : null;
-    }
-
-    public TimingAdjustmentResult AdjustCurrentLineTiming(long deltaMs)
-    {
-        var target = CaptureCurrentLineTimingTarget();
-        return target is null
-            ? new(TimingAdjustmentStatus.NoCurrentLine, Error: "There is no writable current local lyric to edit.")
-            : AdjustCurrentLineTiming(target, deltaMs);
-    }
-
-    public TimingAdjustmentResult AdjustCurrentLineTiming(CurrentLineTimingTarget target, long deltaMs)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        var current = CurrentLocalLyrics;
-        if (_library is null || current is null || !current.IsTimed ||
-            current.Record.LocalTrackId != target.Document.Record.LocalTrackId ||
-            current.Record.LyricsRelativePath != target.Document.Record.LyricsRelativePath ||
-            current.LrcContentHash != target.Document.LrcContentHash)
-            return new(TimingAdjustmentStatus.TrackChanged,
-                Error: "The local lyrics asset changed before the line edit could be saved.");
-
-        var result = _library.AdjustLineTiming(target, deltaMs);
-        if (CurrentLocalLyrics?.Record.LocalTrackId == target.Document.Record.LocalTrackId &&
-            CurrentLocalLyrics.Record.LyricsRelativePath == target.Document.Record.LyricsRelativePath &&
-            CurrentLocalLyrics.LrcContentHash == target.Document.LrcContentHash)
-        {
-            if (result.Succeeded || result.Status == TimingAdjustmentStatus.FileChanged)
-            {
-                if (result.Document is not null)
-                    SetLocalLyrics(result.Document with { EffectiveMetadata = current.EffectiveMetadata },
-                        CurrentLyrics?.Envelope ?? Current!.Envelope);
-                else
-                {
-                    CurrentLocalLyrics = null;
-                    CurrentLyrics = null;
-                    _lyricsTimeline = LyricsTimeline.Empty;
-                    LocalAssociationStatus = "Changed / unusable";
-                    LyricsLoadedFrom = "Local Library (changed / unusable)";
-                }
-            }
-            else if (result.Status == TimingAdjustmentStatus.StorageFailure &&
-                     result.Document is { IsLrcWritable: false })
-                CurrentLocalLyrics = current with { IsLrcWritable = false };
-        }
-        return result;
     }
 
     public long GetLocalPositionMs() => _playbackClock.GetPositionMs();
@@ -194,9 +151,13 @@ public sealed class PlaybackStateCoordinator
         return true;
     }
 
-    public LyricsTimelinePosition GetTimelinePosition() =>
-        (ActiveEditorLyricsPreview?.Timeline ?? _lyricsTimeline).Evaluate(LyricsTimingAdjustment.GetEvaluationPosition(
-            _playbackClock.GetPositionMs(), GlobalOffsetMs));
+    public LyricsTimelinePosition GetTimelinePosition()
+    {
+        var position = (ActiveEditorLyricsPreview?.Timeline ?? _lyricsTimeline).Evaluate(
+            _playbackClock.GetPositionMs());
+        NotifyLyricsActionAvailability(position);
+        return position;
+    }
 
     /// <summary>Temporarily publishes the editor's in-memory document to playback presentation.</summary>
     public void SetEditorPreview(LocalTrackRecord record, IReadOnlyList<LyricsLine> lines,
@@ -239,59 +200,6 @@ public sealed class PlaybackStateCoordinator
                 ? preview
                 : null;
         }
-    }
-
-    public TimingAdjustmentResult AdjustTiming(long deltaMs)
-    {
-        var target = CurrentLocalLyrics;
-        if (target is null || !target.IsTimed || _library is null || !_externalLrcUsable)
-            return new(TimingAdjustmentStatus.NoLocalLyrics);
-        if (!LyricsTimingAdjustment.TryAdjustOffset(target.GlobalOffsetMs, deltaMs, out var adjusted))
-            return new(TimingAdjustmentStatus.OffsetOverflow);
-
-        var result = _library.SetGlobalOffset(target.Record.LocalTrackId, adjusted);
-        // A sidecar-only change must keep the loaded LRC source identity aligned with the unchanged timeline.
-        if (result.Succeeded && result.Document is not null &&
-            CurrentLocalLyrics?.Record.LocalTrackId == target.Record.LocalTrackId)
-            CurrentLocalLyrics = target with { Sidecar = result.Document.Sidecar };
-        return result;
-    }
-
-    public TimingAdjustmentResult ResetTiming()
-    {
-        var target = CurrentLocalLyrics;
-        if (target is null || !target.IsTimed || _library is null || !_externalLrcUsable)
-            return new(TimingAdjustmentStatus.NoLocalLyrics);
-        if (target.GlobalOffsetMs == 0)
-            return new(TimingAdjustmentStatus.Succeeded, target);
-        var result = _library.SetGlobalOffset(target.Record.LocalTrackId, 0);
-        if (result.Succeeded && result.Document is not null &&
-            CurrentLocalLyrics?.Record.LocalTrackId == target.Record.LocalTrackId)
-            CurrentLocalLyrics = target with { Sidecar = result.Document.Sidecar };
-        return result;
-    }
-
-    public TimingAdjustmentTarget? CaptureTimingAdjustmentTarget() =>
-        CurrentLocalLyrics is not { IsTimed: true } || !IsCurrentLocalLrcUsable
-            ? null
-            : new(CurrentLocalLyrics.Record.LocalTrackId, CurrentLocalLyrics.GlobalOffsetMs);
-
-    public TimingAdjustmentResult BakeTiming(TimingAdjustmentTarget target)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        var current = CurrentLocalLyrics;
-        if (current is null || !current.IsTimed || _library is null || !_externalLrcUsable)
-            return new(TimingAdjustmentStatus.NoLocalLyrics);
-        if (current.Record.LocalTrackId != target.LocalTrackId || current.GlobalOffsetMs != target.GlobalOffsetMs)
-            return new(TimingAdjustmentStatus.TrackChanged,
-                Error: "The current lyrics track or timing offset changed before Bake was confirmed.");
-
-        var result = _library.BakeGlobalOffset(target.LocalTrackId);
-        if (result.Succeeded && result.Document is not null &&
-            CurrentLocalLyrics?.Record.LocalTrackId == target.LocalTrackId)
-            SetLocalLyrics(result.Document with { EffectiveMetadata = current.EffectiveMetadata },
-                CurrentLyrics?.Envelope ?? Current!.Envelope);
-        return result;
     }
 
     public SnapshotDecision Apply(PlaybackSnapshotMessage snapshot)
@@ -513,6 +421,24 @@ public sealed class PlaybackStateCoordinator
         _logger.LogWarning("External LRC could not be read for LocalTrackId={LocalTrackId}; keeping last-known-good runtime lyrics. {Error}",
             localTrackId, error);
         return true;
+    }
+
+    private void NotifyLyricsActionAvailability(LyricsTimelinePosition position)
+    {
+        var previewActive = IsEditorPreviewActive;
+        var document = CurrentLocalLyrics;
+        var canShiftAll = !previewActive && _library is not null && _externalLrcUsable &&
+            document is { IsTimed: true, IsLrcWritable: true, LrcContentHash: not null };
+        var next = new LyricsActionAvailability(
+            canShiftAll && position.CurrentIndex is not null,
+            canShiftAll,
+            document?.Record.LocalTrackId,
+            document?.LrcContentHash,
+            previewActive);
+        if (_hasLyricsActionAvailability && next == _lastLyricsActionAvailability) return;
+        _hasLyricsActionAvailability = true;
+        _lastLyricsActionAvailability = next;
+        LyricsActionAvailabilityChanged?.Invoke();
     }
 
     private void SetTimeline(LyricsSnapshotPayload lyrics) =>

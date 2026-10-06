@@ -14,61 +14,11 @@ internal static class AtomicFile
         Write(path, content, overwrite: true);
     }
 
-    internal static byte[] ReplacePair(
-        string firstPath,
-        string firstContent,
-        string secondPath,
-        string secondContent,
-        Action<int>? beforeCommit = null)
-    {
-        var originalFirst = File.ReadAllBytes(firstPath);
-        var preserveUtf8Bom = originalFirst.AsSpan().StartsWith(Encoding.UTF8.Preamble);
-        var savedBytes = LrcFileSnapshot.EncodeUtf8(firstContent, preserveUtf8Bom);
-        var firstTemporary = WriteTemporary(firstPath, savedBytes);
-        string? secondTemporary = null;
-        var firstCommitted = false;
-        try
-        {
-            secondTemporary = WriteTemporary(secondPath, secondContent);
-            beforeCommit?.Invoke(1);
-            File.Move(firstTemporary, firstPath, overwrite: true);
-            firstTemporary = string.Empty;
-            firstCommitted = true;
-            beforeCommit?.Invoke(2);
-            File.Move(secondTemporary, secondPath, overwrite: true);
-            secondTemporary = null;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            if (firstCommitted)
-            {
-                try
-                {
-                    ReplaceBytes(firstPath, originalFirst);
-                }
-                catch (Exception rollbackException) when (rollbackException is IOException or UnauthorizedAccessException)
-                {
-                    throw new IOException("Coordinated file replacement failed and the first-file rollback also failed.",
-                        new AggregateException(exception, rollbackException));
-                }
-            }
-            throw new IOException("Coordinated file replacement failed; committed changes were rolled back.", exception);
-        }
-        finally
-        {
-            DeleteOwnTemporary(firstTemporary);
-            DeleteOwnTemporary(secondTemporary);
-        }
-        return savedBytes;
-    }
-
-    internal static bool TryReplaceUnchanged(string path, byte[] content, string expectedHash,
-        Action? beforeCommit = null)
+    internal static bool TryReplaceUnchanged(string path, byte[] content, string expectedHash)
     {
         var temporary = WriteTemporary(path, content);
         try
         {
-            beforeCommit?.Invoke();
             if (LrcFileSnapshot.HashBytes(File.ReadAllBytes(path)) != expectedHash) return false;
             if (!LrcFileSnapshot.IsWritable(path))
                 throw new UnauthorizedAccessException("The target file is not writable.");
@@ -88,20 +38,6 @@ internal static class AtomicFile
         try
         {
             File.Move(temporary, path, overwrite);
-            temporary = string.Empty;
-        }
-        finally
-        {
-            DeleteOwnTemporary(temporary);
-        }
-    }
-
-    private static void ReplaceBytes(string path, byte[] content)
-    {
-        var temporary = WriteTemporary(path, content);
-        try
-        {
-            File.Move(temporary, path, overwrite: true);
             temporary = string.Empty;
         }
         finally

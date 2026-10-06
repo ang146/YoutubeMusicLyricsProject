@@ -83,7 +83,7 @@ Five timestamp occurrences per lyric row is the agreed editor UI limit for this 
 
 ## M12 timing-authoring workflow
 
-M12 Task 6 makes the editor the sole intended timing-authoring surface.
+M12 Task 6 makes the editor the full-document timing-authoring surface. Separate shared lyrics-surface menu commands retain quick playback timing adjustments for listening-time corrections.
 
 The compact timing area contains:
 
@@ -107,7 +107,7 @@ Negative shifts retain the existing atomic safety rule. Ordinary timestamp occur
 
 The live playback line uses the fixed editor track and the editor's current in-memory lyric text. Committed unsaved text edits are reflected immediately. When playback identity does not match the editor track, the UI must not display a misleading editor lyric as though it were current.
 
-The old user-facing `Global Offset`, `Reset`, and `Bake` workflow is superseded. Timing corrections are ordinary editor-buffer changes; no migration/compatibility machinery for superseded pre-release timing state should be added unless explicitly requested.
+The editor has no runtime timing offset or Reset workflow. Timing corrections here are ordinary editor-buffer changes; no migration/compatibility machinery for superseded pre-release timing state should be added unless explicitly requested.
 
 ## Manual timestamp input
 
@@ -363,7 +363,7 @@ The editor must not create a second metadata authority by silently writing these
 
 ## Timing-adjustment UI ownership
 
-All user-facing timing authoring belongs to the Built-in Lyrics Editor. The ordinary Main Lyrics Window and Desktop Lyrics Overlay are presentation surfaces and should not grow a second timing workflow.
+Full-document timing authoring belongs to the Built-in Lyrics Editor. The ordinary Main Lyrics Window and Desktop Lyrics Overlay also provide shared Current Line and All Lyrics timing quick adjustments in their context menus. Those actions persist changes directly to the active authoritative local LRC and are not Editor-document authoring controls.
 
 The current editor model is:
 
@@ -375,7 +375,7 @@ Set Time
 
 Whole-document and selected-row shifts directly edit the editor buffer and participate in dirty/Undo/Redo/Save/Discard. `Set Time` reads playback position only when playback identity matches the fixed editor track and appends into the first free T1–T5 slot. Playback current lyric remains distinct from editor selection.
 
-The former Global Offset / Reset / Bake authoring model is no longer the target architecture. Future shared context menus should open the editor rather than re-exposing timing quick actions elsewhere.
+There is no runtime offset or Reset workflow. Shared context-menu quick adjustments and Editor-document authoring reuse the same timestamp mutation rules but have separate orchestration: quick actions save the active LRC immediately, while Editor actions remain in-memory and participate in Editor undo history until Save/Discard.
 
 ## Modal lifecycle
 

@@ -10,8 +10,6 @@ namespace LyricsDisplayer.Core.Library;
 public sealed class LyricsLibrary : IDisposable
 {
     private readonly ILogger<LyricsLibrary> _logger;
-    private readonly Action<int>? _beforeTimingBakeCommit;
-    private readonly Action? _beforeLineCommit;
     private readonly HashSet<(string Source, string SourceTrackId)> _duplicateAssociations = [];
     private readonly HashSet<(string Source, string SourceTrackId)> _brokenAssociations = [];
     private readonly Dictionary<(string Source, string SourceTrackId), LocalTrackRecord> _brokenRecords = [];
@@ -23,17 +21,9 @@ public sealed class LyricsLibrary : IDisposable
     public LibraryScanResult? LastScan { get; private set; }
 
     public LyricsLibrary(LibraryPaths paths, ILogger<LyricsLibrary>? logger = null)
-        : this(paths, logger, null)
-    {
-    }
-
-    internal LyricsLibrary(LibraryPaths paths, ILogger<LyricsLibrary>? logger,
-        Action<int>? beforeTimingBakeCommit, Action? beforeLineCommit = null)
     {
         Paths = paths;
         _logger = logger ?? NullLogger<LyricsLibrary>.Instance;
-        _beforeTimingBakeCommit = beforeTimingBakeCommit;
-        _beforeLineCommit = beforeLineCommit;
     }
 
     public LibraryScanResult Initialise()
@@ -375,150 +365,6 @@ public sealed class LyricsLibrary : IDisposable
             return new(LocalLyricsLookupStatus.BrokenRecord, Error: exception.Message, Record: record);
         }
     }
-
-    public TimingAdjustmentResult SetGlobalOffset(string localTrackId, long globalOffsetMs)
-    {
-        var lookup = Lookup(localTrackId);
-        if (lookup.Status != LocalLyricsLookupStatus.Found || lookup.Document is null)
-            return new(TimingAdjustmentStatus.NoLocalLyrics, Error: lookup.Error ?? lookup.Status.ToString());
-
-        var document = lookup.Document;
-        var updatedSidecar = document.Sidecar with { Timing = new LyricsTiming(globalOffsetMs) };
-        try
-        {
-            AtomicFile.Replace(ResolveRelative(document.Record.SidecarRelativePath),
-                SidecarSerializer.Serialize(updatedSidecar));
-            var updated = document with { Sidecar = updatedSidecar };
-            Log("Information", "Timing",
-                $"Timing offset changed for LocalTrackId={localTrackId}, old={document.GlobalOffsetMs}, new={globalOffsetMs}.");
-            return new(TimingAdjustmentStatus.Succeeded, updated);
-        }
-        catch (Exception exception) when (IsStorageException(exception))
-        {
-            Log("Error", "Timing", $"Timing offset save failed for LocalTrackId={localTrackId}: {exception.Message}");
-            return new(TimingAdjustmentStatus.StorageFailure, Error: exception.Message);
-        }
-    }
-
-    public TimingAdjustmentResult BakeGlobalOffset(string localTrackId)
-    {
-        var lookup = Lookup(localTrackId);
-        if (lookup.Status != LocalLyricsLookupStatus.Found || lookup.Document is null)
-            return new(TimingAdjustmentStatus.NoLocalLyrics, Error: lookup.Error ?? lookup.Status.ToString());
-        var document = lookup.Document;
-        var offset = document.GlobalOffsetMs;
-        if (offset == 0) return new(TimingAdjustmentStatus.NothingToBake, document);
-
-        var lyricsPath = ResolveRelative(document.Record.LyricsRelativePath);
-        var sidecarPath = ResolveRelative(document.Record.SidecarRelativePath);
-        try
-        {
-            var originalLrc = File.ReadAllText(lyricsPath, System.Text.Encoding.UTF8);
-            var rewritten = LrcTimestampRewriter.Rewrite(originalLrc, offset);
-            if (!rewritten.Success)
-            {
-                var status = rewritten.ContainsNegativeTimestamp
-                    ? TimingAdjustmentStatus.NegativeTimestamp
-                    : TimingAdjustmentStatus.TimestampOverflow;
-                return new(status, Error: rewritten.Error);
-            }
-
-            var updatedSidecar = document.Sidecar with { Timing = new LyricsTiming(0) };
-            var sidecarJson = SidecarSerializer.Serialize(updatedSidecar);
-            var duration = updatedSidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
-            var parsed = LrcCodec.Parse(rewritten.Content!, duration);
-            if (!parsed.Success || !parsed.HasTimedLyrics)
-                return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
-
-            var savedBytes = AtomicFile.ReplacePair(lyricsPath, rewritten.Content!, sidecarPath, sidecarJson,
-                _beforeTimingBakeCommit);
-            var updated = document with
-            {
-                Sidecar = updatedSidecar, Lines = parsed.Lines,
-                LrcContentHash = LrcFileSnapshot.HashBytes(savedBytes),
-                TimestampOccurrences = parsed.TimestampOccurrences
-            };
-            Log("Information", "Timing",
-                $"Timing offset baked into LRC for LocalTrackId={localTrackId}, offsetMs={offset}.");
-            return new(TimingAdjustmentStatus.Succeeded, updated);
-        }
-        catch (Exception exception) when (IsStorageException(exception))
-        {
-            Log("Error", "Timing", $"Timing offset bake failed for LocalTrackId={localTrackId}: {exception.Message}");
-            return new(TimingAdjustmentStatus.StorageFailure, Error: exception.Message);
-        }
-    }
-
-    public TimingAdjustmentResult AdjustLineTiming(CurrentLineTimingTarget target, long deltaMs)
-    {
-        ArgumentNullException.ThrowIfNull(target);
-        var expected = target.Document;
-        var lookup = Lookup(expected.Record.LocalTrackId);
-        var document = lookup.Document;
-        if (lookup.Status is LocalLyricsLookupStatus.LibraryUnavailable or LocalLyricsLookupStatus.IndexUnavailable)
-            return new(TimingAdjustmentStatus.StorageFailure, Error: "The local lyrics library is currently unavailable.");
-        if (lookup.Status != LocalLyricsLookupStatus.Found || document is null)
-            return new(TimingAdjustmentStatus.FileChanged, Error: "The local LRC is missing or no longer usable. Reload lyrics before editing.");
-        if (expected.LrcContentHash is null || expected.LrcContentHash != document.LrcContentHash ||
-            expected.Record.LyricsRelativePath != document.Record.LyricsRelativePath ||
-            expected.GlobalOffsetMs != document.GlobalOffsetMs)
-            return new(TimingAdjustmentStatus.FileChanged, document,
-                "The local LRC changed externally. Lyrics were reloaded; try again.");
-        var index = target.LineIndex;
-        if (index < 0 || index >= document.Lines.Count || index >= document.TimestampOccurrences.Count)
-            return new(TimingAdjustmentStatus.NoCurrentLine, Error: "There is no current local lyric to edit.");
-        if (!document.IsLrcWritable)
-            return new(TimingAdjustmentStatus.StorageFailure, document, "The local LRC is not writable.");
-        long adjusted;
-        try { adjusted = checked(document.Lines[index].StartMs + deltaMs); }
-        catch (OverflowException)
-        { return new(TimingAdjustmentStatus.TimestampOverflow, Error: LrcTimestampRewriter.TimestampOverflowError); }
-        if (adjusted < 0)
-            return new(TimingAdjustmentStatus.NegativeTimestamp, Error: "Cannot move this lyric below 0 ms.");
-        if (index > 0 && adjusted < document.Lines[index - 1].StartMs)
-            return new(TimingAdjustmentStatus.PreviousLineBoundary, Error: "Cannot move this lyric past the previous lyric.");
-        if (index + 1 < document.Lines.Count && adjusted > document.Lines[index + 1].StartMs)
-            return new(TimingAdjustmentStatus.NextLineBoundary, Error: "Cannot move this lyric past the next lyric.");
-
-        try
-        {
-            var path = ResolveRelative(document.Record.LyricsRelativePath);
-            var original = LrcFileSnapshot.Read(path);
-            if (original.Hash != expected.LrcContentHash)
-                return ChangedLineEdit(expected.Record.LocalTrackId);
-            var rewritten = LrcTimestampRewriter.RewriteOccurrence(original.Content,
-                document.TimestampOccurrences[index], adjusted);
-            if (!rewritten.Success)
-                return new(TimingAdjustmentStatus.FileChanged, Error: rewritten.Error);
-            var duration = document.Sidecar.SourceAssociations.Max(item => item.Metadata.DurationMs);
-            var parsed = LrcCodec.Parse(rewritten.Content!, duration);
-            if (!parsed.Success || !parsed.HasTimedLyrics)
-                return new(TimingAdjustmentStatus.StorageFailure, Error: parsed.Error);
-            var savedBytes = original.Encode(rewritten.Content!);
-            if (!AtomicFile.TryReplaceUnchanged(path, savedBytes, expected.LrcContentHash, _beforeLineCommit))
-                return ChangedLineEdit(expected.Record.LocalTrackId);
-            var updated = document with
-            {
-                Lines = parsed.Lines, TimestampOccurrences = parsed.TimestampOccurrences,
-                LrcContentHash = LrcFileSnapshot.HashBytes(savedBytes),
-                EffectiveMetadata = expected.EffectiveMetadata
-            };
-            Log("Information", "Timing", $"Current line timing changed for LocalTrackId={document.Record.LocalTrackId}, line={index}, old={document.Lines[index].StartMs}, new={adjusted}.");
-            return new(TimingAdjustmentStatus.Succeeded, updated);
-        }
-        catch (Exception exception) when (IsStorageException(exception))
-        {
-            Log("Error", "Timing", $"Current line timing save failed for LocalTrackId={expected.Record.LocalTrackId}: {exception.Message}");
-            return new(TimingAdjustmentStatus.StorageFailure, document with
-            {
-                IsLrcWritable = LrcFileSnapshot.IsWritable(ResolveRelative(document.Record.LyricsRelativePath))
-            }, exception.Message);
-        }
-    }
-
-    private TimingAdjustmentResult ChangedLineEdit(string localTrackId) =>
-        new(TimingAdjustmentStatus.FileChanged, Lookup(localTrackId).Document,
-            "The local LRC changed externally. Lyrics were reloaded; try again.");
 
     public LyricsImportResult Import(TrackInfo track, LyricsSnapshotPayload lyrics, DateTimeOffset? importedAtUtc = null)
     {

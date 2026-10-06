@@ -183,7 +183,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through M12 Task 6, the application owns the complete local-first authoring path and now presents a full-document Main Lyrics Window alongside the Desktop Lyrics Overlay, plus a dedicated Settings shell with a live Debug diagnostics page. The shared lyrics presentation state feeds both lyrics surfaces, while timeline selection, editor state, overlay interaction, settings navigation, geometry validation, file-change coordination, and diagnostics remain outside WPF visual code. The Main Lyrics Window follows the semantic current line, supports temporary manual-scroll override, hides scrollbar chrome while retaining scrolling, and shows effective title/artist metadata. The Built-in Lyrics Editor now owns timing authoring: whole-document and selected-row timestamp shifts modify the editor buffer directly, participate in dirty/undo/redo, and are saved through the normal editor workflow; the old user-facing Global Offset / Reset / Bake workflow is no longer the intended authoring model. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md), and [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). Deferred cross-cutting features and the revised roadmap are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
+Through M12 Task 7, the application owns the complete local-first authoring path and presents a full-document Main Lyrics Window alongside the Desktop Lyrics Overlay, plus a dedicated Settings shell with a live Debug diagnostics page. The shared lyrics presentation state feeds both lyrics surfaces, while timeline selection, editor state, overlay interaction, settings navigation, geometry validation, file-change coordination, and diagnostics remain outside WPF visual code. The Main Lyrics Window follows the semantic current line, supports temporary manual-scroll override, hides scrollbar chrome while retaining scrolling, and shows effective title/artist metadata. Main and Overlay have separate context-menu views and concrete surface-action ViewModels over shared services. `ILyricsTimingAdjustmentService` owns reusable immutable document mutation rules; the Editor uses it for undoable in-memory edits, while `ICurrentLyricsTimingService` persists quick Current Line and All Lyrics corrections to the active authoritative local LRC and reloads presentation. The Built-in Lyrics Editor retains full-document authoring and dirty/undo/redo/save/discard semantics. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md), and [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). Deferred cross-cutting features and the revised roadmap are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
 
 ### User-Facing Window Roles
 
@@ -709,7 +709,6 @@ Potential portable metadata includes:
 * source information
 * source track metadata
 * user-defined title/artist overrides
-* global timing offset
 * user-modified state
 * source version or hash information
 
@@ -831,7 +830,7 @@ Milestone 5 introduces the first concrete SQLite schema and library rebuild/sync
 
 # 13. Lyrics Timing Adjustment
 
-Milestone 8 originally introduced a sidecar-backed `GlobalOffsetMs` plus Reset/Bake and a separate current-line quick-adjustment workflow. M12 Task 6 supersedes that user-facing authoring model now that the Built-in Lyrics Editor has a real dirty buffer, undo/redo history, and safe save path.
+Lyrics timing corrections are persisted directly as LRC timestamp edits. The Built-in Lyrics Editor remains the full-document authoring surface; lyrics-surface quick actions persist the exact current occurrence or every timestamp immediately.
 
 Current timing authoring is document-based:
 
@@ -862,7 +861,7 @@ Negative whole-document/row shifts retain the established atomic safety rule: th
 
 It never overwrites an existing occurrence. The editor also shows a compact live playback line such as `00:27.137 | lyric text`; the displayed lyric reflects the current in-memory editor text, including committed unsaved edits, while remaining independent from DataGrid selection.
 
-`Global Offset`, `Reset`, and `Bake` are no longer part of the intended editor/user authoring workflow. This project is still pre-release; do not add migration/compatibility machinery for superseded development-state timing data unless explicitly required. Timing corrections should be ordinary editor-document changes that are reviewable, undoable, discardable, and saved with the LRC.
+There is no runtime timing-offset or Reset model. Surface quick corrections are immediate writes to the authoritative LRC; Editor-document changes remain reviewable, undoable, discardable, and saved through the normal Editor workflow. This project is still pre-release; do not add migration/compatibility machinery for superseded development-state timing data unless explicitly required.
 
 See [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md) for the focused contract.
 
@@ -1503,15 +1502,7 @@ The Desktop Lyrics Overlay remains the permanently-on-top ambient lyrics surface
 
 ## Milestone 8 — Timing Adjustment
 
-Historically implemented before the built-in editor:
-
-* ±0.1 second
-* ±0.5 second
-* per-track sidecar offset
-* explicit bake-to-file operation
-* direct current-line quick adjustment
-
-M12 Task 6 supersedes that user-facing workflow. Current authoring uses the Built-in Lyrics Editor's direct whole-document and selected-row timestamp shifts plus `Set Time`, with normal dirty/Undo/Redo/Save/Discard semantics. The old Global Offset / Reset / Bake UI is not the target architecture and should not be reintroduced.
+The Built-in Lyrics Editor provides direct whole-document and selected-row timestamp shifts plus `Set Time`, with normal dirty/Undo/Redo/Save/Discard semantics. Shared Current Line and All Lyrics context-menu actions persist timestamp changes directly to the authoritative current LRC. There is no runtime timing-offset or Reset model.
 
 ---
 
@@ -1528,13 +1519,13 @@ Implemented:
 * application-managed lyric dragging that bypasses the native caption move/Snap workflow, with minimized/maximized states blocked and normalized before show/recovery
 * `OneLine`, `TwoLines`, and `AllLyrics` content modes
 * bounded Past/Current/Upcoming context for All Lyrics, selected by exact timeline occurrence and fitted as a prefix of `Current, Upcoming +1, Previous -1, Upcoming +2, Previous -2, ...` without scrolling
-* legacy direct timing quick actions were introduced in M9; they are transitional until the M12 shared-context-menu cleanup because timing authoring now belongs to the Built-in Lyrics Editor
+* shared Current Line and All Lyrics quick actions that persist edits to the authoritative LRC; the Built-in Lyrics Editor remains the full-document authoring surface
 * system tray lifecycle/recovery with optional close-to-tray behavior
 * explicit tray exit that unregisters hotkeys and shuts down the App
 
 The overlay remains the always-on-top ambient lyrics surface. The MainWindow now serves as the ordinary full-document Main Lyrics Window; the tray remains available when that window is hidden.
 
-The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. A focused `WM_NCHITTEST` hook selects interactive lyric/grip regions; it does not apply whole-window `WS_EX_TRANSPARENT`. Two fixed `RegisterHotKey` shortcuts remain available while the Main Lyrics Window is hidden. Any remaining M9 timing quick actions are legacy UI only; the current authoring model lives in the Built-in Lyrics Editor and shared-menu cleanup should remove duplicate timing controls from the overlay/Main Lyrics Window. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
+The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. A focused `WM_NCHITTEST` hook selects interactive lyric/grip regions; it does not apply whole-window `WS_EX_TRANSPARENT`. Two fixed `RegisterHotKey` shortcuts remain available while the Main Lyrics Window is hidden. Main Lyrics Window and Overlay menus use separate views but share application commands, including Open LRC, Open Built-in Editor, Current Line, and All Lyrics adjustments. Overlay mode/lock/click-through/hide remain overlay-owned, while Settings remains Main Lyrics Window-owned. Quick adjustments persist directly to the authoritative LRC; Editor-document authoring remains a separate workflow. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
 ---
 

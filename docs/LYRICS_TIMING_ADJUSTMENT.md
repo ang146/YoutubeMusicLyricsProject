@@ -1,8 +1,6 @@
 # Lyrics Timing Adjustment
 
-Milestone 8 introduced timing correction before the built-in editor existed. Its original workflow used a per-track sidecar `GlobalOffsetMs`, Reset, Bake, and a separate current-line quick adjustment.
-
-Milestone 12 Task 6 supersedes that user-facing authoring model. Timing changes now belong to the Built-in Lyrics Editor and directly edit the current `EditorDocument`, using the editor's existing dirty state, Undo/Redo history, Save/Discard flow, validation, and safe-write path.
+Timing adjustments have two explicit paths. The Built-in Lyrics Editor is the full-document authoring surface and edits its in-memory `EditorDocument`. Lyrics-surface quick actions immediately persist corrections to the active authoritative local LRC. Both paths reuse `ILyricsTimingAdjustmentService` for timestamp mutation rules, but only Editor changes participate in Editor history.
 
 ## Current authoring model
 
@@ -20,7 +18,7 @@ Selected Line
 [Set Time]
 ```
 
-There is no user-facing Global Offset / Reset / Bake workflow in the intended architecture.
+The context menus label the whole-document action **All Lyrics**. It changes LRC timestamps directly; there is no runtime offset or Reset action.
 
 ## Shift All Timestamps
 
@@ -107,9 +105,9 @@ The project is still in pre-release development. Superseded development-state ti
 
 ## Relationship to other surfaces
 
-The ordinary Main Lyrics Window and Desktop Lyrics Overlay are presentation surfaces, not timing-authoring surfaces.
+The Main Lyrics Window and Desktop Lyrics Overlay have separate context-menu views with shared surface-action behavior. **Current Line** shifts the exact current lyric occurrence in the active authoritative LRC. **All Lyrics** shifts every timestamp in that LRC. Both actions use `ICurrentLyricsTimingService`, `LyricsLibrary.SaveEditorAssets` conflict/safe-write semantics, and the existing local-lyrics reload path; they do not use the Built-in Editor's selected row or undo history.
 
-Timing controls belong in the Built-in Lyrics Editor. Shared context menus may offer **Open Built-in Editor**, but should not recreate a second timing workflow.
+The Built-in Lyrics Editor remains the document-authoring surface: its whole-document and selected-row edits operate directly on `EditorDocument` and participate in dirty/Undo/Redo/Save/Discard. Playback current lyric and editor selection remain independent.
 
 ## Semantic break markers
 

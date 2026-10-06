@@ -18,15 +18,12 @@ public interface ILyricsOverlayView
     double OverlayHeight { get; }
     event Action? CloseRequested;
     event Action<OverlayPosition, double, double>? DragCompleted;
-    event Action<OverlayCommand>? CommandRequested;
     event Action<double, double>? OverlaySizeChanged;
     event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
     void SetPosition(OverlayPosition position);
+    void SetLyricsSurfaceActions(IOverlayLyricsSurfaceActionsViewModel actions);
     void SetLyrics(LyricsOverlayPresentationState state);
     void ApplyInteractionState(OverlayInteractionState state, bool effectiveTopmost);
-    void ApplyExternalLyricsAvailability(bool canOpen);
-    void ApplyBuiltInEditorAvailability(bool canOpen) { }
-    void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs);
     void NormalizeWindowState();
     void CompleteGeometryRecovery();
     void ShowWithoutActivation();
@@ -34,7 +31,7 @@ public interface ILyricsOverlayView
     void CloseForApplicationShutdown();
 }
 
-public sealed class LyricsOverlayController
+public sealed class LyricsOverlayController : ILyricsOverlayInteractionService
 {
     private readonly Func<ILyricsOverlayView> _viewFactory;
     private readonly IOverlaySettingsStore _settingsStore;
@@ -53,14 +50,10 @@ public sealed class LyricsOverlayController
     private bool _mappedLocalFileMissing;
     private bool _hasMappedPresentation;
     private OverlayInteractionState _interaction;
-    private bool _currentLineTimingEnabled;
-    private bool _globalTimingEnabled;
-    private long _globalOffsetMs;
     private bool _reportedVisible;
     private bool _shuttingDown;
     private bool _editorModalTopmostSuppressed;
-    private bool _canOpenExternalLyrics;
-    private bool _canOpenBuiltInEditor;
+    private IOverlayLyricsSurfaceActionsViewModel? _lyricsActions;
     private bool _localFileMissing;
 
     public LyricsOverlayController(
@@ -79,9 +72,6 @@ public sealed class LyricsOverlayController
     public event Action<bool>? VisibilityChanged;
     public event Action<OverlayInteractionState>? InteractionStateChanged;
     public event Action? OpenControlPanelRequested;
-    public event Action<OverlayCommand>? TimingCommandRequested;
-    public event Action? OpenExternalLyricsRequested;
-    public event Action? OpenBuiltInEditorRequested;
 
     public bool IsVisible => _reportedVisible;
     public bool HasCreatedWindow => _view is not null;
@@ -128,24 +118,10 @@ public sealed class LyricsOverlayController
             ContentMode = Enum.IsDefined(value) ? value : throw new ArgumentOutOfRangeException(nameof(value))
         }, $"content mode changed to {value}");
 
-    public void SetTimingAvailability(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs)
+    public void SetLyricsSurfaceActions(IOverlayLyricsSurfaceActionsViewModel actions)
     {
-        _currentLineTimingEnabled = currentLineEnabled;
-        _globalTimingEnabled = globalTimingEnabled;
-        _globalOffsetMs = globalOffsetMs;
-        _view?.ApplyTimingState(currentLineEnabled, globalTimingEnabled, globalOffsetMs);
-    }
-
-    public void SetExternalLyricsAvailability(bool canOpen)
-    {
-        _canOpenExternalLyrics = canOpen;
-        _view?.ApplyExternalLyricsAvailability(canOpen);
-    }
-
-    public void SetBuiltInEditorAvailability(bool canOpen)
-    {
-        _canOpenBuiltInEditor = canOpen;
-        _view?.ApplyBuiltInEditorAvailability(canOpen);
+        _lyricsActions = actions ?? throw new ArgumentNullException(nameof(actions));
+        _view?.SetLyricsSurfaceActions(actions);
     }
 
     public void SetWidth(double value)
@@ -183,6 +159,8 @@ public sealed class LyricsOverlayController
         ReportHidden();
     }
 
+    public void RequestOpenLyricsWindow() => OpenControlPanelRequested?.Invoke();
+
     public void Shutdown()
     {
         if (_shuttingDown) return;
@@ -190,7 +168,6 @@ public sealed class LyricsOverlayController
         if (_view is null) return;
         _view.CloseRequested -= OnCloseRequested;
         _view.DragCompleted -= OnDragCompleted;
-        _view.CommandRequested -= OnCommandRequested;
         _view.OverlaySizeChanged -= OnViewSizeChanged;
         _view.GeometryChangeCompleted -= OnGeometryChangeCompleted;
         _view.CloseForApplicationShutdown();
@@ -204,13 +181,10 @@ public sealed class LyricsOverlayController
         _view = _viewFactory();
         _view.CloseRequested += OnCloseRequested;
         _view.DragCompleted += OnDragCompleted;
-        _view.CommandRequested += OnCommandRequested;
         _view.OverlaySizeChanged += OnViewSizeChanged;
         _view.GeometryChangeCompleted += OnGeometryChangeCompleted;
         ApplyInteractionState();
-        _view.ApplyExternalLyricsAvailability(_canOpenExternalLyrics);
-        _view.ApplyBuiltInEditorAvailability(_canOpenBuiltInEditor);
-        _view.ApplyTimingState(_currentLineTimingEnabled, _globalTimingEnabled, _globalOffsetMs);
+        if (_lyricsActions is not null) _view.SetLyricsSurfaceActions(_lyricsActions);
         _presentation = CreatePresentation(_lyrics, _timeline);
         _view.SetLyrics(_presentation);
 
@@ -354,53 +328,6 @@ public sealed class LyricsOverlayController
         }
         _logger.LogInformation("Overlay {SettingChange}.", settingName);
         InteractionStateChanged?.Invoke(next);
-    }
-
-    private void OnCommandRequested(OverlayCommand command)
-    {
-        switch (command)
-        {
-            case OverlayCommand.OpenControlPanel:
-                OpenControlPanelRequested?.Invoke();
-                break;
-            case OverlayCommand.OpenLrcExternally:
-                if (_canOpenExternalLyrics) OpenExternalLyricsRequested?.Invoke();
-                break;
-            case OverlayCommand.OpenBuiltInEditor:
-                if (_canOpenBuiltInEditor) OpenBuiltInEditorRequested?.Invoke();
-                break;
-            case OverlayCommand.ToggleLocked:
-                SetLocked(!_interaction.Locked);
-                break;
-            case OverlayCommand.ToggleClickThrough:
-                SetClickThrough(!_interaction.ClickThrough);
-                break;
-            case OverlayCommand.SetOneLine:
-                SetContentMode(LyricsContentMode.OneLine);
-                break;
-            case OverlayCommand.SetTwoLines:
-                SetContentMode(LyricsContentMode.TwoLines);
-                break;
-            case OverlayCommand.SetAllLyrics:
-                SetContentMode(LyricsContentMode.AllLyrics);
-                break;
-            case OverlayCommand.Hide:
-                Hide();
-                break;
-            case OverlayCommand.AdjustCurrentLineMinus500:
-            case OverlayCommand.AdjustCurrentLineMinus100:
-            case OverlayCommand.AdjustCurrentLinePlus100:
-            case OverlayCommand.AdjustCurrentLinePlus500:
-            case OverlayCommand.AdjustGlobalMinus500:
-            case OverlayCommand.AdjustGlobalMinus100:
-            case OverlayCommand.ResetGlobalTiming:
-            case OverlayCommand.AdjustGlobalPlus100:
-            case OverlayCommand.AdjustGlobalPlus500:
-                TimingCommandRequested?.Invoke(command);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(command));
-        }
     }
 
     private LyricsOverlayPresentationState CreatePresentation(

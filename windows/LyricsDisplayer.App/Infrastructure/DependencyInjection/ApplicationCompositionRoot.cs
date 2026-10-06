@@ -70,6 +70,12 @@ public sealed class ApplicationCompositionRoot : IDisposable
             c.Resolve<ILogger<PlaybackStateCoordinator>>(), c.Resolve<SnapshotStateTracker>(),
             c.Resolve<PlaybackClock>(), c.Resolve<LyricsLibrary>()),
             new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<ILyricsTimingAdjustmentService>(_ => new LyricsTimingAdjustmentService(),
+            new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<ICurrentLyricsTimingService>(c => new CurrentLyricsTimingService(
+            c.Resolve<PlaybackStateCoordinator>(), c.Resolve<LyricsLibrary>(),
+            c.Resolve<ILyricsTimingAdjustmentService>(), c.Resolve<ILogger<CurrentLyricsTimingService>>()),
+            new ContainerControlledLifetimeManager());
         _container.RegisterFactory<NamedPipeServer>(c => new NamedPipeServer(
             c.Resolve<ILogger<NamedPipeServer>>(), c.Resolve<PlaybackStateCoordinator>()), new ContainerControlledLifetimeManager());
         _container.RegisterType<ILyricsOverlayView, LyricsOverlayWindow>();
@@ -88,9 +94,31 @@ public sealed class ApplicationCompositionRoot : IDisposable
         _container.RegisterFactory<ISettingsWindowFactory>(_ => new SettingsWindowFactory(_container), new ContainerControlledLifetimeManager());
         _container.RegisterFactory<SettingsWindowService>(c => new SettingsWindowService(
             c.Resolve<ISettingsWindowFactory>(), c.Resolve<ILogger<SettingsWindowService>>()), new ContainerControlledLifetimeManager());
-        _container.RegisterType<IMainLyricsViewModelFactory, MainLyricsViewModelFactory>(new ContainerControlledLifetimeManager());
         _container.RegisterFactory<IBuiltInLyricsEditorFactory>(c => new BuiltInLyricsEditorFactory(
             _container, c.Resolve<LyricsLibrary>(), c.Resolve<IApplicationLifetimeState>()),
+            new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<CurrentLyricsFileService>(c => new CurrentLyricsFileService(
+            c.Resolve<PlaybackStateCoordinator>(), c.Resolve<LyricsLibrary>(), c.Resolve<ExternalLrcOpener>(),
+            c.Resolve<ILogger<CurrentLyricsFileService>>()), new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<ICurrentLyricsFileService>(c => c.Resolve<CurrentLyricsFileService>(),
+            new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<IBuiltInLyricsEditorService>(c => new BuiltInLyricsEditorService(
+            c.Resolve<PlaybackStateCoordinator>(), c.Resolve<LyricsLibrary>(), c.Resolve<IBuiltInLyricsEditorFactory>(),
+            c.Resolve<LyricsOverlayController>(), c.Resolve<IApplicationLifetimeState>(),
+            c.Resolve<ILogger<BuiltInLyricsEditorService>>()), new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<ILyricsOverlayInteractionService>(c => c.Resolve<LyricsOverlayController>(),
+            new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<IMainLyricsSurfaceActionsViewModel>(c => new MainLyricsSurfaceActionsViewModel(
+            c.Resolve<ICommandFactory>(), c.Resolve<ICurrentLyricsTimingService>(),
+            c.Resolve<ICurrentLyricsFileService>(), c.Resolve<IBuiltInLyricsEditorService>(),
+            c.Resolve<SettingsWindowService>(), c.Resolve<ILogger<MainLyricsSurfaceActionsViewModel>>()),
+            new ContainerControlledLifetimeManager());
+        _container.RegisterFactory<IOverlayLyricsSurfaceActionsViewModel>(c => new OverlayLyricsSurfaceActionsViewModel(
+            c.Resolve<ICommandFactory>(), c.Resolve<ICurrentLyricsTimingService>(),
+            c.Resolve<ICurrentLyricsFileService>(), c.Resolve<IBuiltInLyricsEditorService>(),
+            c.Resolve<ILyricsOverlayInteractionService>(), c.Resolve<ILogger<OverlayLyricsSurfaceActionsViewModel>>()),
+            new ContainerControlledLifetimeManager());
+        _container.RegisterType<IMainLyricsViewModel, MainLyricsWindowViewModel>(
             new ContainerControlledLifetimeManager());
         _container.RegisterType<IActiveLrcFileWatcherFactory, ActiveLrcFileWatcherFactory>(new ContainerControlledLifetimeManager());
         _container.RegisterType<IGlobalHotkeyServiceFactory, GlobalHotkeyServiceFactory>(new ContainerControlledLifetimeManager());
@@ -121,7 +149,13 @@ public sealed class ApplicationCompositionRoot : IDisposable
         var settingsViewModel = _container.Resolve<ISettingsViewModel>();
         if (!ReferenceEquals(settingsViewModel.DebugPage, _container.Resolve<IDebugSettingsPageViewModel>()))
             throw new InvalidOperationException("The Settings shell and live diagnostics must share one Debug ViewModel.");
-        _ = _container.Resolve<IMainLyricsViewModelFactory>();
+        _ = _container.Resolve<ILyricsTimingAdjustmentService>();
+        _ = _container.Resolve<ICurrentLyricsTimingService>();
+        _ = _container.Resolve<ICurrentLyricsFileService>();
+        _ = _container.Resolve<IBuiltInLyricsEditorService>();
+        _ = _container.Resolve<IMainLyricsSurfaceActionsViewModel>();
+        _ = _container.Resolve<IOverlayLyricsSurfaceActionsViewModel>();
+        _ = _container.Resolve<IMainLyricsViewModel>();
         _ = _container.Resolve<IBuiltInLyricsEditorFactory>();
         _ = _container.Resolve<IActiveLrcFileWatcherFactory>();
         _ = _container.Resolve<IGlobalHotkeyServiceFactory>();

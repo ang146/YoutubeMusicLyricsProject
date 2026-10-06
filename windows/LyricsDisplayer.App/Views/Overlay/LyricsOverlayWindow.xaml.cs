@@ -6,8 +6,8 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using LyricsDisplayer.Core.Settings;
+using LyricsDisplayer.Controls;
 using WpfPoint = System.Windows.Point;
-using MenuItem = System.Windows.Controls.MenuItem;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
@@ -85,24 +85,14 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
     internal TextBlock SecondaryTextForTesting => SecondaryText;
     internal ItemsControl AllLyricsItemsForTesting => AllLyricsItems;
     internal System.Windows.Controls.ContextMenu ContextMenuForTesting => OverlayContextMenu;
-    internal IReadOnlyList<MenuItem> CurrentLineTimingMenuItemsForTesting =>
-        [CurrentLineMinus500MenuItem, CurrentLineMinus100MenuItem,
-            CurrentLinePlus100MenuItem, CurrentLinePlus500MenuItem];
-    internal IReadOnlyList<MenuItem> GlobalTimingMenuItemsForTesting =>
-        [GlobalMinus500MenuItem, GlobalMinus100MenuItem, GlobalResetMenuItem,
-            GlobalPlus100MenuItem, GlobalPlus500MenuItem];
     internal Brush SurfaceBackgroundForTesting => OverlaySurface.Background;
     public event Action? CloseRequested;
     public event Action<OverlayPosition, double, double>? DragCompleted;
-    public event Action<OverlayCommand>? CommandRequested;
     public event Action<double, double>? OverlaySizeChanged;
     public event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
 
-    public void ApplyExternalLyricsAvailability(bool canOpen) =>
-        OpenLrcExternallyMenuItem.IsEnabled = canOpen;
-
-    public void ApplyBuiltInEditorAvailability(bool canOpen) =>
-        OpenBuiltInEditorMenuItem.IsEnabled = canOpen;
+    public void SetLyricsSurfaceActions(IOverlayLyricsSurfaceActionsViewModel actions) =>
+        OverlaySurface.DataContext = actions ?? throw new ArgumentNullException(nameof(actions));
 
     public void SetPosition(OverlayPosition position)
     {
@@ -135,19 +125,9 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         SecondaryText.Visibility = state.ContentMode == LyricsContentMode.TwoLines
             ? Visibility.Visible
             : Visibility.Collapsed;
-        OneLineMenuItem.IsChecked = state.ContentMode == LyricsContentMode.OneLine;
-        TwoLinesMenuItem.IsChecked = state.ContentMode == LyricsContentMode.TwoLines;
-        AllLyricsMenuItem.IsChecked = state.ContentMode == LyricsContentMode.AllLyrics;
-        LockedMenuItem.IsChecked = state.Locked;
-        ClickThroughMenuItem.IsChecked = state.ClickThrough;
+        OverlayContextMenu.UpdateInteractionState(state);
         PrimaryText.MaxWidth = Math.Max(100, state.Width - 56);
         SecondaryText.MaxWidth = Math.Max(100, state.Width - 56);
-    }
-
-    public void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs)
-    {
-        foreach (var item in CurrentLineTimingMenuItemsForTesting) item.IsEnabled = currentLineEnabled;
-        foreach (var item in GlobalTimingMenuItemsForTesting) item.IsEnabled = globalTimingEnabled;
     }
 
     public void ShowWithoutActivation()
@@ -337,12 +317,6 @@ public partial class LyricsOverlayWindow : Window, ILyricsOverlayView
         if (base.WindowState == System.Windows.WindowState.Normal) return;
         _geometryRecoveryRequired = true;
         NormalizeWindowState();
-    }
-
-    private void OnMenuItemClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuItem { Tag: string tag } && Enum.TryParse<OverlayCommand>(tag, out var command))
-            CommandRequested?.Invoke(command);
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)

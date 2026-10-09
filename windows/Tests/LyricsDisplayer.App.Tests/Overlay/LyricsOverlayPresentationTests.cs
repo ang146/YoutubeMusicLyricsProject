@@ -1,6 +1,7 @@
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
+using LyricsDisplayer.Resources;
 
 namespace LyricsDisplayer.App.Tests;
 
@@ -58,7 +59,7 @@ public sealed class LyricsOverlayPresentationTests
         var state = LyricsOverlayPresentationState.FromLyrics(null, EmptyTimeline(), mode, localFileMissing: true);
         Assert.Multiple(() =>
         {
-            Assert.That(state.PrimaryText, Is.EqualTo(LyricsOverlayPresentationState.LocalFileMissingText));
+            Assert.That(state.PrimaryText, Is.EqualTo(Strings.LyricsLocalFileMissing));
             Assert.That(state.SecondaryText, Is.Empty);
             Assert.That(state.ContentMode, Is.EqualTo(mode));
             Assert.That(state.IsLocalFileMissing, Is.True);
@@ -71,7 +72,7 @@ public sealed class LyricsOverlayPresentationTests
     {
         var state = LyricsOverlayPresentationState.FromLyrics(Lyrics(available: false, timed: false), EmptyTimeline());
         Assert.That(state, Is.EqualTo(new LyricsOverlayPresentationState(
-            LyricsOverlayPresentationState.NoLyricsText, string.Empty)));
+            Strings.LyricsUnavailable, string.Empty)));
     }
 
     [Test]
@@ -79,7 +80,7 @@ public sealed class LyricsOverlayPresentationTests
     {
         var state = LyricsOverlayPresentationState.FromLyrics(Lyrics(available: true, timed: false), EmptyTimeline());
         Assert.That(state, Is.EqualTo(new LyricsOverlayPresentationState(
-            LyricsOverlayPresentationState.UntimedLyricsText, string.Empty)));
+            Strings.LyricsUntimed, string.Empty)));
     }
 
     [Test]
@@ -91,11 +92,11 @@ public sealed class LyricsOverlayPresentationTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(unavailable.PrimaryText, Is.EqualTo(LyricsOverlayPresentationState.NoLyricsText));
+            Assert.That(unavailable.PrimaryText, Is.EqualTo(Strings.LyricsUnavailable));
             Assert.That(timed.PrimaryText, Is.EqualTo("A"));
             Assert.That(timed.SecondaryText, Is.EqualTo("B"));
-            Assert.That(timed.PrimaryText, Is.Not.EqualTo(LyricsOverlayPresentationState.NoLyricsText));
-            Assert.That(timed.PrimaryText, Is.Not.EqualTo(LyricsOverlayPresentationState.UntimedLyricsText));
+            Assert.That(timed.PrimaryText, Is.Not.EqualTo(Strings.LyricsUnavailable));
+            Assert.That(timed.PrimaryText, Is.Not.EqualTo(Strings.LyricsUntimed));
         });
     }
 
@@ -112,12 +113,13 @@ public sealed class LyricsOverlayPresentationTests
         });
     }
 
-    [TestCase(false, false, LyricsOverlayPresentationState.NoLyricsText)]
-    [TestCase(true, false, LyricsOverlayPresentationState.UntimedLyricsText)]
-    public void OneLineModePreservesStatusPresentation(bool available, bool timed, string expected)
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    public void OneLineModePreservesStatusPresentation(bool available, bool timed)
     {
         var state = LyricsOverlayPresentationState.FromLyrics(
             Lyrics(available, timed), EmptyTimeline(), LyricsContentMode.OneLine);
+        var expected = available ? Strings.LyricsUntimed : Strings.LyricsUnavailable;
         Assert.Multiple(() =>
         {
             Assert.That(state.PrimaryText, Is.EqualTo(expected));
@@ -143,12 +145,13 @@ public sealed class LyricsOverlayPresentationTests
         });
     }
 
-    [TestCase(false, false, LyricsOverlayPresentationState.NoLyricsText)]
-    [TestCase(true, false, LyricsOverlayPresentationState.UntimedLyricsText)]
-    public void AllLyricsModeUsesStatusInsteadOfAnEmptyLyricsList(bool available, bool timed, string expected)
+    [TestCase(false, false)]
+    [TestCase(true, false)]
+    public void AllLyricsModeUsesStatusInsteadOfAnEmptyLyricsList(bool available, bool timed)
     {
         var state = LyricsOverlayPresentationState.FromLyrics(
             Lyrics(available, timed), EmptyTimeline(), LyricsContentMode.AllLyrics);
+        var expected = available ? Strings.LyricsUntimed : Strings.LyricsUnavailable;
         Assert.Multiple(() =>
         {
             Assert.That(state.PrimaryText, Is.EqualTo(expected));

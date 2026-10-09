@@ -1,11 +1,13 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Windows.Input;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Infrastructure.Commands;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -13,7 +15,6 @@ namespace LyricsDisplayer;
 
 public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPageViewModel
 {
-    private const string Unavailable = "Not available";
     private static readonly JsonSerializerOptions PrettyPrintJsonOptions = new() { WriteIndented = true };
     private readonly string _libraryPath;
     private readonly string _indexPath;
@@ -25,13 +26,13 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPa
     private LyricsSnapshotMessage? _rawLyricsSnapshot;
     private LocalTrackRecord? _localTrack;
     private EffectiveTrackMetadata? _effectiveMetadata;
-    private string _lyricsLoadedFrom = Unavailable;
-    private string _localAssociationStatus = Unavailable;
-    private string _transportStatus = "Waiting for NativeHost";
+    private string _lyricsLoadedFrom = Strings.ValueNotAvailable;
+    private string _localAssociationStatus = Strings.ValueNotAvailable;
+    private string _transportStatus = Strings.TransportWaitingForNativeHost;
     private string _folderActionStatus = string.Empty;
 
     public SettingsPageId Id => SettingsPageId.Debug;
-    public string Title => "Debug";
+    public string Title => Strings.SettingsDebug;
     public string LibraryPath => DisplayPath(_libraryPath);
     public string IndexPath => DisplayPath(_indexPath);
     public string LogsDirectory => DisplayPath(_logsDirectory);
@@ -46,33 +47,34 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPa
         get => _folderActionStatus;
         private set => SetProperty(ref _folderActionStatus, value);
     }
-    public string PlaybackSource => _playbackSnapshot?.Envelope.Source ?? Unavailable;
-    public string SourceTrackId => _playbackSnapshot?.Payload.Track.SourceTrackId ?? Unavailable;
-    public string LocalTrackId => _localTrack?.LocalTrackId ?? Unavailable;
-    public string EffectiveTitle => _effectiveMetadata?.Title ?? Unavailable;
-    public string EffectiveArtist => _effectiveMetadata?.Artist ?? Unavailable;
+    public string PlaybackSource => _playbackSnapshot?.Envelope.Source ?? Strings.ValueNotAvailable;
+    public string SourceTrackId => _playbackSnapshot?.Payload.Track.SourceTrackId ?? Strings.ValueNotAvailable;
+    public string LocalTrackId => _localTrack?.LocalTrackId ?? Strings.ValueNotAvailable;
+    public string EffectiveTitle => _effectiveMetadata?.Title ?? Strings.ValueNotAvailable;
+    public string EffectiveArtist => _effectiveMetadata?.Artist ?? Strings.ValueNotAvailable;
     public string PlaybackState => _playbackSnapshot is not { } playback
-        ? Unavailable
-        : $"{(playback.Payload.Playback.Playing ? "Playing" : "Paused")} · " +
-          $"{playback.Payload.Playback.PositionMs:N0} ms at {playback.Payload.Playback.PlaybackRate:0.##}×";
+        ? Strings.ValueNotAvailable
+        : string.Format(CultureInfo.CurrentCulture, Strings.DebugPlaybackStateFormat,
+            playback.Payload.Playback.Playing ? Strings.ValuePlaying : Strings.ValuePaused,
+            playback.Payload.Playback.PositionMs, playback.Payload.Playback.PlaybackRate);
     public string LyricsLoadedFrom => _lyricsLoadedFrom;
     public string LocalAssociationStatus => _localAssociationStatus;
     public string LyricsSource => _lyricsSnapshot?.Payload.Source ??
-        _playbackSnapshot?.Payload.Lyrics.Source ?? Unavailable;
+        _playbackSnapshot?.Payload.Lyrics.Source ?? Strings.ValueNotAvailable;
     public string LyricsAvailability => _lyricsSnapshot is { } lyrics
-        ? lyrics.Payload.Available ? "Available" : "Unavailable"
+        ? lyrics.Payload.Available ? Strings.ValueAvailable : Strings.ValueUnavailable
         : _playbackSnapshot is { } playback
-            ? playback.Payload.Lyrics.Available ? "Available" : "Unavailable"
-            : Unavailable;
+            ? playback.Payload.Lyrics.Available ? Strings.ValueAvailable : Strings.ValueUnavailable
+            : Strings.ValueNotAvailable;
     public string LyricsTiming => _lyricsSnapshot is { } lyrics
-        ? lyrics.Payload.Timed ? "Timed" : "Untimed"
+        ? lyrics.Payload.Timed ? Strings.ValueTimed : Strings.ValueUntimed
         : _playbackSnapshot is { } playback
-            ? playback.Payload.Lyrics.Timed ? "Timed" : "Untimed"
-            : Unavailable;
+            ? playback.Payload.Lyrics.Timed ? Strings.ValueTimed : Strings.ValueUntimed
+            : Strings.ValueNotAvailable;
     public string RawPlaybackJson => FormatRawJsonForDisplay(_playbackSnapshot?.RawJson,
-        "No playback snapshot is currently available.");
+        Strings.DebugNoPlaybackSnapshot);
     public string RawLyricsJson => FormatRawJsonForDisplay(_rawLyricsSnapshot?.RawJson,
-        "No raw lyrics snapshot is currently available.");
+        Strings.DebugNoRawLyricsSnapshot);
 
     public ICommand OpenLogsFolderCommand { get; }
     public ICommand OpenCrashReportsFolderCommand { get; }
@@ -89,9 +91,9 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPa
         _logsDirectory = logsDirectory ?? string.Empty;
         _crashReportsDirectory = crashReportsDirectory ?? string.Empty;
         _openFolder = openFolder ?? OpenFolderInShell;
-        OpenLogsFolderCommand = commandFactory.Create("debug.open-logs-folder",
+        OpenLogsFolderCommand = commandFactory.Create(ApplicationCommandIds.Debug.OpenLogsFolder,
             _ => OpenFolder(_logsDirectory), _ => IsConfigured(_logsDirectory));
-        OpenCrashReportsFolderCommand = commandFactory.Create("debug.open-crash-reports-folder",
+        OpenCrashReportsFolderCommand = commandFactory.Create(ApplicationCommandIds.Debug.OpenCrashReportsFolder,
             _ => OpenFolder(_crashReportsDirectory), _ => IsConfigured(_crashReportsDirectory));
         Logger.LogDebug("Debug Settings ViewModel initialized.");
     }
@@ -104,13 +106,15 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPa
         EffectiveTrackMetadata? effectiveMetadata, string lyricsLoadedFrom,
         string localAssociationStatus)
     {
+        var displayedLyricsLoadedFrom = PresentLyricsLoadedFrom(lyricsLoadedFrom);
+        var displayedLocalAssociationStatus = PresentLocalAssociationStatus(localAssociationStatus);
         if (ReferenceEquals(_playbackSnapshot, playback) &&
             ReferenceEquals(_lyricsSnapshot, lyrics) &&
             ReferenceEquals(_rawLyricsSnapshot, rawLyricsSnapshot) &&
             ReferenceEquals(_localTrack, localTrack) &&
             Equals(_effectiveMetadata, effectiveMetadata) &&
-            _lyricsLoadedFrom == lyricsLoadedFrom &&
-            _localAssociationStatus == localAssociationStatus)
+            _lyricsLoadedFrom == displayedLyricsLoadedFrom &&
+            _localAssociationStatus == displayedLocalAssociationStatus)
             return;
 
         _playbackSnapshot = playback;
@@ -118,8 +122,8 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPa
         _rawLyricsSnapshot = rawLyricsSnapshot;
         _localTrack = localTrack;
         _effectiveMetadata = effectiveMetadata;
-        _lyricsLoadedFrom = lyricsLoadedFrom;
-        _localAssociationStatus = localAssociationStatus;
+        _lyricsLoadedFrom = displayedLyricsLoadedFrom;
+        _localAssociationStatus = displayedLocalAssociationStatus;
         OnPropertyChanged(nameof(PlaybackSource));
         OnPropertyChanged(nameof(SourceTrackId));
         OnPropertyChanged(nameof(LocalTrackId));
@@ -141,19 +145,56 @@ public sealed class DebugSettingsPageViewModel : ViewModelBase, IDebugSettingsPa
         {
             Directory.CreateDirectory(path);
             _openFolder(path);
-            FolderActionStatus = "Folder opened.";
+            FolderActionStatus = Strings.DebugFolderOpened;
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or
                                            UnauthorizedAccessException or InvalidOperationException or
                                            Win32Exception or System.Security.SecurityException)
         {
-            FolderActionStatus = $"Could not open folder: {exception.Message}";
+            FolderActionStatus = string.Format(CultureInfo.CurrentCulture,
+                Strings.DebugFolderOpenFailed, exception.Message);
         }
     }
 
     private static bool IsConfigured(string path) => !string.IsNullOrWhiteSpace(path);
 
-    private static string DisplayPath(string path) => IsConfigured(path) ? path : Unavailable;
+    private static string PresentLyricsLoadedFrom(string value) => value switch
+    {
+        "Pending / unknown" => Strings.DebugPendingUnknown,
+        "YouTube Music (runtime)" => Strings.DebugYoutubeMusicRuntime,
+        "Local Library" => Strings.DebugLocalLibrary,
+        "Local Library (unavailable)" => Strings.DebugLocalLibraryUnavailable,
+        "Local Library (external LRC rejected)" => Strings.DebugLocalLibraryExternalLrcRejected,
+        "Local Library (last valid lyrics retained)" => Strings.DebugLocalLibraryLastValidLyricsRetained,
+        "Local Library (file unavailable)" => Strings.DebugLocalLibraryFileUnavailable,
+        "Local Library (file temporarily unavailable)" => Strings.DebugLocalLibraryFileTemporarilyUnavailable,
+        _ => value
+    };
+
+    private static string PresentLocalAssociationStatus(string value) => value switch
+    {
+        "Not checked" => Strings.DebugAssociationNotChecked,
+        nameof(LocalLyricsLookupStatus.Found) => Strings.DebugAssociationFound,
+        nameof(LocalLyricsLookupStatus.NotFound) => Strings.DebugAssociationNotFound,
+        nameof(LocalLyricsLookupStatus.LibraryUnavailable) or nameof(LyricsImportStatus.LibraryUnavailable) =>
+            Strings.DebugAssociationLibraryUnavailable,
+        nameof(LocalLyricsLookupStatus.IndexUnavailable) or nameof(LyricsImportStatus.IndexUnavailable) =>
+            Strings.DebugAssociationIndexUnavailable,
+        nameof(LocalLyricsLookupStatus.BrokenRecord) => Strings.DebugAssociationBrokenRecord,
+        nameof(LocalLyricsLookupStatus.DuplicateAssociation) => Strings.DebugAssociationDuplicate,
+        nameof(LyricsImportStatus.Imported) => Strings.DebugImportImported,
+        nameof(LyricsImportStatus.AlreadyLocal) => Strings.DebugImportAlreadyLocal,
+        nameof(LyricsImportStatus.NotTimed) => Strings.DebugImportNotTimed,
+        nameof(LyricsImportStatus.BlockedByBrokenRecord) => Strings.DebugImportBlockedByBrokenRecord,
+        nameof(LyricsImportStatus.FilesPersistedIndexFailed) => Strings.DebugImportFilesPersistedIndexFailed,
+        nameof(LyricsImportStatus.Failed) => Strings.DebugImportFailed,
+        "External LRC rejected" => Strings.DebugExternalLrcRejected,
+        "Local LRC unavailable" => Strings.DebugLocalLrcUnavailable,
+        "External LRC temporarily unavailable" => Strings.DebugExternalLrcTemporarilyUnavailable,
+        _ => value
+    };
+
+    private static string DisplayPath(string path) => IsConfigured(path) ? path : Strings.ValueNotAvailable;
 
     private static string FormatRawJsonForDisplay(string? rawJson, string unavailableMessage)
     {

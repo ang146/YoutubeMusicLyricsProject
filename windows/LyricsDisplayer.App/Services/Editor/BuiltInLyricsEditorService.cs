@@ -1,6 +1,7 @@
 using System.Windows;
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Infrastructure.Factories;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 using Application = System.Windows.Application;
 using MessageBox = System.Windows.MessageBox;
@@ -61,8 +62,8 @@ public sealed class BuiltInLyricsEditorService : IBuiltInLyricsEditorService
         if (!creation.Succeeded || creation.Window is null)
         {
             MessageBox.Show(Application.Current?.MainWindow,
-                creation.Error ?? "The current local LRC is not available for editing.",
-                "Built-in Lyrics Editor", MessageBoxButton.OK, MessageBoxImage.Warning);
+                creation.Error ?? Strings.EditorUnavailableForEditing,
+                Strings.EditorWindowTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
             _logger.LogWarning("Could not open the built-in editor for LocalTrackId={LocalTrackId}: {Error}",
                 record.LocalTrackId, creation.Error ?? creation.Status.ToString());
             RefreshAvailability();

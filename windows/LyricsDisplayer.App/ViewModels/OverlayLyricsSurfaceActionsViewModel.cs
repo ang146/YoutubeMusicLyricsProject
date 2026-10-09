@@ -27,19 +27,19 @@ public sealed class OverlayLyricsSurfaceActionsViewModel : LyricsSurfaceActionsV
     {
         _overlay = overlay ?? throw new ArgumentNullException(nameof(overlay));
         _interaction = overlay.Interaction;
-        OpenLyricsWindowCommand = commandFactory.Create("application.overlay.open-lyrics-window",
+        OpenLyricsWindowCommand = commandFactory.Create(ApplicationCommandIds.Overlay.OpenLyricsWindow,
             overlay.RequestOpenLyricsWindow, scope: CommandScope.Application);
-        SetOneLineCommand = commandFactory.Create("application.overlay.display.one-line",
+        SetOneLineCommand = commandFactory.Create(ApplicationCommandIds.Overlay.SetOneLine,
             () => overlay.SetContentMode(LyricsContentMode.OneLine), scope: CommandScope.Application);
-        SetTwoLinesCommand = commandFactory.Create("application.overlay.display.two-lines",
+        SetTwoLinesCommand = commandFactory.Create(ApplicationCommandIds.Overlay.SetTwoLines,
             () => overlay.SetContentMode(LyricsContentMode.TwoLines), scope: CommandScope.Application);
-        SetAllLyricsCommand = commandFactory.Create("application.overlay.display.all-lyrics",
+        SetAllLyricsCommand = commandFactory.Create(ApplicationCommandIds.Overlay.SetAllLyrics,
             () => overlay.SetContentMode(LyricsContentMode.AllLyrics), scope: CommandScope.Application);
-        ToggleLockedCommand = commandFactory.Create("application.overlay.toggle-lock",
+        ToggleLockedCommand = commandFactory.Create(ApplicationCommandIds.Overlay.ToggleLocked,
             () => overlay.SetLocked(!Interaction.Locked), scope: CommandScope.Application);
-        ToggleClickThroughCommand = commandFactory.Create("application.overlay.toggle-click-through",
+        ToggleClickThroughCommand = commandFactory.Create(ApplicationCommandIds.Overlay.ToggleClickThrough,
             () => overlay.SetClickThrough(!Interaction.ClickThrough), scope: CommandScope.Application);
-        HideCommand = commandFactory.Create("application.overlay.hide", overlay.Hide,
+        HideCommand = commandFactory.Create(ApplicationCommandIds.Overlay.Hide, overlay.Hide,
             scope: CommandScope.Application);
         _overlay.InteractionStateChanged += OnInteractionStateChanged;
     }

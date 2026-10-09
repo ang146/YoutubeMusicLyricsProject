@@ -21,13 +21,6 @@ public enum LyricLineRole
     Status
 }
 
-public static class LyricsPresentationMessages
-{
-    public const string Unavailable = "\u66AB\u7121\u53EF\u7528\u6B4C\u8A5E";
-    public const string Untimed = "\u6B64\u6B4C\u66F2\u66AB\u7121\u540C\u6B65\u6B4C\u8A5E";
-    public const string LocalFileMissing = "\u672C\u6A5F\u6B4C\u8A5E\u6A94\u6848\u907A\u5931";
-}
-
 /// <summary>
 /// A surface-neutral runtime lyric occurrence. Index identifies the occurrence within this ordered
 /// snapshot, so identical text and multi-timestamp occurrences remain distinguishable.

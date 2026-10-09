@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Collections.Specialized;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +9,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using LyricsDisplayer.Core.Library;
+using LyricsDisplayer.Resources;
 using WpfBinding = System.Windows.Data.Binding;
 using WpfControl = System.Windows.Controls.Control;
 using WpfDataGridCell = System.Windows.Controls.DataGridCell;
@@ -97,7 +99,7 @@ public partial class BuiltInLyricsEditorWindow : Window
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or
                                                 NotSupportedException or System.Security.SecurityException)
             {
-                _viewModel.SetStatus("External change notifications are unavailable; Save still checks file identity.");
+                _viewModel.SetStatus(Strings.EditorWatcherUnavailable);
             }
         }
     }
@@ -118,22 +120,22 @@ public partial class BuiltInLyricsEditorWindow : Window
         {
             var column = new DataGridTextColumn
             {
-                Header = $"Timestamp {index + 1}",
-                Binding = new WpfBinding($"Timestamps[{index}]")
+                Header = string.Format(CultureInfo.CurrentCulture, Strings.EditorTimestampColumn, index + 1),
+                Binding = new WpfBinding($"{nameof(EditorRowViewModel.Timestamps)}[{index}]")
                 {
                     Mode = BindingMode.TwoWay,
                     UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
                 },
                 Width = new DataGridLength(112),
                 CellStyle = CreateDiagnosticCellStyle(
-                    $"TimestampDiagnosticSeverities[{index}]")
+                    $"{nameof(EditorRowViewModel.TimestampDiagnosticSeverities)}[{index}]")
             };
             LyricsGrid.Columns.Add(column);
             _logicalGridColumns.Add(column, new(EditorColumn.Timestamp, index));
         }
         var lyricsColumn = new DataGridTextColumn
         {
-            Header = "Lyrics",
+            Header = Strings.EditorLyricsColumn,
             Binding = new WpfBinding(nameof(EditorRowViewModel.LyricsText))
             {
                 Mode = BindingMode.TwoWay,
@@ -532,8 +534,8 @@ public partial class BuiltInLyricsEditorWindow : Window
     private DirtyEditorCloseChoice PromptForDirtyClose()
     {
         var answer = WpfMessageBox.Show(this,
-            "Save changes before closing?\n\nYes = Save; No = Discard; Cancel = Keep editing.",
-            "Unsaved lyrics changes", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+            Strings.EditorSaveClosePrompt,
+            Strings.EditorSaveCloseTitle, MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
         return answer switch
         {
             MessageBoxResult.Yes => DirtyEditorCloseChoice.Save,
@@ -545,8 +547,8 @@ public partial class BuiltInLyricsEditorWindow : Window
     private void OnConflictRequiresChoice()
     {
         var answer = WpfMessageBox.Show(this,
-            "The authoritative LRC or sidecar changed externally.\n\nYes = Overwrite external changes; No = Reload external version; Cancel = Keep editing.",
-            "External lyrics conflict", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+            Strings.EditorExternalConflictPrompt,
+            Strings.EditorExternalConflictTitle, MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
         if (answer == MessageBoxResult.Yes)
             _viewModel.SaveCommand.Execute(EditorSaveAction.OverwriteExternalChanges);
         else if (answer == MessageBoxResult.No)

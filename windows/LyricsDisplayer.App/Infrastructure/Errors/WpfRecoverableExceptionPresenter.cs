@@ -1,5 +1,6 @@
 using WpfApplication = System.Windows.Application;
 using WpfMessageBox = System.Windows.MessageBox;
+using LyricsDisplayer.Resources;
 
 namespace LyricsDisplayer.Infrastructure.Errors;
 
@@ -19,6 +20,6 @@ public sealed class WpfRecoverableExceptionPresenter : IRecoverableExceptionPres
 
     private static void ShowDialog(string operationName, string message) =>
         WpfMessageBox.Show(WpfApplication.Current?.MainWindow,
-            $"The operation '{operationName}' could not be completed.{Environment.NewLine}{Environment.NewLine}{message}",
-            "Lyrics Displayer", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            string.Format(Strings.RecoverableOperationFailure, operationName, Environment.NewLine, message),
+            Strings.AppName, System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
 }

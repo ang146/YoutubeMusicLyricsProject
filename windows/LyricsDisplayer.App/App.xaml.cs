@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using LyricsDisplayer.Core.Logging;
 using LyricsDisplayer.Infrastructure.DependencyInjection;
 using LyricsDisplayer.Infrastructure.Errors;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 using WpfMessageBox = System.Windows.MessageBox;
 
@@ -90,13 +91,14 @@ public partial class App : System.Windows.Application
         {
             var writtenPath = result.WriteResult?.WrittenPath ?? result.ReentrantFallbackPath;
             var reportDetails = writtenPath is not null
-                ? $"A crash report was saved to:{Environment.NewLine}{writtenPath}"
+                ? $"{Strings.FatalCrashReportSavedTo}{Environment.NewLine}{writtenPath}"
                 : result.Report is { } report
-                    ? $"A crash report could not be written. Attempted path:{Environment.NewLine}{report.Path}"
-                    : $"A crash report could not be written. The crash-report directory is: {_compositionRoot.CrashReports.CrashDirectory}";
+                    ? $"{Strings.FatalCrashReportCouldNotWriteAttemptedPath}{Environment.NewLine}{report.Path}"
+                    : string.Format(Strings.FatalCrashReportCouldNotWriteDirectory,
+                        _compositionRoot.CrashReports.CrashDirectory);
             WpfMessageBox.Show(
-                $"Lyrics Displayer encountered an unexpected fatal error and must close.{Environment.NewLine}{Environment.NewLine}{reportDetails}",
-                "Lyrics Displayer - Fatal Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                string.Format(Strings.FatalErrorMessage, Environment.NewLine, reportDetails),
+                Strings.FatalErrorTitle, MessageBoxButton.OK, MessageBoxImage.Error);
         }
         catch (Exception)
         {

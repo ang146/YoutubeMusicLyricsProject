@@ -10,6 +10,7 @@ using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Infrastructure.Factories;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
@@ -172,7 +173,7 @@ public partial class MainWindow : Window
             _logger.LogError(exception, "Named Pipe server stopped unexpectedly.");
             await Dispatcher.InvokeAsync(() =>
             {
-                const string status = "Connection error; see application logs";
+                var status = Strings.ConnectionErrorSeeLogs;
                 _viewModel.SetConnectionStatus(status);
                 _debugSettingsPageViewModel.SetTransportStatus(status);
             });
@@ -396,7 +397,7 @@ public partial class MainWindow : Window
         if (record is null)
         {
             if (_watchedLocalTrackId is not null) StopWatchingActiveLrc();
-            _currentLyricsFile.SetStatus("No current local LRC");
+            _currentLyricsFile.SetStatus(Strings.LrcNoCurrentLocalFile);
             return;
         }
 
@@ -405,7 +406,7 @@ public partial class MainWindow : Window
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.Security.SecurityException)
         {
             if (_watchedLocalTrackId is not null) StopWatchingActiveLrc();
-            _currentLyricsFile.SetStatus("The current local LRC path is unavailable.");
+            _currentLyricsFile.SetStatus(Strings.LrcPathUnavailable);
             _logger.LogWarning(exception, "Could not resolve active LRC path.");
             return;
         }
@@ -417,7 +418,7 @@ public partial class MainWindow : Window
         StopWatchingActiveLrc();
         _watchedLocalTrackId = record.LocalTrackId;
         _watchedLrcPath = path;
-        _currentLyricsFile.SetStatus("Watching current LRC");
+        _currentLyricsFile.SetStatus(Strings.LrcWatchingCurrent);
         var generation = _externalLrcGeneration;
         try
         {
@@ -429,7 +430,7 @@ public partial class MainWindow : Window
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or
                                             NotSupportedException or System.Security.SecurityException)
         {
-            _currentLyricsFile.SetStatus("File watching is unavailable; the file will be checked when the app is activated.");
+            _currentLyricsFile.SetStatus(Strings.LrcWatcherUnavailable);
             _logger.LogWarning(exception, "Could not watch active LRC.");
         }
     }
@@ -459,24 +460,24 @@ public partial class MainWindow : Window
                         switch (result)
                         {
                             case ExternalLocalLyricsUpdate.Reloaded:
-                                _currentLyricsFile.SetStatus("External LRC reloaded");
+                                _currentLyricsFile.SetStatus(Strings.LrcExternalReloaded);
                                 DisplayLyrics();
                                 return;
                             case ExternalLocalLyricsUpdate.Unchanged:
                                 if (_playbackState.IsCurrentLocalLrcUsable)
-                                    _currentLyricsFile.SetStatus("Watching current LRC");
+                                    _currentLyricsFile.SetStatus(Strings.LrcWatchingCurrent);
                                 _currentLyricsFile.RefreshAvailability();
                                 return;
                             case ExternalLocalLyricsUpdate.Invalid:
-                                _currentLyricsFile.SetStatus("External LRC was rejected; last valid lyrics are retained.");
+                                _currentLyricsFile.SetStatus(Strings.LrcExternalRejectedRetained);
                                 DisplayLyrics();
                                 return;
                             case ExternalLocalLyricsUpdate.Unavailable:
-                                _currentLyricsFile.SetStatus("External LRC is temporarily unavailable; last valid lyrics are retained.");
+                                _currentLyricsFile.SetStatus(Strings.LrcExternalUnavailableRetained);
                                 DisplayLyrics();
                                 return;
                             case ExternalLocalLyricsUpdate.Retry:
-                                _currentLyricsFile.SetStatus("Checking the latest LRC change…");
+                                _currentLyricsFile.SetStatus(Strings.LrcCheckingLatestChange);
                                 _activeLrcWatcher?.CheckNow();
                                 _currentLyricsFile.RefreshAvailability();
                                 return;
@@ -487,12 +488,12 @@ public partial class MainWindow : Window
                     }
                 case ActiveLrcFileObservationKind.Missing:
                     _playbackState.MarkExternalLocalLyricsMissing(localTrackId);
-                    _currentLyricsFile.SetStatus("LRC file unavailable; it will be reloaded if restored.");
+                    _currentLyricsFile.SetStatus(Strings.LrcUnavailableReloadIfRestored);
                     DisplayLyrics();
                     return;
                 case ActiveLrcFileObservationKind.Unavailable:
                     _playbackState.MarkExternalLocalLyricsUnavailable(localTrackId, observation.Error);
-                    _currentLyricsFile.SetStatus("LRC cannot currently be read; last valid lyrics are retained.");
+                    _currentLyricsFile.SetStatus(Strings.LrcCannotReadRetained);
                     DisplayLyrics();
                     return;
             }

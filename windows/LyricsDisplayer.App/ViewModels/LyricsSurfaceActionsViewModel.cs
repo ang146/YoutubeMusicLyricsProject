@@ -1,5 +1,6 @@
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Infrastructure.Commands;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
@@ -43,35 +44,35 @@ public abstract class LyricsSurfaceActionsViewModel : ViewModelBase, ILyricsSurf
         _canAdjustCurrentLine = timing.CanAdjustCurrentLine;
         _canShiftAll = timing.CanShiftAll;
 
-        OpenLrcExternally = new("Open LRC Externally", commandFactory.Create(
-            "application.open-lrc-externally", lyricsFile.OpenExternally,
+        OpenLrcExternally = new(Strings.OpenLrcExternally, commandFactory.Create(
+            ApplicationCommandIds.LyricsSurface.OpenLrcExternally, lyricsFile.OpenExternally,
             () => CanOpenExternalLyrics, CommandScope.Application));
-        OpenBuiltInEditor = new("Open Built-in Editor", commandFactory.Create(
-            "application.open-built-in-editor", editor.Open,
+        OpenBuiltInEditor = new(Strings.MainOpenBuiltInEditor, commandFactory.Create(
+            ApplicationCommandIds.LyricsSurface.OpenBuiltInEditor, editor.Open,
             () => editor.CanOpen, CommandScope.Application));
         AdjustCurrentLineMinus500 = CreateTimingAction(commandFactory,
-            "application.lyrics.current-line.minus-500", "-0.5s (Earlier)", -500,
+            ApplicationCommandIds.LyricsSurface.CurrentLineMinus500, Strings.TimingMinus500Earlier, -500,
             timing.AdjustCurrentLine, () => CanAdjustCurrentLine);
         AdjustCurrentLineMinus100 = CreateTimingAction(commandFactory,
-            "application.lyrics.current-line.minus-100", "-0.1s (Earlier)", -100,
+            ApplicationCommandIds.LyricsSurface.CurrentLineMinus100, Strings.TimingMinus100Earlier, -100,
             timing.AdjustCurrentLine, () => CanAdjustCurrentLine);
         AdjustCurrentLinePlus100 = CreateTimingAction(commandFactory,
-            "application.lyrics.current-line.plus-100", "+0.1s (Later)", 100,
+            ApplicationCommandIds.LyricsSurface.CurrentLinePlus100, Strings.TimingPlus100Later, 100,
             timing.AdjustCurrentLine, () => CanAdjustCurrentLine);
         AdjustCurrentLinePlus500 = CreateTimingAction(commandFactory,
-            "application.lyrics.current-line.plus-500", "+0.5s (Later)", 500,
+            ApplicationCommandIds.LyricsSurface.CurrentLinePlus500, Strings.TimingPlus500Later, 500,
             timing.AdjustCurrentLine, () => CanAdjustCurrentLine);
         ShiftAllMinus500 = CreateTimingAction(commandFactory,
-            "application.lyrics.all.minus-500", "-0.5s (Earlier)", -500,
+            ApplicationCommandIds.LyricsSurface.AllLyricsMinus500, Strings.TimingMinus500Earlier, -500,
             timing.ShiftAll, () => CanShiftAll);
         ShiftAllMinus100 = CreateTimingAction(commandFactory,
-            "application.lyrics.all.minus-100", "-0.1s (Earlier)", -100,
+            ApplicationCommandIds.LyricsSurface.AllLyricsMinus100, Strings.TimingMinus100Earlier, -100,
             timing.ShiftAll, () => CanShiftAll);
         ShiftAllPlus100 = CreateTimingAction(commandFactory,
-            "application.lyrics.all.plus-100", "+0.1s (Later)", 100,
+            ApplicationCommandIds.LyricsSurface.AllLyricsPlus100, Strings.TimingPlus100Later, 100,
             timing.ShiftAll, () => CanShiftAll);
         ShiftAllPlus500 = CreateTimingAction(commandFactory,
-            "application.lyrics.all.plus-500", "+0.5s (Later)", 500,
+            ApplicationCommandIds.LyricsSurface.AllLyricsPlus500, Strings.TimingPlus500Later, 500,
             timing.ShiftAll, () => CanShiftAll);
 
         _timing.AvailabilityChanged += OnTimingAvailabilityChanged;

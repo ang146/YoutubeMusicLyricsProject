@@ -1,5 +1,6 @@
 using System.IO;
 using LyricsDisplayer.Core.Library;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
@@ -12,7 +13,7 @@ public sealed class CurrentLyricsFileService : ICurrentLyricsFileService
     private readonly ExternalLrcOpener _opener;
     private readonly ILogger<CurrentLyricsFileService> _logger;
     private bool _canOpen;
-    private string _status = "No current local LRC";
+    private string _status = Strings.LrcNoCurrentLocalFile;
 
     public CurrentLyricsFileService(PlaybackStateCoordinator playback, LyricsLibrary library,
         ExternalLrcOpener opener, ILogger<CurrentLyricsFileService> logger)
@@ -62,7 +63,7 @@ public sealed class CurrentLyricsFileService : ICurrentLyricsFileService
         if (!_canOpen || !_playback.IsCurrentLocalLrcUsable ||
             _playback.ActiveLocalLyricsRecord is not { } record)
         {
-            SetStatus("No current local LRC");
+            SetStatus(Strings.LrcNoCurrentLocalFile);
             return;
         }
 
@@ -73,18 +74,18 @@ public sealed class CurrentLyricsFileService : ICurrentLyricsFileService
                                             System.Security.SecurityException)
         {
             _logger.LogWarning(exception, "Could not resolve the active authoritative LRC path.");
-            SetStatus("The current local LRC path is unavailable.");
+            SetStatus(Strings.LrcPathUnavailable);
             RefreshAvailability();
             return;
         }
 
         if (!_opener.TryOpen(path, out var error))
         {
-            SetStatus(error ?? "The current LRC could not be opened.");
+            SetStatus(error ?? Strings.LrcCouldNotBeOpened);
             RefreshAvailability();
             return;
         }
-        SetStatus("Opened the current LRC externally");
+        SetStatus(Strings.LrcExternalOpened);
         RefreshAvailability();
     }
 }

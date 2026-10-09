@@ -15,7 +15,7 @@ public sealed class MainLyricsSurfaceActionsViewModel : LyricsSurfaceActionsView
         : base(commandFactory, timing, lyricsFile, editor, logger)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        OpenSettingsCommand = commandFactory.Create("application.open-settings", settings.Open,
+        OpenSettingsCommand = commandFactory.Create(ApplicationCommandIds.MainWindow.OpenSettings, settings.Open,
             scope: CommandScope.Application);
     }
 }

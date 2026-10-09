@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
@@ -15,7 +16,7 @@ public sealed class NamedPipeServer(ILogger<NamedPipeServer> logger, PlaybackSta
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("Named Pipe server started: {PipeName}.", ProtocolConstants.PipeName);
-        ConnectionStatusChanged?.Invoke("Waiting for NativeHost");
+        ConnectionStatusChanged?.Invoke(Strings.TransportWaitingForNativeHost);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -32,7 +33,7 @@ public sealed class NamedPipeServer(ILogger<NamedPipeServer> logger, PlaybackSta
                 await pipe.WaitForConnectionAsync(cancellationToken);
                 connected = true;
                 logger.LogInformation("NativeHost connected.");
-                ConnectionStatusChanged?.Invoke("Connected");
+                ConnectionStatusChanged?.Invoke(Strings.TransportConnected);
 
                 using var reader = new StreamReader(pipe, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false,
                     leaveOpen: true);
@@ -61,7 +62,7 @@ public sealed class NamedPipeServer(ILogger<NamedPipeServer> logger, PlaybackSta
                 {
                     playbackState.SourceDisconnected();
                     logger.LogInformation("NativeHost disconnected; local playback clock frozen.");
-                    ConnectionStatusChanged?.Invoke("Disconnected; waiting for NativeHost");
+                    ConnectionStatusChanged?.Invoke(Strings.TransportDisconnectedWaitingForNativeHost);
                 }
             }
         }

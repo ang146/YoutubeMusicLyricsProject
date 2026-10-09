@@ -2,6 +2,7 @@ using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
 using LyricsDisplayer.Infrastructure.Commands;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using System.Windows;
@@ -58,7 +59,7 @@ public sealed class LyricsOverlayControllerTests
         Assert.Multiple(() =>
         {
             Assert.That(harness.Controller.Presentation.PrimaryText,
-                Is.EqualTo(LyricsOverlayPresentationState.LocalFileMissingText));
+                Is.EqualTo(Strings.LyricsLocalFileMissing));
             Assert.That(harness.Controller.Presentation.AllLines, Is.Empty);
             Assert.That(harness.Controller.Presentation.IsLocalFileMissing, Is.True);
         });
@@ -245,10 +246,10 @@ public sealed class LyricsOverlayControllerTests
         Assert.That(harness.View.LastState!.PrimaryText, Is.EqualTo("Track B lyric"));
     }
 
-    [TestCase(false, false, LyricsOverlayPresentationState.NoLyricsText)]
-    [TestCase(true, false, LyricsOverlayPresentationState.UntimedLyricsText)]
+    [TestCase(false, false)]
+    [TestCase(true, false)]
     public void TrackChangeClearsTimedTextBeforeKnownTrackBStatus(
-        bool available, bool timed, string expectedStatus)
+        bool available, bool timed)
     {
         var harness = new Harness();
         harness.Controller.Show();
@@ -257,6 +258,7 @@ public sealed class LyricsOverlayControllerTests
         Assert.That(harness.View.LastState, Is.EqualTo(LyricsOverlayPresentationState.Empty));
 
         harness.Controller.Update(Lyrics(available, timed), EmptyTimeline());
+        var expectedStatus = available ? Strings.LyricsUntimed : Strings.LyricsUnavailable;
 
         Assert.Multiple(() =>
         {
@@ -267,14 +269,15 @@ public sealed class LyricsOverlayControllerTests
         });
     }
 
-    [TestCase(false, false, LyricsOverlayPresentationState.NoLyricsText)]
-    [TestCase(true, false, LyricsOverlayPresentationState.UntimedLyricsText)]
+    [TestCase(false, false)]
+    [TestCase(true, false)]
     public void KnownStatusIsFullyReplacedWhenTimedLyricsBecomeActive(
-        bool available, bool timed, string expectedStatus)
+        bool available, bool timed)
     {
         var harness = new Harness();
         harness.Controller.Show();
         harness.Controller.Update(Lyrics(available, timed), EmptyTimeline());
+        var expectedStatus = available ? Strings.LyricsUntimed : Strings.LyricsUnavailable;
         Assert.That(harness.View.LastState!.PrimaryText, Is.EqualTo(expectedStatus));
 
         harness.Controller.Update(TimedLyrics("A", "B"), Timeline("A", "B"));

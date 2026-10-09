@@ -1,6 +1,7 @@
 namespace LyricsDisplayer;
 
 using Microsoft.Extensions.Logging;
+using LyricsDisplayer.Resources;
 
 public enum SettingsPageId
 {
@@ -39,11 +40,11 @@ public sealed class SettingsViewModel : ViewModelBase, ISettingsViewModel
         DebugPage = debugPage ?? throw new ArgumentNullException(nameof(debugPage));
         Pages =
         [
-            new SettingsPageViewModel(SettingsPageId.General, "General"),
-            new SettingsPageViewModel(SettingsPageId.LyricsOverlay, "Lyrics Overlay"),
-            new SettingsPageViewModel(SettingsPageId.LyricsWindow, "Lyrics Window"),
-            new SettingsPageViewModel(SettingsPageId.MediaController, "Media Controller"),
-            new SettingsPageViewModel(SettingsPageId.Editor, "Editor"),
+            new SettingsPageViewModel(SettingsPageId.General, Strings.SettingsGeneral),
+            new SettingsPageViewModel(SettingsPageId.LyricsOverlay, Strings.SettingsLyricsOverlay),
+            new SettingsPageViewModel(SettingsPageId.LyricsWindow, Strings.SettingsLyricsWindow),
+            new SettingsPageViewModel(SettingsPageId.MediaController, Strings.SettingsMediaController),
+            new SettingsPageViewModel(SettingsPageId.Editor, Strings.SettingsEditor),
             DebugPage
         ];
         SelectedPage = Pages[0];

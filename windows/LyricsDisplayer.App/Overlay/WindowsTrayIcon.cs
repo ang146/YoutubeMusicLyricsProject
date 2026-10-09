@@ -1,4 +1,5 @@
 using System.Drawing;
+using LyricsDisplayer.Resources;
 using Forms = System.Windows.Forms;
 
 namespace LyricsDisplayer;
@@ -15,22 +16,22 @@ public sealed class WindowsTrayIcon : ITrayIconAdapter
     public WindowsTrayIcon()
     {
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add("Open Lyrics Window", null, (_, _) => _openControlPanel?.Invoke());
-        _toggleOverlayItem = new Forms.ToolStripMenuItem("Show Desktop Lyrics");
+        menu.Items.Add(Strings.OpenLyricsWindow, null, (_, _) => _openControlPanel?.Invoke());
+        _toggleOverlayItem = new Forms.ToolStripMenuItem(Strings.ShowDesktopLyrics);
         _toggleOverlayItem.Click += (_, _) => _toggleOverlay?.Invoke();
         menu.Items.Add(_toggleOverlayItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Exit Lyrics Displayer", null, (_, _) => _exitApplication?.Invoke());
+        menu.Items.Add(Strings.ExitLyricsDisplayer, null, (_, _) => _exitApplication?.Invoke());
         _notifyIcon = new Forms.NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "Lyrics Displayer",
+            Text = Strings.AppName,
             ContextMenuStrip = menu
         };
         _notifyIcon.DoubleClick += (_, _) => _openControlPanel?.Invoke();
         menu.Opening += (_, _) => _toggleOverlayItem.Text = _toggleOverlayItem.Checked
-            ? "Hide Desktop Lyrics"
-            : "Show Desktop Lyrics";
+            ? Strings.HideDesktopLyrics
+            : Strings.ShowDesktopLyrics;
     }
 
     public void Show(Action openControlPanel, Func<bool> toggleOverlay, Action exitApplication, bool overlayVisible)
@@ -46,7 +47,7 @@ public sealed class WindowsTrayIcon : ITrayIconAdapter
     public void SetOverlayVisible(bool visible)
     {
         _toggleOverlayItem.Checked = visible;
-        _toggleOverlayItem.Text = visible ? "Hide Desktop Lyrics" : "Show Desktop Lyrics";
+        _toggleOverlayItem.Text = visible ? Strings.HideDesktopLyrics : Strings.ShowDesktopLyrics;
     }
 
     public void Dispose()

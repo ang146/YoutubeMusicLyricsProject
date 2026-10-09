@@ -37,6 +37,7 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
     private bool _mappedLocalFileMissing;
     private bool _hasMappedPresentation;
     private MainLyricsLineViewModel? _currentLine;
+    private (string Source, string SourceTrackId)? _playbackTrackIdentity;
     private LyricsSnapshotPayload? _currentIdentityLyrics;
     private int? _currentIdentityDocumentIndex;
     private int? _currentIdentityTimelineIndex;
@@ -81,6 +82,7 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
     }
 
     public event Action<MainLyricsLineViewModel?>? CurrentLineChanged;
+    public event Action? PlaybackTrackChanged;
 
     public MainLyricsWindowViewModel(IMainLyricsSurfaceActionsViewModel surfaceActions,
         ILogger<MainLyricsWindowViewModel> logger) : base(logger)
@@ -117,6 +119,17 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
     }
 
     public void SetConnectionStatus(string value) => ConnectionStatus = value;
+
+    public void SetPlaybackTrackIdentity(string? source, string? sourceTrackId)
+    {
+        (string Source, string SourceTrackId)? identity = source is null || sourceTrackId is null
+            ? null
+            : (source, sourceTrackId);
+        if (_playbackTrackIdentity == identity) return;
+
+        _playbackTrackIdentity = identity;
+        PlaybackTrackChanged?.Invoke();
+    }
 
     public void SetEffectiveMetadata(EffectiveTrackMetadata? metadata)
     {

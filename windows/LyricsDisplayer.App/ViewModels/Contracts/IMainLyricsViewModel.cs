@@ -22,8 +22,10 @@ public interface IMainLyricsViewModel : INotifyPropertyChanged
     string LyricsStatusText { get; }
     string ConnectionStatus { get; }
     event Action<MainLyricsLineViewModel?>? CurrentLineChanged;
+    event Action? PlaybackTrackChanged;
     void UpdateLyricsPresentation(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline,
         IReadOnlyList<LyricsLine> timelineOrderedLines, bool localFileMissing = false);
+    void SetPlaybackTrackIdentity(string? source, string? sourceTrackId);
     void SetConnectionStatus(string value);
     void SetEffectiveMetadata(EffectiveTrackMetadata? metadata);
 }

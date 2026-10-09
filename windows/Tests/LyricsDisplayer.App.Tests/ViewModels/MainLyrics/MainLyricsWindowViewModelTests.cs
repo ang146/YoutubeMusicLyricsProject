@@ -321,6 +321,22 @@ public sealed class MainLyricsWindowViewModelTests
         Assert.That(viewModel.SurfaceActions, Is.SameAs(actions));
     }
 
+    [Test]
+    public void PlaybackTrackIdentityChangeIsRaisedOnlyWhenIdentityChanges()
+    {
+        var viewModel = CreateViewModel(Substitute.For<IRelayCommand>());
+        var changeCount = 0;
+        viewModel.PlaybackTrackChanged += () => changeCount++;
+
+        viewModel.SetPlaybackTrackIdentity("youtube-music", "track-a");
+        viewModel.SetPlaybackTrackIdentity("youtube-music", "track-a");
+        viewModel.SetPlaybackTrackIdentity("youtube-music", "track-b");
+        viewModel.SetPlaybackTrackIdentity(null, null);
+        viewModel.SetPlaybackTrackIdentity(null, null);
+
+        Assert.That(changeCount, Is.EqualTo(3));
+    }
+
     private static LyricsSnapshotPayload TimedLyrics(IReadOnlyList<LyricsLine> lines) =>
         new("track", true, true, "local", lines, null);
 

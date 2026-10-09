@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Security;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
@@ -24,12 +26,12 @@ public sealed class ExternalLrcOpener
         {
             if (!Path.IsPathFullyQualified(path))
             {
-                error = "The local LRC path is not absolute.";
+                error = Strings.LrcPathNotAbsolute;
                 return false;
             }
             if (!File.Exists(path))
             {
-                error = "The current local LRC file is unavailable.";
+                error = Strings.LrcFileUnavailable;
                 return false;
             }
 
@@ -41,7 +43,8 @@ public sealed class ExternalLrcOpener
                                             InvalidOperationException or Win32Exception or ArgumentException or
                                             NotSupportedException or SecurityException)
         {
-            error = $"The LRC could not be opened ({exception.GetType().Name}).";
+            error = string.Format(CultureInfo.CurrentCulture, Strings.LrcCouldNotOpenType,
+                exception.GetType().Name);
             _logger.LogWarning(exception, "The current LRC could not be opened safely.");
             return false;
         }

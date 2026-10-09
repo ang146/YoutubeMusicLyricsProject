@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using LyricsDisplayer.Core.Library;
+using LyricsDisplayer.Resources;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -235,7 +236,7 @@ public sealed class MainLyricsWindowViewModelTests
             Assert.That(viewModel.Lines.Select(line => line.Text), Is.EqualTo(new[] { "First", string.Empty, "Last" }));
             Assert.That(viewModel.Lines.All(line => line.Role == LyricLineRole.Neutral), Is.True);
             Assert.That(viewModel.CurrentLine, Is.Null);
-            Assert.That(viewModel.LyricsStatusText, Is.EqualTo(LyricsPresentationMessages.Untimed));
+            Assert.That(viewModel.LyricsStatusText, Is.EqualTo(Strings.LyricsUntimed));
         });
     }
 
@@ -259,17 +260,11 @@ public sealed class MainLyricsWindowViewModelTests
         Assert.Multiple(() =>
         {
             Assert.That(pending, Is.EqualTo("Waiting for lyrics"));
-            Assert.That(pendingMessage, Is.Not.EqualTo(LyricsPresentationMessages.Unavailable));
-            Assert.That(unavailable, Is.EqualTo(LyricsPresentationMessages.Unavailable));
-            Assert.That(untimed, Is.EqualTo(LyricsPresentationMessages.Untimed));
-            Assert.That(missing, Is.EqualTo(LyricsPresentationMessages.LocalFileMissing));
+            Assert.That(pendingMessage, Is.Not.EqualTo(Strings.LyricsUnavailable));
+            Assert.That(unavailable, Is.EqualTo(Strings.LyricsUnavailable));
+            Assert.That(untimed, Is.EqualTo(Strings.LyricsUntimed));
+            Assert.That(missing, Is.EqualTo(Strings.LyricsLocalFileMissing));
             Assert.That(new[] { pending, unavailable, untimed, missing }.Distinct().Count(), Is.EqualTo(4));
-            Assert.That(LyricsPresentationMessages.Unavailable,
-                Is.EqualTo(LyricsOverlayPresentationState.NoLyricsText));
-            Assert.That(LyricsPresentationMessages.Untimed,
-                Is.EqualTo(LyricsOverlayPresentationState.UntimedLyricsText));
-            Assert.That(LyricsPresentationMessages.LocalFileMissing,
-                Is.EqualTo(LyricsOverlayPresentationState.LocalFileMissingText));
         });
     }
 

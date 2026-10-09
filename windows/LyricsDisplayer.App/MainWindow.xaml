@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:LyricsDisplayer"
         xmlns:controls="clr-namespace:LyricsDisplayer.Controls"
-        Title="Lyrics Displayer" Height="760" Width="900"
+        xmlns:strings="clr-namespace:LyricsDisplayer.Resources"
+        Title="{x:Static strings:Strings.MainWindowTitle}" Height="760" Width="900"
         MinHeight="460" MinWidth="760"
         WindowStartupLocation="CenterScreen" ResizeMode="CanResize"
         Topmost="False" ShowInTaskbar="True" ShowActivated="True">
@@ -34,13 +35,13 @@
                            Visibility="{Binding HasEffectiveArtist, Converter={StaticResource BooleanToVisibilityConverter}}" />
             </Grid>
             <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-                <Button Content="Open Built-in Editor" Command="{Binding SurfaceActions.OpenBuiltInEditor.Command}"
+                <Button Content="{x:Static strings:Strings.MainOpenBuiltInEditor}" Command="{Binding SurfaceActions.OpenBuiltInEditor.Command}"
                         Padding="12,7" Margin="0,0,8,0" />
-                <Button Content="Show Desktop Lyrics" Click="OnShowDesktopLyrics"
+                <Button Content="{x:Static strings:Strings.ShowDesktopLyrics}" Click="OnShowDesktopLyrics"
                         Padding="12,7" Margin="0,0,8,0" />
-                <Button Content="Open LRC Externally" Command="{Binding SurfaceActions.OpenLrcExternally.Command}"
+                <Button Content="{x:Static strings:Strings.OpenLrcExternally}" Command="{Binding SurfaceActions.OpenLrcExternally.Command}"
                         ToolTip="{Binding SurfaceActions.ExternalLyricsStatus}" Padding="12,7" />
-                <Button Content="Settings" Command="{Binding SurfaceActions.OpenSettingsCommand}" Padding="12,7" />
+                <Button Content="{x:Static strings:Strings.Settings}" Command="{Binding SurfaceActions.OpenSettingsCommand}" Padding="12,7" />
             </WrapPanel>
         </Grid>
 

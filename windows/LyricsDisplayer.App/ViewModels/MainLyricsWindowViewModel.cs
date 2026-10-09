@@ -4,6 +4,7 @@ using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
 using LyricsDisplayer.Infrastructure.Commands;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
@@ -39,7 +40,7 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
     private LyricsSnapshotPayload? _currentIdentityLyrics;
     private int? _currentIdentityDocumentIndex;
     private int? _currentIdentityTimelineIndex;
-    private string _connectionStatus = "Waiting for playback source";
+    private string _connectionStatus = Strings.MainWaitingForPlaybackSource;
     private EffectiveTrackMetadata? _effectiveMetadata;
 
     public ObservableCollection<MainLyricsLineViewModel> Lines { get; } = [];
@@ -47,7 +48,7 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
     public IMainLyricsSurfaceActionsViewModel SurfaceActions { get; }
     public MainLyricsLineViewModel? CurrentLine => _currentLine;
     public string EffectiveTitle => string.IsNullOrWhiteSpace(_effectiveMetadata?.Title)
-        ? "Lyrics Displayer"
+        ? Strings.AppName
         : _effectiveMetadata.Title;
     public string EffectiveArtist => string.IsNullOrWhiteSpace(_effectiveMetadata?.Artist)
         ? string.Empty
@@ -57,20 +58,20 @@ public sealed class MainLyricsWindowViewModel : ViewModelBase, IMainLyricsViewMo
     public bool HasNoLines => Lines.Count == 0;
     public string EmptyStateMessage => HasLines ? string.Empty : _presentation.Status switch
     {
-        LyricsPresentationStatus.Pending => "Waiting for lyrics…",
-        LyricsPresentationStatus.Unavailable => LyricsPresentationMessages.Unavailable,
-        LyricsPresentationStatus.Untimed => LyricsPresentationMessages.Untimed,
-        LyricsPresentationStatus.LocalFileMissing => LyricsPresentationMessages.LocalFileMissing,
-        LyricsPresentationStatus.Timed => "No lyric lines are available.",
+        LyricsPresentationStatus.Pending => Strings.MainWaitingForLyricsEllipsis,
+        LyricsPresentationStatus.Unavailable => Strings.LyricsUnavailable,
+        LyricsPresentationStatus.Untimed => Strings.LyricsUntimed,
+        LyricsPresentationStatus.LocalFileMissing => Strings.LyricsLocalFileMissing,
+        LyricsPresentationStatus.Timed => Strings.MainNoLyricLinesAvailable,
         _ => string.Empty
     };
     public string LyricsStatusText => _presentation.Status switch
     {
-        LyricsPresentationStatus.Pending => "Waiting for lyrics",
-        LyricsPresentationStatus.Unavailable => LyricsPresentationMessages.Unavailable,
-        LyricsPresentationStatus.Untimed => LyricsPresentationMessages.Untimed,
-        LyricsPresentationStatus.LocalFileMissing => LyricsPresentationMessages.LocalFileMissing,
-        LyricsPresentationStatus.Timed => "Synchronized lyrics",
+        LyricsPresentationStatus.Pending => Strings.MainWaitingForLyrics,
+        LyricsPresentationStatus.Unavailable => Strings.LyricsUnavailable,
+        LyricsPresentationStatus.Untimed => Strings.LyricsUntimed,
+        LyricsPresentationStatus.LocalFileMissing => Strings.LyricsLocalFileMissing,
+        LyricsPresentationStatus.Timed => Strings.MainSynchronizedLyrics,
         _ => string.Empty
     };
     public string ConnectionStatus

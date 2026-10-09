@@ -1,6 +1,7 @@
 using System.Windows.Controls;
 using System.Windows.Data;
 using LyricsDisplayer.Core.Settings;
+using LyricsDisplayer.Resources;
 using MenuItem = System.Windows.Controls.MenuItem;
 using Separator = System.Windows.Controls.Separator;
 using Binding = System.Windows.Data.Binding;
@@ -18,25 +19,32 @@ public sealed class OverlayLyricsContextMenu : LyricsContextMenuBase
     public OverlayLyricsContextMenu() : base(string.Empty)
     {
         Items.Insert(0, new Separator());
-        var openLyricsWindow = new MenuItem { Header = "Open Lyrics Window" };
-        openLyricsWindow.SetBinding(MenuItem.CommandProperty, new Binding("OpenLyricsWindowCommand"));
+        var openLyricsWindow = new MenuItem { Header = Strings.OpenLyricsWindow };
+        openLyricsWindow.SetBinding(MenuItem.CommandProperty,
+            new Binding(nameof(IOverlayLyricsSurfaceActionsViewModel.OpenLyricsWindowCommand)));
         Items.Insert(0, openLyricsWindow);
 
         Items.Add(new Separator());
-        var display = new MenuItem { Header = "Lyrics Display" };
-        _oneLine = AddCheckable(display, "One Line", "SetOneLineCommand");
-        _twoLines = AddCheckable(display, "Two Lines", "SetTwoLinesCommand");
-        _allLyrics = AddCheckable(display, "All Lyrics", "SetAllLyricsCommand");
+        var display = new MenuItem { Header = Strings.LyricsDisplay };
+        _oneLine = AddCheckable(display, Strings.OneLine,
+            nameof(IOverlayLyricsSurfaceActionsViewModel.SetOneLineCommand));
+        _twoLines = AddCheckable(display, Strings.TwoLines,
+            nameof(IOverlayLyricsSurfaceActionsViewModel.SetTwoLinesCommand));
+        _allLyrics = AddCheckable(display, Strings.MenuAllLyrics,
+            nameof(IOverlayLyricsSurfaceActionsViewModel.SetAllLyricsCommand));
         Items.Add(display);
 
-        var overlay = new MenuItem { Header = "Overlay" };
-        _locked = AddCheckable(overlay, "Lock Position", "ToggleLockedCommand");
-        _clickThrough = AddCheckable(overlay, "Click Through", "ToggleClickThroughCommand");
+        var overlay = new MenuItem { Header = Strings.Overlay };
+        _locked = AddCheckable(overlay, Strings.LockPosition,
+            nameof(IOverlayLyricsSurfaceActionsViewModel.ToggleLockedCommand));
+        _clickThrough = AddCheckable(overlay, Strings.ClickThrough,
+            nameof(IOverlayLyricsSurfaceActionsViewModel.ToggleClickThroughCommand));
         Items.Add(overlay);
 
         Items.Add(new Separator());
-        var hide = new MenuItem { Header = "Hide Desktop Lyrics" };
-        hide.SetBinding(MenuItem.CommandProperty, new Binding("HideCommand"));
+        var hide = new MenuItem { Header = Strings.HideDesktopLyrics };
+        hide.SetBinding(MenuItem.CommandProperty,
+            new Binding(nameof(IOverlayLyricsSurfaceActionsViewModel.HideCommand)));
         Items.Add(hide);
     }
 

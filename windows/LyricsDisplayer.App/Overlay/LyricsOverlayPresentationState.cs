@@ -3,6 +3,7 @@ using System.Text;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
+using LyricsDisplayer.Resources;
 
 namespace LyricsDisplayer;
 
@@ -177,9 +178,6 @@ public static class LyricsContextWindow
 
 public sealed record LyricsOverlayPresentationState(string PrimaryText, string SecondaryText)
 {
-    public const string NoLyricsText = "暫無可用歌詞";
-    public const string UntimedLyricsText = "此歌曲暫無同步歌詞";
-    public const string LocalFileMissingText = "本機歌詞檔案遺失";
     public static LyricsOverlayPresentationState Empty { get; } = new(string.Empty, string.Empty);
     public LyricsContentMode ContentMode { get; init; } = LyricsContentMode.TwoLines;
     public LyricsLayoutStyle LayoutStyle { get; init; } = LyricsLayoutStyle.CenterStacked;
@@ -218,9 +216,9 @@ public sealed record LyricsOverlayPresentationState(string PrimaryText, string S
 
         var statusText = presentation.Status switch
         {
-            LyricsPresentationStatus.LocalFileMissing => LocalFileMissingText,
-            LyricsPresentationStatus.Unavailable => NoLyricsText,
-            LyricsPresentationStatus.Untimed => UntimedLyricsText,
+            LyricsPresentationStatus.LocalFileMissing => Strings.LyricsLocalFileMissing,
+            LyricsPresentationStatus.Unavailable => Strings.LyricsUnavailable,
+            LyricsPresentationStatus.Untimed => Strings.LyricsUntimed,
             LyricsPresentationStatus.Pending => string.Empty,
             LyricsPresentationStatus.Timed => null,
             _ => throw new ArgumentOutOfRangeException(nameof(presentation))

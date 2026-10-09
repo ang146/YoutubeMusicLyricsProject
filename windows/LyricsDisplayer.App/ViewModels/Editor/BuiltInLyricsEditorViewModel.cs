@@ -5,6 +5,7 @@ using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
 using LyricsDisplayer.Infrastructure.Commands;
+using LyricsDisplayer.Resources;
 using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
@@ -96,19 +97,19 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         _titleOverride = asset.Sidecar.UserMetadata.Title ?? string.Empty;
         _artistOverride = asset.Sidecar.UserMetadata.Artist ?? string.Empty;
 
-        SaveCommand = commandFactory.Create("editor.save", parameter => Save(parameter is EditorSaveAction action ? action : EditorSaveAction.Save),
+        SaveCommand = commandFactory.Create(ApplicationCommandIds.Editor.Save, parameter => Save(parameter is EditorSaveAction action ? action : EditorSaveAction.Save),
             _ => IsDirty, CommandScope.Editor);
-        UndoCommand = commandFactory.Create("editor.undo", _ =>
+        UndoCommand = commandFactory.Create(ApplicationCommandIds.Editor.Undo, _ =>
         {
             CommitStagedEdits();
             CommitMetadata();
             _buffer.Undo();
             RefreshFromBuffer(keepSelection: true);
         }, _ => CanUndo || IsDirty);
-        RedoCommand = commandFactory.Create("editor.redo", _ => { _buffer.Redo(); RefreshFromBuffer(keepSelection: true); }, _ => CanRedo);
-        InsertRowAboveCommand = commandFactory.Create("editor.row.insert-above", _ => InsertRelative(true), _ => SelectedRowIdInDocument is not null);
-        InsertRowBelowCommand = commandFactory.Create("editor.row.insert-below", _ => InsertRelative(false), _ => SelectedRowIdInDocument is not null);
-        AppendRowCommand = commandFactory.Create("editor.row.append", _ =>
+        RedoCommand = commandFactory.Create(ApplicationCommandIds.Editor.Redo, _ => { _buffer.Redo(); RefreshFromBuffer(keepSelection: true); }, _ => CanRedo);
+        InsertRowAboveCommand = commandFactory.Create(ApplicationCommandIds.Editor.InsertRowAbove, _ => InsertRelative(true), _ => SelectedRowIdInDocument is not null);
+        InsertRowBelowCommand = commandFactory.Create(ApplicationCommandIds.Editor.InsertRowBelow, _ => InsertRelative(false), _ => SelectedRowIdInDocument is not null);
+        AppendRowCommand = commandFactory.Create(ApplicationCommandIds.Editor.AppendRow, _ =>
         {
             CommitStagedEdits();
             CommitMetadata();
@@ -116,27 +117,27 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
             RefreshFromBuffer(keepSelection: true);
             SelectRow(inserted);
         }, _ => true);
-        DeleteRowCommand = commandFactory.Create("editor.row.delete", _ => DeleteSelected(), _ => SelectedRowIdInDocument is not null);
-        ClearCellCommand = commandFactory.Create("editor.cell.clear", ClearCell,
+        DeleteRowCommand = commandFactory.Create(ApplicationCommandIds.Editor.DeleteRow, _ => DeleteSelected(), _ => SelectedRowIdInDocument is not null);
+        ClearCellCommand = commandFactory.Create(ApplicationCommandIds.Editor.ClearCell, ClearCell,
             parameter => CanClearCell(parameter as EditorSelection ?? Selection));
-        SetTimestampFromPlaybackCommand = commandFactory.Create("editor.timestamp.from-playback", _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
-        ShiftAllTimestampsCommand = commandFactory.Create("editor.timing.shift-all", ShiftAllTimestamps, CanShiftAllTimestamps);
-        ShiftSelectedLineTimingCommand = commandFactory.Create("editor.timing.shift-selected", ShiftSelectedLineTiming,
+        SetTimestampFromPlaybackCommand = commandFactory.Create(ApplicationCommandIds.Editor.SetTimestampFromPlayback, _ => SetTimestampFromPlayback(), CanSetTimestampFromPlayback);
+        ShiftAllTimestampsCommand = commandFactory.Create(ApplicationCommandIds.Editor.ShiftAllTimestamps, ShiftAllTimestamps, CanShiftAllTimestamps);
+        ShiftSelectedLineTimingCommand = commandFactory.Create(ApplicationCommandIds.Editor.ShiftSelectedLineTiming, ShiftSelectedLineTiming,
             CanShiftSelectedLineTiming);
-        CommitMetadataCommand = commandFactory.Create("editor.metadata.commit", _ => CommitMetadata());
-        ClearTitleOverrideCommand = commandFactory.Create("editor.metadata.clear-title", _ =>
+        CommitMetadataCommand = commandFactory.Create(ApplicationCommandIds.Editor.CommitMetadata, _ => CommitMetadata());
+        ClearTitleOverrideCommand = commandFactory.Create(ApplicationCommandIds.Editor.ClearTitleOverride, _ =>
         {
             _buffer.ClearTitleOverride();
             TitleOverride = string.Empty;
             RefreshFromBuffer();
         });
-        ClearArtistOverrideCommand = commandFactory.Create("editor.metadata.clear-artist", _ =>
+        ClearArtistOverrideCommand = commandFactory.Create(ApplicationCommandIds.Editor.ClearArtistOverride, _ =>
         {
             _buffer.ClearArtistOverride();
             ArtistOverride = string.Empty;
             RefreshFromBuffer();
         });
-        ReloadExternalCommand = commandFactory.Create("editor.external.reload", _ => ReloadExternalVersion());
+        ReloadExternalCommand = commandFactory.Create(ApplicationCommandIds.Editor.ReloadExternal, _ => ReloadExternalVersion());
         RefreshFromBuffer();
         RefreshPlayback();
         Logger.LogDebug("Built-in Lyrics Editor ViewModel initialized for {LocalTrackId}.", EditorTrack.LocalTrackId);
@@ -248,20 +249,20 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         if (result.Status == EditorAssetStatus.Missing)
         {
             ExternalFileMissing = true;
-            ExternalConflict = "The authoritative LRC is missing.";
-            if (!IsDirty) Status = "LRC file missing; the editor buffer is preserved.";
+            ExternalConflict = Strings.EditorAuthoritativeLrcMissing;
+            if (!IsDirty) Status = Strings.EditorLrcMissingBufferPreserved;
             return;
         }
         if (!result.Succeeded || result.Asset is null)
         {
-            Status = result.Error ?? "The current LRC cannot be checked.";
+            Status = WithDetails(Strings.EditorCurrentLrcCannotBeChecked, result.Error);
             return;
         }
         if (string.Equals(result.Asset.LrcHash, _asset.LrcHash, StringComparison.Ordinal) &&
             string.Equals(result.Asset.SidecarHash, _asset.SidecarHash, StringComparison.Ordinal)) return;
 
         ExternalFileMissing = false;
-        ExternalConflict = "The authoritative LRC or sidecar changed outside the editor.";
+        ExternalConflict = Strings.EditorAuthoritativeFilesChanged;
         if (!IsDirty) Reload(result.Asset);
     }
 
@@ -281,7 +282,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
             overwriteExternalChanges: action == EditorSaveAction.OverwriteExternalChanges);
         if (result.Status == EditorAssetStatus.Conflict)
         {
-            ExternalConflict = result.Error ?? "The authoritative files changed externally.";
+            ExternalConflict = WithDetails(Strings.EditorFilesChangedExternally, result.Error);
             ExternalFileMissing = result.Error?.Contains("deleted", StringComparison.OrdinalIgnoreCase) == true;
             ConflictRequiresChoice?.Invoke();
             return;
@@ -296,13 +297,13 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
             _playback.ReloadExternalLocalLyrics(saved.Record.LocalTrackId, saved.LrcHash);
             ExternalConflict = null;
             ExternalFileMissing = false;
-            Status = "Saved. Metadata and lyrics are active now.";
+            Status = Strings.EditorSaved;
             RefreshFromBuffer(keepSelection: true);
             SaveCompleted?.Invoke();
             return;
         }
         if (result.Asset is { } partial) _asset = partial;
-        Status = result.Error ?? "Save failed; the editor remains open and dirty.";
+        Status = WithDetails(Strings.EditorSaveFailedDirty, result.Error);
     }
 
     private void ReloadExternalVersion()
@@ -311,7 +312,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         if (result.Status != EditorAssetStatus.Ready || result.Asset is null)
         {
             ExternalFileMissing = result.Status == EditorAssetStatus.Missing;
-            Status = result.Error ?? "The external LRC is unavailable; the editor buffer was not discarded.";
+            Status = WithDetails(Strings.EditorExternalLrcUnavailable, result.Error);
             return;
         }
         Reload(result.Asset);
@@ -326,7 +327,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         ArtistOverride = asset.Sidecar.UserMetadata.Artist ?? string.Empty;
         ExternalConflict = null;
         ExternalFileMissing = false;
-        Status = "Reloaded the external version.";
+        Status = Strings.EditorReloadedExternalVersion;
         RefreshFromBuffer(keepSelection: false);
         if (oldSelection.SelectedRowId is { } selected && Rows.Any(row => row.EditorLineId == selected))
             SelectCell(selected, oldSelection.SelectedColumn, oldSelection.SelectedTimestampIndex);
@@ -405,7 +406,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         RefreshPlayback();
         if (!CanSetTimestampFromPlayback(null))
         {
-            Status = "Select a row, ensure playback matches the editor track, and leave an available timestamp slot.";
+            Status = Strings.EditorSetTimeUnavailable;
             return;
         }
         var nextAvailableIndex = FindNextAvailableTimestampIndex(
@@ -417,7 +418,7 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         if (!_buffer.SetTimestampFromPlayback(_selection, _playbackMatches, _playbackPosition,
                 nextAvailableIndex))
         {
-            Status = "The current playback time cannot be added to this row.";
+            Status = Strings.EditorPlaybackTimeCannotBeAdded;
             return;
         }
         Status = string.Empty;
@@ -431,12 +432,12 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         var result = _timingAdjustments.ShiftAll(_buffer.Document, deltaMs);
         if (!result.Succeeded || result.Document is null)
         {
-            Status = result.Error ?? "The document timestamps could not be shifted.";
+            Status = FormatTimingFailure(result, Strings.EditorDocumentTimestampsCouldNotShift);
             return;
         }
         if (!_buffer.ApplyTimingAdjustment(result.Document))
         {
-            Status = "The document timestamps could not be shifted.";
+            Status = Strings.EditorDocumentTimestampsCouldNotShift;
             return;
         }
 
@@ -459,12 +460,12 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
         var result = _timingAdjustments.ShiftLine(_buffer.Document, rowId, deltaMs);
         if (!result.Succeeded || result.Document is null)
         {
-            Status = result.Error ?? "The selected lyric row timestamps could not be shifted.";
+            Status = FormatTimingFailure(result, Strings.EditorSelectedRowTimestampsCouldNotShift);
             return;
         }
         if (!_buffer.ApplyTimingAdjustment(result.Document))
         {
-            Status = "The selected lyric row timestamps could not be shifted.";
+            Status = Strings.EditorSelectedRowTimestampsCouldNotShift;
             return;
         }
 
@@ -498,6 +499,16 @@ public sealed class BuiltInLyricsEditorViewModel : ViewModelBase, IBuiltInLyrics
                 return false;
         }
     }
+
+    private static string WithDetails(string message, string? details) =>
+        string.IsNullOrWhiteSpace(details)
+            ? message
+            : string.Format(CultureInfo.CurrentCulture, Strings.EditorStatusWithDetails, message, details);
+
+    private static string FormatTimingFailure(EditorDocumentTimingAdjustmentResult result, string fallbackMessage) =>
+        string.Equals(result.Error, LrcTimestampRewriter.NegativeTimestampError, StringComparison.Ordinal)
+            ? Strings.EditorNegativeTimestampShift
+            : WithDetails(fallbackMessage, result.Error);
 
     private string GetCurrentEditorLyric()
     {

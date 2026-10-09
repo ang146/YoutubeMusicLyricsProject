@@ -317,3 +317,5 @@ Key references:
 - `docs/FUTURE_FEATURES.md`
 
 When this file conflicts with an explicitly newer user instruction, follow the user instruction and update this file so future agents receive the new rule.
+
+Temporary build/test/validation outputs created by agents must be removed before finishing a task unless they are intentionally retained. Do not leave milestone-specific artifacts/*, codex-*, validation*, or similar scratch build directories in the repository.

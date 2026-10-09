@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:LyricsDisplayer"
-        Title="Settings" Width="860" Height="580" MinWidth="680" MinHeight="440"
+        xmlns:strings="clr-namespace:LyricsDisplayer.Resources"
+        Title="{x:Static strings:Strings.SettingsWindowTitle}" Width="860" Height="580" MinWidth="680" MinHeight="440"
         WindowStartupLocation="CenterScreen" ResizeMode="CanResize"
         Topmost="False" ShowInTaskbar="True" ShowActivated="True">
     <Window.Resources>

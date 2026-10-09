@@ -1,6 +1,7 @@
 using LyricsDisplayer.Core.Library;
 using LyricsDisplayer.Core.Playback;
 using LyricsDisplayer.Core.Protocol;
+using LyricsDisplayer.Resources;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Threading;
@@ -96,7 +97,7 @@ public sealed class LocalLyricsCoordinatorTests
             Assert.That(coordinator.CurrentLyrics.Payload.UntimedLines, Is.EqualTo(providerText));
             Assert.That(coordinator.GetTimelinePosition().HasLyrics, Is.False);
             Assert.That(LyricsOverlayPresentationState.FromLyrics(coordinator.CurrentLyrics.Payload,
-                coordinator.GetTimelinePosition()).PrimaryText, Is.EqualTo(LyricsOverlayPresentationState.UntimedLyricsText));
+                coordinator.GetTimelinePosition()).PrimaryText, Is.EqualTo(Strings.LyricsUntimed));
             Assert.That(coordinator.IsCurrentLocalLrcUsable, Is.True);
             Assert.That(File.ReadAllText(lrc), Is.EqualTo("第一行 ♪\n第二行\n"));
             Assert.That(File.ReadAllText(lrc), Does.Not.Contain("[00:00.000]"));

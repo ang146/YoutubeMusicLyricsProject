@@ -1,4 +1,6 @@
 using LyricsDisplayer.Core.Library;
+using LyricsDisplayer.Resources;
+using System.Globalization;
 
 namespace LyricsDisplayer;
 
@@ -44,8 +46,14 @@ public static class EditorValidationPresentation
             .ThenBy(item => item.Index)
             .Select(item =>
             {
-                var location = item.VisibleLine is { } line ? $"Line {line}" : "Document";
-                return $"{item.Diagnostic.Severity}: {location} - {item.Diagnostic.Message}";
+                var location = item.VisibleLine is { } line
+                    ? string.Format(CultureInfo.CurrentCulture, Strings.EditorLineLocation, line)
+                    : Strings.EditorDocumentLocation;
+                var severity = item.Diagnostic.Severity == EditorValidationSeverity.Error
+                    ? Strings.EditorValidationError
+                    : Strings.EditorValidationWarning;
+                return string.Format(CultureInfo.CurrentCulture, Strings.EditorValidationDiagnosticLine,
+                    severity, location, item.Diagnostic.Message);
             }));
     }
 

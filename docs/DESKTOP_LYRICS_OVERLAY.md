@@ -16,9 +16,9 @@ The Desktop Overlay applies its own One/Two/contextual-All viewport and appearan
 - Before the first timestamp, primary is blank and the first line is secondary.
 - After the final timestamp, the final line remains primary and secondary is blank.
 - Pending/unknown state, including the interval after a track change and before a result is accepted, produces two blank fields. It is not misrepresented as a confirmed negative result.
-- A confirmed unavailable result displays `暫無可用歌詞` as primary text with blank secondary text.
-- An available but untimed result displays `此歌曲暫無同步歌詞` as primary text with blank secondary text.
-- When an authoritative local LRC is expected but remains missing after M10 watcher debounce/recovery checks, the overlay displays `本機歌詞檔案遺失`; this is distinct from provider-level no-lyrics and untimed states. Restoring the file clears the status automatically.
+- A confirmed unavailable result displays `Strings.LyricsUnavailable` (`No lyrics available` in the neutral resources) as primary text with blank secondary text.
+- An available but untimed result displays `Strings.LyricsUntimed` (`Synced lyrics are not available for this song` in the neutral resources) as primary text with blank secondary text.
+- When an authoritative local LRC is expected but remains missing after M10 watcher debounce/recovery checks, the overlay displays `Strings.LyricsLocalFileMissing` (`The local lyrics file is missing` in the neutral resources); this is distinct from provider-level no-lyrics and untimed states. Restoring the file clears the status automatically.
 - Timed lyrics replace either status with the normal current/next presentation. Status strings are local presentation state only and are never stored as lyric lines or sent through the protocol.
 - Seeks jump directly to the newly resolved state. Pause requires no overlay state because the shared playback clock and timeline remain unchanged.
 

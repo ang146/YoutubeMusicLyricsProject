@@ -4,9 +4,9 @@ This document collects agreed future directions that should not be silently fold
 
 ## Current milestone status
 
-Milestones 1–11 are complete through transport, YouTube Music integration, local-first storage, timeline/overlay, timing authoring, overlay interaction, external/untimed local editing, and the manually accepted Built-in Lyrics Editor Foundation. M12 is in progress; Tasks 1–6 are manually accepted through the ViewModel/presentation foundation, Main Lyrics Window, Settings shell, Debug diagnostics page, and editor timing-authoring consolidation.
+Milestones 1–11 are complete through transport, YouTube Music integration, local-first storage, timeline/overlay, timing authoring, overlay interaction, external/untimed local editing, and the manually accepted Built-in Lyrics Editor Foundation. M12 implementation is integrated, including the application/ViewModel foundation, shared lyrics presentation, Main Lyrics Window, Settings and Debug pages, editor timing authoring, shared lyrics-surface actions/context menus, centralized UI strings, and Main Window view decomposition. Final developer acceptance for M12 remains pending; this status is not an acceptance declaration. M13 remains planned and has not started.
 
-Repository-root `AGENTS.md` now records the mandatory coding-agent conventions so later prompts can stay concise. The next M12 step is an application-infrastructure refactor before shared context-menu/integration polish: Unity composition root, explicit constructor injection, ViewModel interfaces, runtime factories, typed/category logging, generic command infrastructure, application exception handling, and NSubstitute-based mocks.
+Repository-root `AGENTS.md` records the mandatory coding-agent conventions. M12's application-infrastructure work is implemented: Unity composition root, explicit constructor injection, ViewModel interfaces, focused runtime factories, typed/category logging, generic command infrastructure, application exception handling, and NSubstitute-based tests.
 
 The broader planning map remains:
 
@@ -24,7 +24,7 @@ This numbering is planning guidance, not a promise that later expansion mileston
 
 ## Desktop surface and Settings restructuring
 
-M12 Tasks 1–6 have established the main desktop surfaces and the first ViewModel/presentation foundation. The former diagnostic/control-panel `MainWindow` is now the user-facing Main Lyrics Window; Settings is a separate shell with page views, and technical state lives under Settings > Debug rather than accumulating in the main lyrics surface.
+M12 establishes the main desktop surfaces and the ViewModel/presentation foundation. The former diagnostic/control-panel `MainWindow` is now the user-facing Main Lyrics Window; its shell composes separate header, lyrics, and status views over one ViewModel. Settings is a separate shell with page views, and technical state lives under Settings > Debug rather than accumulating in the main lyrics surface.
 
 Current/target surface model:
 
@@ -90,7 +90,7 @@ The Main Lyrics Window and Desktop Lyrics Overlay use shared application service
 
 ## Application infrastructure conventions
 
-M12 adds a dedicated infrastructure cleanup before feature-heavy milestones continue. The intended conventions are:
+M12 implements a dedicated infrastructure foundation before feature-heavy milestones continue:
 
 ```text
 Unity composition root

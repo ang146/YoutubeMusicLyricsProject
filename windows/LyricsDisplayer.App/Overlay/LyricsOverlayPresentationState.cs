@@ -3,10 +3,10 @@ using System.Text;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Timeline;
+using LyricsDisplayer.Resources;
 
 namespace LyricsDisplayer;
 
-public enum LyricLineRole { Past, Current, Upcoming, Status }
 public enum LyricsLayoutStyle { CenterStacked }
 
 public sealed record PresentedLyricLine(
@@ -17,12 +17,12 @@ public sealed record PresentedLyricLine(
     double Scale = 1,
     double Opacity = 1)
 {
-    public double FontSize => LyricsPresentationDefaults.BaseContextFontSize * Scale;
+    public double FontSize => LyricsOverlayAppearanceDefaults.BaseContextFontSize * Scale;
 }
 
 public readonly record struct LyricEmphasis(double Scale, double Opacity);
 
-public static class LyricsPresentationDefaults
+public static class LyricsOverlayAppearanceDefaults
 {
     public const double BaseContextFontSize = 26;
     public const double CurrentRoleScale = 1.06;
@@ -51,58 +51,58 @@ public static class LyricsContextWindow
     private const double VerticalPadding = 38;
 
     public static IReadOnlyList<PresentedLyricLine> Select(
-        IReadOnlyList<LyricsLine> normalizedLines,
-        int? currentIndex,
-        int? nextIndex,
+        LyricsPresentationState presentation,
         double overlayWidth,
         double overlayHeight)
     {
-        ArgumentNullException.ThrowIfNull(normalizedLines);
-        if (normalizedLines.Count == 0) return [];
+        ArgumentNullException.ThrowIfNull(presentation);
+        if (presentation.Status != LyricsPresentationStatus.Timed || presentation.Lines.Count == 0) return [];
         if (!double.IsFinite(overlayWidth) || overlayWidth <= 0) overlayWidth = OverlayPreferences.DefaultWidth;
         if (!double.IsFinite(overlayHeight) || overlayHeight <= 0) overlayHeight = OverlayPreferences.DefaultHeight;
 
         var width = Math.Max(80, overlayWidth - 56);
         var budget = Math.Max(1, overlayHeight - VerticalPadding);
-        var priority = BuildPrioritySequence(normalizedLines, currentIndex, nextIndex);
+        var priority = BuildPrioritySequence(presentation);
         var prefix = FitPriorityPrefix(priority, budget, line => EstimateHeight(line, width));
         return prefix.OrderBy(line => line.Index).ToArray();
     }
 
     internal static IReadOnlyList<PresentedLyricLine> BuildPrioritySequence(
-        IReadOnlyList<LyricsLine> normalizedLines,
-        int? currentIndex,
-        int? nextIndex)
+        LyricsPresentationState presentation)
     {
-        ArgumentNullException.ThrowIfNull(normalizedLines);
-        var candidates = new List<PresentedLyricLine>(normalizedLines.Count);
+        ArgumentNullException.ThrowIfNull(presentation);
+        var lines = presentation.Lines;
+        var candidates = new List<PresentedLyricLine>(lines.Count);
 
-        PresentedLyricLine Create(int index, LyricLineRole role, int distance)
+        PresentedLyricLine? Create(int timelineIndex)
         {
-            var emphasis = LyricsPresentationDefaults.ForRoleAndDistance(role, distance);
-            return new(index, normalizedLines[index].Text, role, distance, emphasis.Scale, emphasis.Opacity);
+            var line = presentation.LineAtTimelineIndex(timelineIndex);
+            if (line is null) return null;
+            var emphasis = LyricsOverlayAppearanceDefaults.ForRoleAndDistance(line.Role, line.Distance);
+            return new(line.Index, line.Text, line.Role, line.Distance, emphasis.Scale, emphasis.Opacity);
         }
 
-        if (currentIndex is int current && current >= 0 && current < normalizedLines.Count)
+        if (presentation.CurrentTimelineIndex is int current && current >= 0 && current < presentation.TimelineOrder.Count)
         {
-            candidates.Add(Create(current, LyricLineRole.Current, 0));
-            for (var distance = 1; distance < normalizedLines.Count; distance++)
+            if (Create(current) is { } currentLine) candidates.Add(currentLine);
+            for (var distance = 1; distance < presentation.TimelineOrder.Count; distance++)
             {
                 var upcoming = current + distance;
-                if (upcoming < normalizedLines.Count)
-                    candidates.Add(Create(upcoming, LyricLineRole.Upcoming, distance));
+                if (upcoming < presentation.TimelineOrder.Count && Create(upcoming) is { } upcomingLine)
+                    candidates.Add(upcomingLine);
 
                 var past = current - distance;
-                if (past >= 0)
-                    candidates.Add(Create(past, LyricLineRole.Past, distance));
+                if (past >= 0 && Create(past) is { } pastLine)
+                    candidates.Add(pastLine);
             }
         }
         else
         {
-            var first = nextIndex.GetValueOrDefault(0);
-            if (first < 0 || first >= normalizedLines.Count) first = 0;
-            for (var index = first; index < normalizedLines.Count; index++)
-                candidates.Add(Create(index, LyricLineRole.Upcoming, index - first + 1));
+            var first = presentation.NextTimelineIndex.GetValueOrDefault(0);
+            if (first < 0 || first >= presentation.TimelineOrder.Count) first = 0;
+            for (var index = first; index < presentation.TimelineOrder.Count; index++)
+                if (Create(index) is { Role: LyricLineRole.Upcoming } upcomingLine)
+                    candidates.Add(upcomingLine);
         }
 
         return candidates;
@@ -150,7 +150,7 @@ public static class LyricsContextWindow
 
     private static double EstimateHeight(PresentedLyricLine line, double width)
     {
-        var fontSize = LyricsPresentationDefaults.BaseContextFontSize * line.Scale;
+        var fontSize = LyricsOverlayAppearanceDefaults.BaseContextFontSize * line.Scale;
         var wrappedLines = line.Text.Split('\n').Sum(paragraph =>
             Math.Max(1, Math.Ceiling(EstimateTextWidth(paragraph, fontSize) / width)));
         return wrappedLines * fontSize * 1.28 + 8;
@@ -178,9 +178,6 @@ public static class LyricsContextWindow
 
 public sealed record LyricsOverlayPresentationState(string PrimaryText, string SecondaryText)
 {
-    public const string NoLyricsText = "暫無可用歌詞";
-    public const string UntimedLyricsText = "此歌曲暫無同步歌詞";
-    public const string LocalFileMissingText = "本機歌詞檔案遺失";
     public static LyricsOverlayPresentationState Empty { get; } = new(string.Empty, string.Empty);
     public LyricsContentMode ContentMode { get; init; } = LyricsContentMode.TwoLines;
     public LyricsLayoutStyle LayoutStyle { get; init; } = LyricsLayoutStyle.CenterStacked;
@@ -199,25 +196,42 @@ public sealed record LyricsOverlayPresentationState(string PrimaryText, string S
         LyricsContentMode contentMode = LyricsContentMode.TwoLines,
         double overlayWidth = OverlayPreferences.DefaultWidth,
         double overlayHeight = OverlayPreferences.DefaultHeight,
-        IReadOnlyList<LyricsLine>? normalizedLines = null,
+        IReadOnlyList<LyricsLine>? timelineOrderedLines = null,
         bool localFileMissing = false)
     {
         ArgumentNullException.ThrowIfNull(timeline);
-        if (localFileMissing)
-            return new(LocalFileMissingText, string.Empty)
+        timelineOrderedLines ??= lyrics?.Lines ?? [];
+        var presentation = LyricsPresentationMapper.FromResolvedTimeline(
+            lyrics, timeline, timelineOrderedLines, localFileMissing);
+        return FromPresentation(presentation, contentMode, overlayWidth, overlayHeight);
+    }
+
+    public static LyricsOverlayPresentationState FromPresentation(
+        LyricsPresentationState presentation,
+        LyricsContentMode contentMode = LyricsContentMode.TwoLines,
+        double overlayWidth = OverlayPreferences.DefaultWidth,
+        double overlayHeight = OverlayPreferences.DefaultHeight)
+    {
+        ArgumentNullException.ThrowIfNull(presentation);
+
+        var statusText = presentation.Status switch
+        {
+            LyricsPresentationStatus.LocalFileMissing => Strings.LyricsLocalFileMissing,
+            LyricsPresentationStatus.Unavailable => Strings.LyricsUnavailable,
+            LyricsPresentationStatus.Untimed => Strings.LyricsUntimed,
+            LyricsPresentationStatus.Pending => string.Empty,
+            LyricsPresentationStatus.Timed => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(presentation))
+        };
+        if (statusText is not null)
+            return new(statusText, string.Empty)
             {
                 ContentMode = contentMode,
-                IsLocalFileMissing = true
+                IsLocalFileMissing = presentation.Status == LyricsPresentationStatus.LocalFileMissing
             };
-        if (lyrics is null) return Empty with { ContentMode = contentMode };
-        if (!lyrics.Available) return new(NoLyricsText, string.Empty) { ContentMode = contentMode };
-        if (!lyrics.Timed) return new(UntimedLyricsText, string.Empty) { ContentMode = contentMode };
 
-        // LyricsTimeline uses this same stable ordering; indexes identify exact occurrences,
-        // including duplicate timestamps and duplicate text.
-        normalizedLines ??= NormalizeLines(lyrics.Lines);
-        var current = timeline.CurrentLine?.Text ?? string.Empty;
-        var next = timeline.NextLine?.Text ?? string.Empty;
+        var current = presentation.CurrentLine?.Text ?? string.Empty;
+        var next = presentation.NextLine?.Text ?? string.Empty;
         return contentMode switch
         {
             LyricsContentMode.OneLine => new(string.IsNullOrEmpty(current) ? next : current, string.Empty)
@@ -226,15 +240,10 @@ public sealed record LyricsOverlayPresentationState(string PrimaryText, string S
             LyricsContentMode.AllLyrics => new(string.Empty, string.Empty)
             {
                 ContentMode = contentMode,
-                CurrentIndex = timeline.CurrentIndex,
-                AllLines = LyricsContextWindow.Select(normalizedLines, timeline.CurrentIndex,
-                    timeline.NextIndex, overlayWidth, overlayHeight)
+                CurrentIndex = presentation.CurrentIndex,
+                AllLines = LyricsContextWindow.Select(presentation, overlayWidth, overlayHeight)
             },
             _ => throw new ArgumentOutOfRangeException(nameof(contentMode))
         };
     }
-
-    public static IReadOnlyList<LyricsLine> NormalizeLines(IReadOnlyList<LyricsLine> lines) =>
-        lines.Select((line, index) => (line, index)).OrderBy(item => item.line.StartMs)
-            .ThenBy(item => item.index).Select(item => item.line).ToArray();
 }

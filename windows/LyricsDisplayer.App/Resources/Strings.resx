@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="AppName" xml:space="preserve"><value>Lyrics Displayer</value></data>
+  <data name="MainWindowTitle" xml:space="preserve"><value>Lyrics Displayer</value></data>
+  <data name="SettingsWindowTitle" xml:space="preserve"><value>Settings</value></data>
+  <data name="EditorWindowTitle" xml:space="preserve"><value>Built-in Lyrics Editor</value></data>
+  <data name="FatalErrorTitle" xml:space="preserve"><value>Lyrics Displayer - Fatal Error</value></data>
+  <data name="MainOpenBuiltInEditor" xml:space="preserve"><value>Open Built-in Editor</value></data>
+  <data name="ShowDesktopLyrics" xml:space="preserve"><value>Show Desktop Lyrics</value></data>
+  <data name="OpenLrcExternally" xml:space="preserve"><value>Open LRC Externally</value></data>
+  <data name="Settings" xml:space="preserve"><value>Settings</value></data>
+  <data name="OpenLyricsWindow" xml:space="preserve"><value>Open Lyrics Window</value></data>
+  <data name="ExitLyricsDisplayer" xml:space="preserve"><value>Exit Lyrics Displayer</value></data>
+  <data name="HideDesktopLyrics" xml:space="preserve"><value>Hide Desktop Lyrics</value></data>
+  <data name="SettingsGeneral" xml:space="preserve"><value>General</value></data>
+  <data name="SettingsLyricsOverlay" xml:space="preserve"><value>Lyrics Overlay</value></data>
+  <data name="SettingsLyricsWindow" xml:space="preserve"><value>Lyrics Window</value></data>
+  <data name="SettingsMediaController" xml:space="preserve"><value>Media Controller</value></data>
+  <data name="SettingsEditor" xml:space="preserve"><value>Editor</value></data>
+  <data name="SettingsDebug" xml:space="preserve"><value>Debug</value></data>
+  <data name="MenuCurrentLine" xml:space="preserve"><value>Current Line</value></data>
+  <data name="MenuAllLyrics" xml:space="preserve"><value>All Lyrics</value></data>
+  <data name="LyricsDisplay" xml:space="preserve"><value>Lyrics Display</value></data>
+  <data name="OneLine" xml:space="preserve"><value>One Line</value></data>
+  <data name="TwoLines" xml:space="preserve"><value>Two Lines</value></data>
+  <data name="Overlay" xml:space="preserve"><value>Overlay</value></data>
+  <data name="LockPosition" xml:space="preserve"><value>Lock Position</value></data>
+  <data name="ClickThrough" xml:space="preserve"><value>Click Through</value></data>
+  <data name="TimingMinus500Earlier" xml:space="preserve"><value>-0.5s (Earlier)</value></data>
+  <data name="TimingMinus100Earlier" xml:space="preserve"><value>-0.1s (Earlier)</value></data>
+  <data name="TimingPlus100Later" xml:space="preserve"><value>+0.1s (Later)</value></data>
+  <data name="TimingPlus500Later" xml:space="preserve"><value>+0.5s (Later)</value></data>
+  <data name="EditorClear" xml:space="preserve"><value>Clear</value></data>
+  <data name="EditorSetTime" xml:space="preserve"><value>Set Time</value></data>
+  <data name="EditorTimingAuthoring" xml:space="preserve"><value>Timing Authoring</value></data>
+  <data name="EditorShiftAllTimestamps" xml:space="preserve"><value>Shift All Timestamps</value></data>
+  <data name="EditorSelectedLine" xml:space="preserve"><value>Selected Line</value></data>
+  <data name="EditorUndo" xml:space="preserve"><value>Undo</value></data>
+  <data name="EditorRedo" xml:space="preserve"><value>Redo</value></data>
+  <data name="EditorInsertAbove" xml:space="preserve"><value>Insert Above</value></data>
+  <data name="EditorInsertBelow" xml:space="preserve"><value>Insert Below</value></data>
+  <data name="EditorAppendRow" xml:space="preserve"><value>Append Row</value></data>
+  <data name="EditorDeleteRow" xml:space="preserve"><value>Delete Row</value></data>
+  <data name="EditorSourceTitle" xml:space="preserve"><value>Source title</value></data>
+  <data name="EditorSourceArtist" xml:space="preserve"><value>Source artist</value></data>
+  <data name="EditorTitleOverride" xml:space="preserve"><value>Title override</value></data>
+  <data name="EditorArtistOverride" xml:space="preserve"><value>Artist override</value></data>
+  <data name="EditorLyricsColumn" xml:space="preserve"><value>Lyrics</value></data>
+  <data name="EditorTimestampColumn" xml:space="preserve"><value>Timestamp {0}</value></data>
+  <data name="EditorPreservedEntries" xml:space="preserve"><value>Preserved entries: </value></data>
+  <data name="EditorSave" xml:space="preserve"><value>Save</value></data>
+  <data name="EditorClose" xml:space="preserve"><value>Close</value></data>
+  <data name="EditorWarnings" xml:space="preserve"><value>Warnings: </value></data>
+  <data name="EditorErrors" xml:space="preserve"><value>    Errors: </value></data>
+  <data name="EditorValidationAdvisory" xml:space="preserve"><value>Validation issues are advisory; saving is still allowed.</value></data>
+  <data name="EditorSaveClosePrompt" xml:space="preserve"><value>Save changes before closing?&#xA;&#xA;Yes = Save; No = Discard; Cancel = Keep editing.</value></data>
+  <data name="EditorSaveCloseTitle" xml:space="preserve"><value>Unsaved lyrics changes</value></data>
+  <data name="EditorExternalConflictPrompt" xml:space="preserve"><value>The authoritative LRC or sidecar changed externally.&#xA;&#xA;Yes = Overwrite external changes; No = Reload external version; Cancel = Keep editing.</value></data>
+  <data name="EditorExternalConflictTitle" xml:space="preserve"><value>External lyrics conflict</value></data>
+  <data name="EditorWatcherUnavailable" xml:space="preserve"><value>External change notifications are unavailable; Save still checks file identity.</value></data>
+  <data name="EditorUnavailableForEditing" xml:space="preserve"><value>The current local LRC is not available for editing.</value></data>
+  <data name="EditorAuthoritativeLrcMissing" xml:space="preserve"><value>The authoritative LRC is missing.</value></data>
+  <data name="EditorLrcMissingBufferPreserved" xml:space="preserve"><value>LRC file missing; the editor buffer is preserved.</value></data>
+  <data name="EditorCurrentLrcCannotBeChecked" xml:space="preserve"><value>The current LRC cannot be checked.</value></data>
+  <data name="EditorAuthoritativeFilesChanged" xml:space="preserve"><value>The authoritative LRC or sidecar changed outside the editor.</value></data>
+  <data name="EditorFilesChangedExternally" xml:space="preserve"><value>The authoritative files changed externally.</value></data>
+  <data name="EditorSaved" xml:space="preserve"><value>Saved. Metadata and lyrics are active now.</value></data>
+  <data name="EditorSaveFailedDirty" xml:space="preserve"><value>Save failed; the editor remains open and dirty.</value></data>
+  <data name="EditorExternalLrcUnavailable" xml:space="preserve"><value>The external LRC is unavailable; the editor buffer was not discarded.</value></data>
+  <data name="EditorReloadedExternalVersion" xml:space="preserve"><value>Reloaded the external version.</value></data>
+  <data name="EditorSetTimeUnavailable" xml:space="preserve"><value>Select a row, ensure playback matches the editor track, and leave an available timestamp slot.</value></data>
+  <data name="EditorPlaybackTimeCannotBeAdded" xml:space="preserve"><value>The current playback time cannot be added to this row.</value></data>
+  <data name="EditorDocumentTimestampsCouldNotShift" xml:space="preserve"><value>The document timestamps could not be shifted.</value></data>
+  <data name="EditorNegativeTimestampShift" xml:space="preserve"><value>The adjusted LRC would contain a negative timestamp.</value></data>
+  <data name="EditorSelectedRowTimestampsCouldNotShift" xml:space="preserve"><value>The selected lyric row timestamps could not be shifted.</value></data>
+  <data name="EditorStatusWithDetails" xml:space="preserve"><value>{0} Details: {1}</value></data>
+  <data name="EditorLineLocation" xml:space="preserve"><value>Line {0}</value></data>
+  <data name="EditorDocumentLocation" xml:space="preserve"><value>Document</value></data>
+  <data name="EditorValidationError" xml:space="preserve"><value>Error</value></data>
+  <data name="EditorValidationWarning" xml:space="preserve"><value>Warning</value></data>
+  <data name="EditorValidationDiagnosticLine" xml:space="preserve"><value>{0}: {1} - {2}</value></data>
+  <data name="Debug" xml:space="preserve"><value>Debug</value></data>
+  <data name="DebugTrack" xml:space="preserve"><value>Track</value></data>
+  <data name="DebugPlaybackSource" xml:space="preserve"><value>Playback source</value></data>
+  <data name="DebugSourceTrackId" xml:space="preserve"><value>Source track ID</value></data>
+  <data name="DebugEffectiveTitle" xml:space="preserve"><value>Effective title</value></data>
+  <data name="DebugEffectiveArtist" xml:space="preserve"><value>Effective artist</value></data>
+  <data name="DebugLocalTrackId" xml:space="preserve"><value>Local track ID</value></data>
+  <data name="DebugStorage" xml:space="preserve"><value>Storage</value></data>
+  <data name="DebugLyricsLibrary" xml:space="preserve"><value>Lyrics library</value></data>
+  <data name="DebugSqliteIndex" xml:space="preserve"><value>SQLite index</value></data>
+  <data name="DebugTransport" xml:space="preserve"><value>Transport</value></data>
+  <data name="DebugNativeHostConnection" xml:space="preserve"><value>NativeHost connection</value></data>
+  <data name="DebugPlayback" xml:space="preserve"><value>Playback</value></data>
+  <data name="DebugState" xml:space="preserve"><value>State</value></data>
+  <data name="DebugLyricsProvider" xml:space="preserve"><value>Lyrics / Provider</value></data>
+  <data name="DebugLyricsSource" xml:space="preserve"><value>Lyrics source</value></data>
+  <data name="DebugAvailability" xml:space="preserve"><value>Availability</value></data>
+  <data name="DebugTiming" xml:space="preserve"><value>Timing</value></data>
+  <data name="DebugLoadedFrom" xml:space="preserve"><value>Loaded from</value></data>
+  <data name="DebugLocalAssociation" xml:space="preserve"><value>Local association</value></data>
+  <data name="DebugLogs" xml:space="preserve"><value>Logs</value></data>
+  <data name="DebugApplicationLogs" xml:space="preserve"><value>Application logs</value></data>
+  <data name="DebugOpenLogsFolder" xml:space="preserve"><value>Open Logs Folder</value></data>
+  <data name="DebugCrashReports" xml:space="preserve"><value>Crash reports</value></data>
+  <data name="DebugOpenCrashReportsFolder" xml:space="preserve"><value>Open Crash Reports Folder</value></data>
+  <data name="DebugRawPlaybackSnapshot" xml:space="preserve"><value>Raw playback snapshot</value></data>
+  <data name="DebugRawLyricsSnapshot" xml:space="preserve"><value>Raw lyrics snapshot</value></data>
+  <data name="ValueNotAvailable" xml:space="preserve"><value>Not available</value></data>
+  <data name="ValuePlaying" xml:space="preserve"><value>Playing</value></data>
+  <data name="ValuePaused" xml:space="preserve"><value>Paused</value></data>
+  <data name="ValueAvailable" xml:space="preserve"><value>Available</value></data>
+  <data name="ValueUnavailable" xml:space="preserve"><value>Unavailable</value></data>
+  <data name="ValueTimed" xml:space="preserve"><value>Timed</value></data>
+  <data name="ValueUntimed" xml:space="preserve"><value>Untimed</value></data>
+  <data name="DebugPlaybackStateFormat" xml:space="preserve"><value>{0} • {1:N0} ms at {2:0.##}×</value></data>
+  <data name="DebugNoPlaybackSnapshot" xml:space="preserve"><value>No playback snapshot is currently available.</value></data>
+  <data name="DebugNoRawLyricsSnapshot" xml:space="preserve"><value>No raw lyrics snapshot is currently available.</value></data>
+  <data name="DebugPendingUnknown" xml:space="preserve"><value>Pending / unknown</value></data>
+  <data name="DebugYoutubeMusicRuntime" xml:space="preserve"><value>YouTube Music (runtime)</value></data>
+  <data name="DebugLocalLibrary" xml:space="preserve"><value>Local Library</value></data>
+  <data name="DebugLocalLibraryUnavailable" xml:space="preserve"><value>Local Library (unavailable)</value></data>
+  <data name="DebugLocalLibraryExternalLrcRejected" xml:space="preserve"><value>Local Library (external LRC rejected)</value></data>
+  <data name="DebugLocalLibraryLastValidLyricsRetained" xml:space="preserve"><value>Local Library (last valid lyrics retained)</value></data>
+  <data name="DebugLocalLibraryFileUnavailable" xml:space="preserve"><value>Local Library (file unavailable)</value></data>
+  <data name="DebugLocalLibraryFileTemporarilyUnavailable" xml:space="preserve"><value>Local Library (file temporarily unavailable)</value></data>
+  <data name="DebugAssociationNotChecked" xml:space="preserve"><value>Not checked</value></data>
+  <data name="DebugAssociationFound" xml:space="preserve"><value>Found</value></data>
+  <data name="DebugAssociationNotFound" xml:space="preserve"><value>Not found</value></data>
+  <data name="DebugAssociationLibraryUnavailable" xml:space="preserve"><value>Library unavailable</value></data>
+  <data name="DebugAssociationIndexUnavailable" xml:space="preserve"><value>Index unavailable</value></data>
+  <data name="DebugAssociationBrokenRecord" xml:space="preserve"><value>Broken local record</value></data>
+  <data name="DebugAssociationDuplicate" xml:space="preserve"><value>Duplicate association</value></data>
+  <data name="DebugImportImported" xml:space="preserve"><value>Imported</value></data>
+  <data name="DebugImportAlreadyLocal" xml:space="preserve"><value>Already local</value></data>
+  <data name="DebugImportNotTimed" xml:space="preserve"><value>Not timed</value></data>
+  <data name="DebugImportBlockedByBrokenRecord" xml:space="preserve"><value>Blocked by broken record</value></data>
+  <data name="DebugImportFilesPersistedIndexFailed" xml:space="preserve"><value>Files saved; index update failed</value></data>
+  <data name="DebugImportFailed" xml:space="preserve"><value>Import failed</value></data>
+  <data name="DebugExternalLrcRejected" xml:space="preserve"><value>External LRC rejected</value></data>
+  <data name="DebugLocalLrcUnavailable" xml:space="preserve"><value>Local LRC unavailable</value></data>
+  <data name="DebugExternalLrcTemporarilyUnavailable" xml:space="preserve"><value>External LRC temporarily unavailable</value></data>
+  <data name="DebugFolderOpened" xml:space="preserve"><value>Folder opened.</value></data>
+  <data name="DebugFolderOpenFailed" xml:space="preserve"><value>Could not open folder: {0}</value></data>
+  <data name="TransportWaitingForNativeHost" xml:space="preserve"><value>Waiting for NativeHost</value></data>
+  <data name="TransportConnected" xml:space="preserve"><value>Connected</value></data>
+  <data name="TransportDisconnectedWaitingForNativeHost" xml:space="preserve"><value>Disconnected; waiting for NativeHost</value></data>
+  <data name="ConnectionErrorSeeLogs" xml:space="preserve"><value>Connection error; see application logs</value></data>
+  <data name="MainWaitingForPlaybackSource" xml:space="preserve"><value>Waiting for playback source</value></data>
+  <data name="MainWaitingForLyricsEllipsis" xml:space="preserve"><value>Waiting for lyrics…</value></data>
+  <data name="MainWaitingForLyrics" xml:space="preserve"><value>Waiting for lyrics</value></data>
+  <data name="MainNoLyricLinesAvailable" xml:space="preserve"><value>No lyric lines are available.</value></data>
+  <data name="MainSynchronizedLyrics" xml:space="preserve"><value>Synchronized lyrics</value></data>
+  <data name="LyricsUnavailable" xml:space="preserve"><value>No lyrics available</value></data>
+  <data name="LyricsUntimed" xml:space="preserve"><value>Synced lyrics are not available for this song</value></data>
+  <data name="LyricsLocalFileMissing" xml:space="preserve"><value>The local lyrics file is missing</value></data>
+  <data name="LrcNoCurrentLocalFile" xml:space="preserve"><value>No current local LRC</value></data>
+  <data name="LrcExternalOpened" xml:space="preserve"><value>Opened the current LRC externally</value></data>
+  <data name="LrcPathUnavailable" xml:space="preserve"><value>The current local LRC path is unavailable.</value></data>
+  <data name="LrcWatchingCurrent" xml:space="preserve"><value>Watching current LRC</value></data>
+  <data name="LrcWatcherUnavailable" xml:space="preserve"><value>File watching is unavailable; the file will be checked when the app is activated.</value></data>
+  <data name="LrcExternalReloaded" xml:space="preserve"><value>External LRC reloaded</value></data>
+  <data name="LrcExternalRejectedRetained" xml:space="preserve"><value>External LRC was rejected; last valid lyrics are retained.</value></data>
+  <data name="LrcExternalUnavailableRetained" xml:space="preserve"><value>External LRC is temporarily unavailable; last valid lyrics are retained.</value></data>
+  <data name="LrcCheckingLatestChange" xml:space="preserve"><value>Checking the latest LRC change…</value></data>
+  <data name="LrcUnavailableReloadIfRestored" xml:space="preserve"><value>LRC file unavailable; it will be reloaded if restored.</value></data>
+  <data name="LrcCannotReadRetained" xml:space="preserve"><value>LRC cannot currently be read; last valid lyrics are retained.</value></data>
+  <data name="LrcPathNotAbsolute" xml:space="preserve"><value>The local LRC path is not absolute.</value></data>
+  <data name="LrcFileUnavailable" xml:space="preserve"><value>The current local LRC file is unavailable.</value></data>
+  <data name="LrcCouldNotBeOpened" xml:space="preserve"><value>The current LRC could not be opened.</value></data>
+  <data name="LrcCouldNotOpenType" xml:space="preserve"><value>The LRC could not be opened ({0}).</value></data>
+  <data name="FatalCrashReportSavedTo" xml:space="preserve"><value>A crash report was saved to:</value></data>
+  <data name="FatalCrashReportCouldNotWriteAttemptedPath" xml:space="preserve"><value>A crash report could not be written. Attempted path:</value></data>
+  <data name="FatalCrashReportCouldNotWriteDirectory" xml:space="preserve"><value>A crash report could not be written. The crash-report directory is: {0}</value></data>
+  <data name="FatalErrorMessage" xml:space="preserve"><value>Lyrics Displayer encountered an unexpected fatal error and must close.{0}{0}{1}</value></data>
+  <data name="RecoverableOperationFailure" xml:space="preserve"><value>The operation '{0}' could not be completed.{1}{1}{2}</value></data>
+</root>

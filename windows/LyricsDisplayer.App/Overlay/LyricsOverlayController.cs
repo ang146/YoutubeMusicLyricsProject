@@ -3,6 +3,7 @@ using System.Windows;
 using LyricsDisplayer.Core.Settings;
 using LyricsDisplayer.Core.Protocol;
 using LyricsDisplayer.Core.Timeline;
+using Microsoft.Extensions.Logging;
 
 namespace LyricsDisplayer;
 
@@ -17,15 +18,12 @@ public interface ILyricsOverlayView
     double OverlayHeight { get; }
     event Action? CloseRequested;
     event Action<OverlayPosition, double, double>? DragCompleted;
-    event Action<OverlayCommand>? CommandRequested;
     event Action<double, double>? OverlaySizeChanged;
     event Action<OverlayPosition, double, double>? GeometryChangeCompleted;
     void SetPosition(OverlayPosition position);
+    void SetLyricsSurfaceActions(IOverlayLyricsSurfaceActionsViewModel actions);
     void SetLyrics(LyricsOverlayPresentationState state);
     void ApplyInteractionState(OverlayInteractionState state, bool effectiveTopmost);
-    void ApplyExternalLyricsAvailability(bool canOpen);
-    void ApplyBuiltInEditorAvailability(bool canOpen) { }
-    void ApplyTimingState(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs);
     void NormalizeWindowState();
     void CompleteGeometryRecovery();
     void ShowWithoutActivation();
@@ -33,48 +31,47 @@ public interface ILyricsOverlayView
     void CloseForApplicationShutdown();
 }
 
-public sealed class LyricsOverlayController
+public sealed class LyricsOverlayController : ILyricsOverlayInteractionService
 {
     private readonly Func<ILyricsOverlayView> _viewFactory;
     private readonly IOverlaySettingsStore _settingsStore;
     private readonly Func<IReadOnlyList<OverlayWorkArea>> _workAreas;
-    private readonly Action<string, string, string>? _log;
+    private readonly ILogger<LyricsOverlayController> _logger;
     private ILyricsOverlayView? _view;
     private LyricsOverlayPresentationState _presentation = LyricsOverlayPresentationState.Empty;
     private LyricsSnapshotPayload? _lyrics;
-    private IReadOnlyList<LyricsLine>? _sourceLines;
-    private IReadOnlyList<LyricsLine>? _normalizedLines;
+    private IReadOnlyList<LyricsLine> _timelineOrderedLines = Array.Empty<LyricsLine>();
     private LyricsTimelinePosition _timeline = LyricsTimeline.Empty.Evaluate(0);
+    private LyricsPresentationState _sharedPresentation = LyricsPresentationState.Pending;
+    private LyricsSnapshotPayload? _mappedLyrics;
+    private IReadOnlyList<LyricsLine>? _mappedTimelineOrderedLines;
+    private int? _mappedCurrentIndex;
+    private int? _mappedNextIndex;
+    private bool _mappedLocalFileMissing;
+    private bool _hasMappedPresentation;
     private OverlayInteractionState _interaction;
-    private bool _currentLineTimingEnabled;
-    private bool _globalTimingEnabled;
-    private long _globalOffsetMs;
     private bool _reportedVisible;
     private bool _shuttingDown;
     private bool _editorModalTopmostSuppressed;
-    private bool _canOpenExternalLyrics;
-    private bool _canOpenBuiltInEditor;
+    private IOverlayLyricsSurfaceActionsViewModel? _lyricsActions;
     private bool _localFileMissing;
 
     public LyricsOverlayController(
+        ILogger<LyricsOverlayController> logger,
         Func<ILyricsOverlayView> viewFactory,
         IOverlaySettingsStore settingsStore,
-        Func<IReadOnlyList<OverlayWorkArea>> workAreas,
-        Action<string, string, string>? log = null)
+        Func<IReadOnlyList<OverlayWorkArea>> workAreas)
     {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _viewFactory = viewFactory;
         _settingsStore = settingsStore;
         _workAreas = workAreas;
-        _log = log;
         _interaction = LoadInteractionState();
     }
 
     public event Action<bool>? VisibilityChanged;
     public event Action<OverlayInteractionState>? InteractionStateChanged;
     public event Action? OpenControlPanelRequested;
-    public event Action<OverlayCommand>? TimingCommandRequested;
-    public event Action? OpenExternalLyricsRequested;
-    public event Action? OpenBuiltInEditorRequested;
 
     public bool IsVisible => _reportedVisible;
     public bool HasCreatedWindow => _view is not null;
@@ -82,15 +79,12 @@ public sealed class LyricsOverlayController
     public OverlayInteractionState Interaction => _interaction;
     public bool EffectiveTopmost => !_editorModalTopmostSuppressed;
 
-    public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline, bool localFileMissing = false)
+    public void Update(LyricsSnapshotPayload? lyrics, LyricsTimelinePosition timeline,
+        bool localFileMissing = false, IReadOnlyList<LyricsLine>? timelineOrderedLines = null)
     {
-        if (!ReferenceEquals(_sourceLines, lyrics?.Lines))
-        {
-            _sourceLines = lyrics?.Lines;
-            _normalizedLines = _sourceLines is null ? null : LyricsOverlayPresentationState.NormalizeLines(_sourceLines);
-        }
         _lyrics = lyrics;
         _timeline = timeline;
+        _timelineOrderedLines = timelineOrderedLines ?? lyrics?.Lines ?? Array.Empty<LyricsLine>();
         _localFileMissing = localFileMissing;
         var next = CreatePresentation(lyrics, timeline);
         if (_presentation.EquivalentTo(next)) return;
@@ -124,24 +118,10 @@ public sealed class LyricsOverlayController
             ContentMode = Enum.IsDefined(value) ? value : throw new ArgumentOutOfRangeException(nameof(value))
         }, $"content mode changed to {value}");
 
-    public void SetTimingAvailability(bool currentLineEnabled, bool globalTimingEnabled, long globalOffsetMs)
+    public void SetLyricsSurfaceActions(IOverlayLyricsSurfaceActionsViewModel actions)
     {
-        _currentLineTimingEnabled = currentLineEnabled;
-        _globalTimingEnabled = globalTimingEnabled;
-        _globalOffsetMs = globalOffsetMs;
-        _view?.ApplyTimingState(currentLineEnabled, globalTimingEnabled, globalOffsetMs);
-    }
-
-    public void SetExternalLyricsAvailability(bool canOpen)
-    {
-        _canOpenExternalLyrics = canOpen;
-        _view?.ApplyExternalLyricsAvailability(canOpen);
-    }
-
-    public void SetBuiltInEditorAvailability(bool canOpen)
-    {
-        _canOpenBuiltInEditor = canOpen;
-        _view?.ApplyBuiltInEditorAvailability(canOpen);
+        _lyricsActions = actions ?? throw new ArgumentNullException(nameof(actions));
+        _view?.SetLyricsSurfaceActions(actions);
     }
 
     public void SetWidth(double value)
@@ -168,7 +148,7 @@ public sealed class LyricsOverlayController
         ApplyInteractionState();
         _view!.ShowWithoutActivation();
         _reportedVisible = true;
-        _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay shown.");
+        _logger.LogInformation("Desktop lyrics overlay shown.");
         VisibilityChanged?.Invoke(true);
     }
 
@@ -179,6 +159,8 @@ public sealed class LyricsOverlayController
         ReportHidden();
     }
 
+    public void RequestOpenLyricsWindow() => OpenControlPanelRequested?.Invoke();
+
     public void Shutdown()
     {
         if (_shuttingDown) return;
@@ -186,7 +168,6 @@ public sealed class LyricsOverlayController
         if (_view is null) return;
         _view.CloseRequested -= OnCloseRequested;
         _view.DragCompleted -= OnDragCompleted;
-        _view.CommandRequested -= OnCommandRequested;
         _view.OverlaySizeChanged -= OnViewSizeChanged;
         _view.GeometryChangeCompleted -= OnGeometryChangeCompleted;
         _view.CloseForApplicationShutdown();
@@ -200,13 +181,10 @@ public sealed class LyricsOverlayController
         _view = _viewFactory();
         _view.CloseRequested += OnCloseRequested;
         _view.DragCompleted += OnDragCompleted;
-        _view.CommandRequested += OnCommandRequested;
         _view.OverlaySizeChanged += OnViewSizeChanged;
         _view.GeometryChangeCompleted += OnGeometryChangeCompleted;
         ApplyInteractionState();
-        _view.ApplyExternalLyricsAvailability(_canOpenExternalLyrics);
-        _view.ApplyBuiltInEditorAvailability(_canOpenBuiltInEditor);
-        _view.ApplyTimingState(_currentLineTimingEnabled, _globalTimingEnabled, _globalOffsetMs);
+        if (_lyricsActions is not null) _view.SetLyricsSurfaceActions(_lyricsActions);
         _presentation = CreatePresentation(_lyrics, _timeline);
         _view.SetLyrics(_presentation);
 
@@ -215,9 +193,9 @@ public sealed class LyricsOverlayController
         ApplyResolvedGeometry(placement);
         _view.SetPosition(placement.Position);
         if (saved is not null && placement.UsedFallback)
-            _log?.Invoke("Warning", "Overlay", "Saved overlay position was not visible; using fallback position.");
+            _logger.LogWarning("Saved overlay position was not visible; using fallback position.");
         else if (saved is not null)
-            _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay position restored.");
+            _logger.LogInformation("Desktop lyrics overlay position restored.");
     }
 
     private void RecoverAbnormalWindowStateIfNeeded()
@@ -236,7 +214,7 @@ public sealed class LyricsOverlayController
         ApplyResolvedGeometry(placement);
         _view.SetPosition(placement.Position);
         _view.CompleteGeometryRecovery();
-        _log?.Invoke("Warning", "Overlay", "Abnormal overlay window state was restored to normal geometry.");
+        _logger.LogWarning("Abnormal overlay window state was restored to normal geometry.");
     }
 
     private void RecoverGeometryForCurrentWorkAreas()
@@ -254,7 +232,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay", $"Desktop lyrics geometry recovery could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Desktop lyrics geometry recovery could not be saved.");
         }
     }
 
@@ -269,7 +247,7 @@ public sealed class LyricsOverlayController
     {
         if (!_reportedVisible) return;
         _reportedVisible = false;
-        _log?.Invoke("Information", "Overlay", "Desktop lyrics overlay hidden.");
+        _logger.LogInformation("Desktop lyrics overlay hidden.");
         VisibilityChanged?.Invoke(false);
     }
 
@@ -286,7 +264,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay", $"Desktop lyrics overlay position could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Desktop lyrics overlay position could not be saved.");
         }
     }
 
@@ -298,8 +276,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay",
-                $"Overlay preferences could not be loaded ({exception.GetType().Name}); defaults are in use.");
+            _logger.LogWarning(exception, "Overlay preferences could not be loaded; defaults are in use.");
             return OverlayInteractionState.FromPreferences(OverlayPreferences.Default);
         }
     }
@@ -347,74 +324,45 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay",
-                $"Overlay preferences could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Overlay preferences could not be saved.");
         }
-        _log?.Invoke("Information", "Overlay", $"Overlay {settingName}.");
+        _logger.LogInformation("Overlay {SettingChange}.", settingName);
         InteractionStateChanged?.Invoke(next);
-    }
-
-    private void OnCommandRequested(OverlayCommand command)
-    {
-        switch (command)
-        {
-            case OverlayCommand.OpenControlPanel:
-                OpenControlPanelRequested?.Invoke();
-                break;
-            case OverlayCommand.OpenLrcExternally:
-                if (_canOpenExternalLyrics) OpenExternalLyricsRequested?.Invoke();
-                break;
-            case OverlayCommand.OpenBuiltInEditor:
-                if (_canOpenBuiltInEditor) OpenBuiltInEditorRequested?.Invoke();
-                break;
-            case OverlayCommand.ToggleLocked:
-                SetLocked(!_interaction.Locked);
-                break;
-            case OverlayCommand.ToggleClickThrough:
-                SetClickThrough(!_interaction.ClickThrough);
-                break;
-            case OverlayCommand.SetOneLine:
-                SetContentMode(LyricsContentMode.OneLine);
-                break;
-            case OverlayCommand.SetTwoLines:
-                SetContentMode(LyricsContentMode.TwoLines);
-                break;
-            case OverlayCommand.SetAllLyrics:
-                SetContentMode(LyricsContentMode.AllLyrics);
-                break;
-            case OverlayCommand.Hide:
-                Hide();
-                break;
-            case OverlayCommand.AdjustCurrentLineMinus500:
-            case OverlayCommand.AdjustCurrentLineMinus100:
-            case OverlayCommand.AdjustCurrentLinePlus100:
-            case OverlayCommand.AdjustCurrentLinePlus500:
-            case OverlayCommand.AdjustGlobalMinus500:
-            case OverlayCommand.AdjustGlobalMinus100:
-            case OverlayCommand.ResetGlobalTiming:
-            case OverlayCommand.AdjustGlobalPlus100:
-            case OverlayCommand.AdjustGlobalPlus500:
-                TimingCommandRequested?.Invoke(command);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(command));
-        }
     }
 
     private LyricsOverlayPresentationState CreatePresentation(
         LyricsSnapshotPayload? lyrics,
         LyricsTimelinePosition timeline) =>
-        LyricsOverlayPresentationState.FromLyrics(lyrics, timeline, _interaction.ContentMode,
+        LyricsOverlayPresentationState.FromPresentation(GetSharedPresentation(lyrics, timeline), _interaction.ContentMode,
             _view?.OverlayWidth ?? _interaction.Width,
-            _view?.OverlayHeight ?? _interaction.Height,
-            _normalizedLines,
-            _localFileMissing);
+            _view?.OverlayHeight ?? _interaction.Height);
+
+    private LyricsPresentationState GetSharedPresentation(
+        LyricsSnapshotPayload? lyrics,
+        LyricsTimelinePosition timeline)
+    {
+        if (_hasMappedPresentation && ReferenceEquals(_mappedLyrics, lyrics) &&
+            ReferenceEquals(_mappedTimelineOrderedLines, _timelineOrderedLines) &&
+            _mappedCurrentIndex == timeline.CurrentIndex && _mappedNextIndex == timeline.NextIndex &&
+            _mappedLocalFileMissing == _localFileMissing)
+            return _sharedPresentation;
+
+        _sharedPresentation = LyricsPresentationMapper.FromResolvedTimeline(
+            lyrics, timeline, _timelineOrderedLines, _localFileMissing);
+        _mappedLyrics = lyrics;
+        _mappedTimelineOrderedLines = _timelineOrderedLines;
+        _mappedCurrentIndex = timeline.CurrentIndex;
+        _mappedNextIndex = timeline.NextIndex;
+        _mappedLocalFileMissing = _localFileMissing;
+        _hasMappedPresentation = true;
+        return _sharedPresentation;
+    }
 
     private void OnViewSizeChanged(double width, double height)
     {
         if (_view is null || _view.WindowState != WindowState.Normal || _view.GeometryRecoveryRequired) return;
-        var next = LyricsOverlayPresentationState.FromLyrics(_lyrics, _timeline, _interaction.ContentMode,
-            width, height, _normalizedLines, _localFileMissing);
+        var next = LyricsOverlayPresentationState.FromPresentation(
+            GetSharedPresentation(_lyrics, _timeline), _interaction.ContentMode, width, height);
         if (_presentation.EquivalentTo(next)) return;
         _presentation = next;
         _view?.SetLyrics(next);
@@ -442,7 +390,7 @@ public sealed class LyricsOverlayController
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            _log?.Invoke("Warning", "Overlay", $"Desktop lyrics geometry could not be saved ({exception.GetType().Name}).");
+            _logger.LogWarning(exception, "Desktop lyrics geometry could not be saved.");
         }
     }
 

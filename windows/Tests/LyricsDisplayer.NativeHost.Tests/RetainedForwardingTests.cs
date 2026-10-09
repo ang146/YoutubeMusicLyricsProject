@@ -1,4 +1,4 @@
-using LyricsDisplayer.Core.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LyricsDisplayer.NativeHost.Tests;
 
@@ -8,22 +8,16 @@ public sealed class RetainedForwardingTests
     [Test]
     public async Task DisconnectDuringLyricsWriteReplaysBothMessagesOnNextConnection()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "LyricsDisplayerTests", Guid.NewGuid().ToString("N"));
-        try
-        {
-            using var logger = new SessionFileLogger(directory);
-            var buffer = new LatestMessageBuffer("playbackSnapshot", "lyricsSnapshot");
-            buffer.Publish("playbackSnapshot", "current playback");
-            buffer.Publish("lyricsSnapshot", "current lyrics");
-            buffer.Complete();
-            var factory = new Factory();
-            var forwarder = new ReconnectingMessageForwarder(factory, new ImmediateDelay(),
-                TimeSpan.FromSeconds(5), logger, buffer);
-            await forwarder.RunAsync(buffer.Reader, CancellationToken.None);
-            Assert.That(factory.Attempts, Is.EqualTo(2));
-            Assert.That(factory.Delivered, Is.EqualTo(new[] { "current playback", "current lyrics" }));
-        }
-        finally { Directory.Delete(directory, true); }
+        var buffer = new LatestMessageBuffer("playbackSnapshot", "lyricsSnapshot");
+        buffer.Publish("playbackSnapshot", "current playback");
+        buffer.Publish("lyricsSnapshot", "current lyrics");
+        buffer.Complete();
+        var factory = new Factory();
+        var forwarder = new ReconnectingMessageForwarder(factory, new ImmediateDelay(),
+            TimeSpan.FromSeconds(5), NullLogger<ReconnectingMessageForwarder>.Instance, buffer);
+        await forwarder.RunAsync(buffer.Reader, CancellationToken.None);
+        Assert.That(factory.Attempts, Is.EqualTo(2));
+        Assert.That(factory.Delivered, Is.EqualTo(new[] { "current playback", "current lyrics" }));
     }
 
     private sealed class Factory : IMessageConnectionFactory

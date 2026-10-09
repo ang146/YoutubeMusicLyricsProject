@@ -19,25 +19,3 @@ public sealed record OverlayInteractionState(
     public bool CanDragOnLyrics => !Locked;
     public bool CanResize => !ClickThrough;
 }
-
-public enum OverlayCommand
-{
-    OpenControlPanel,
-    OpenLrcExternally,
-    OpenBuiltInEditor,
-    ToggleLocked,
-    ToggleClickThrough,
-    SetOneLine,
-    SetTwoLines,
-    SetAllLyrics,
-    AdjustCurrentLineMinus500,
-    AdjustCurrentLineMinus100,
-    AdjustCurrentLinePlus100,
-    AdjustCurrentLinePlus500,
-    AdjustGlobalMinus500,
-    AdjustGlobalMinus100,
-    ResetGlobalTiming,
-    AdjustGlobalPlus100,
-    AdjustGlobalPlus500,
-    Hide
-}

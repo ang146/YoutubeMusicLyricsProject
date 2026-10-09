@@ -2,13 +2,13 @@
 
 Milestone 11 introduces a built-in, single-track lyrics editing workspace. The editor is a modal dialog owned by `LyricsDisplayer.App`; it edits one fixed local track at a time and reuses the local-first LRC/sidecar authority established by earlier milestones.
 
-The editor is not a playback surface and playback is not allowed to mutate editor state. It may read current playback position only when the user invokes an explicit editor command such as **Set Current Playback Time**.
+The editor is not a playback surface and playback is not allowed to move editor selection or silently switch the editor document. Playback may supply current time to explicit authoring actions such as **Set Time**, and the editor may show a non-mutating live playback/current-lyric indicator.
 
 ## Current implementation notes (accepted M11 foundation)
 
-The M11 implementation adds a WPF modal dialog, a shared application-scoped `EditorCommand` for Control Panel and overlay entry points, and a WPF-independent editor document/buffer in `LyricsDisplayer.Core`. The document stores ordered physical lines with their original line endings; unchanged entries serialize from their original text, while edited/new lyric rows serialize from structured text and timestamp occurrences. Recognized metadata lines remain hidden but preserved. Every other physical line—including blank lines and unknown or malformed content—is an editor row; unknown or malformed content carries advisory diagnostics where applicable and remains unchanged unless edited.
+The M11 implementation adds a WPF modal dialog, shared application command entry points, and a WPF-independent editor document/buffer in `LyricsDisplayer.Core`. M12 generalizes app-wide command construction behind shared `RelayCommand` / `AsyncRelayCommand` and `ICommandFactory` infrastructure. The document stores ordered physical lines with their original line endings; unchanged entries serialize from their original text, while edited/new lyric rows serialize from structured text and timestamp occurrences. Recognized metadata lines remain hidden but preserved. Every other physical line—including blank lines and unknown or malformed content—is an editor row; unknown or malformed content carries advisory diagnostics where applicable and remains unchanged unless edited.
 
-The editor loads the current authoritative disk LRC (not the runtime last-known-good snapshot), and uses `LyricsLibrary` content hashes plus guarded atomic replacement for saves. A clean editor reloads external changes; dirty conflicts retain the buffer and offer reload, overwrite, or cancel. LRC and portable sidecar files are watched while the dialog is open, and save still performs a content-identity check if notifications are missed. The application close path asks the dialog to resolve its dirty state before shutdown. The dialog is owned by the Control Panel even when that window is hidden, so opening from the overlay does not show the Control Panel; the overlay itself is not made the modal owner. The overlay is Topmost whenever visible during normal operation, with only an explicit editor-modal suppression state temporarily lowering it. Legacy `overlay.topmost` settings are ignored and removed the next time settings are saved. Suppression is released only after `ShowDialog()` returns, so a cancelled close attempt leaves the editor above the overlay. On fatal or accepted application shutdown it remains suppressed until overlay teardown, avoiding a late Z-order raise during exit.
+The editor loads the current authoritative disk LRC (not the runtime last-known-good snapshot), and uses `LyricsLibrary` content hashes plus guarded atomic replacement for saves. A clean editor reloads external changes; dirty conflicts retain the buffer and offer reload, overwrite, or cancel. LRC and portable sidecar files are watched while the dialog is open, and save still performs a content-identity check if notifications are missed. The application close path asks the dialog to resolve its dirty state before shutdown. The dialog is owned by the ordinary Main Lyrics Window even when that window is hidden, so opening from the overlay does not force the Main Lyrics Window visible; the overlay itself is not made the modal owner. The overlay is Topmost whenever visible during normal operation, with only an explicit editor-modal suppression state temporarily lowering it. Legacy `overlay.topmost` settings are ignored and removed the next time settings are saved. Suppression is released only after `ShowDialog()` returns, so a cancelled close attempt leaves the editor above the overlay. On fatal or accepted application shutdown it remains suppressed until overlay teardown, avoiding a late Z-order raise during exit.
 
 Validation is advisory: malformed timestamp text remains visible/editable, is listed in diagnostics, and does not disable Save. Cross-row chronology is validated independently per timestamp occurrence lane, while within-row occurrences are checked in displayed order. The grid exposes existing timestamp occurrences plus a spare editable occurrence column up to the current five-occurrence authoring limit; dedicated add/remove/reorder occurrence commands remain future work. Selected-cell Delete clears only that logical value through the editor command/Undo system, and timestamp edits normalize only when edit mode commits. Runtime reload remains the existing M10 watcher’s responsibility.
 
@@ -16,11 +16,11 @@ M11 is manually accepted. Real authoring was exercised across multiple songs, in
 
 ## Entry points and shared command
 
-Opening the editor is an application command, not Control Panel-specific UI logic. Any user surface may invoke the same command when the current local track is editable.
+Opening the editor is an application command, not Main Lyrics Window-specific UI logic. Any user surface may invoke the same command when the current local track is editable.
 
 Initial/future entry points include:
 
-- current MainWindow / future Main Lyrics Window
+- Main Lyrics Window
 - Desktop Lyrics Overlay context menu
 - future Media Controller surface
 - other explicit application surfaces added later
@@ -35,7 +35,7 @@ Built-in Editor Dialog
 
 Each surface binds to the same command and command-state rules. No surface owns editor business logic.
 
-Only one built-in editor dialog is active at a time. It is modal relative to the application's ordinary MainWindow/owner window so a forgotten background editor cannot silently coexist with another editing session. Playback, NativeHost communication, the overlay, and the playback clock continue while the dialog is open.
+Only one built-in editor dialog is active at a time. It is modal relative to the application's ordinary Main Lyrics Window/owner window so a forgotten background editor cannot silently coexist with another editing session. Playback, NativeHost communication, the overlay, and the playback clock continue while the dialog is open.
 
 ## Fixed editor track
 
@@ -58,12 +58,12 @@ Playback Current Line ≠ Editor Selected Line
 
 The user may edit the final lyric row while playback is at the beginning of the song. Playback progression may provide non-mutating visual information if useful, but it must never move the editor selection or edit the buffer.
 
-## Playback-assisted timestamp command
+## Playback-assisted timestamp authoring
 
 The editor may read `PlaybackClock.Position` through one explicit row command:
 
 ```text
-SetCurrentPlaybackTimeCommand
+SetTimeCommand
 ```
 
 The command is enabled only when the currently playing track identity matches the fixed `EditorTrack`. If playback switches to another track, the editor remains fully usable but this command is disabled. Switching playback back to the editor's track re-enables it.
@@ -79,7 +79,35 @@ The command adds the current playback position to the selected lyric row using t
 5 existing timestamps -> CanExecute = false
 ```
 
-Five timestamp occurrences per lyric row is the agreed editor UI limit for this command. Existing source data with more occurrences must still be preserved losslessly even if the initial UI cannot add beyond five. Editing/replacing an existing timestamp remains a normal cell edit rather than a separate playback command. Do not split this workflow into separate **Set Current Time** and **Add Current Time** commands.
+Five timestamp occurrences per lyric row is the agreed editor UI limit for this command. Existing source data with more occurrences must still be preserved losslessly even if the initial UI cannot add beyond five. Editing/replacing an existing timestamp remains a normal cell edit rather than a separate playback command. The compact UI label is **Set Time**. Do not split this workflow into separate overwrite/add commands.
+
+## M12 timing-authoring workflow
+
+M12 Task 6 makes the editor the full-document timing-authoring surface. Separate shared lyrics-surface menu commands retain quick playback timing adjustments for listening-time corrections.
+
+The compact timing area contains:
+
+```text
+00:27.137 | current lyric text
+
+Shift All Timestamps
+[-0.5s] [-0.1s] [+0.1s] [+0.5s]
+
+Selected Line
+[-0.5s] [-0.1s] [+0.1s] [+0.5s]
+
+[Set Time]
+```
+
+`Shift All Timestamps` modifies timestamp occurrences directly in the current `EditorDocument`. One click is one logical Undo/Redo unit and marks the document dirty; normal Save persists the result and Discard restores the saved state.
+
+`Selected Line` is row-oriented. Selecting anywhere on an editor row is sufficient, and the chosen delta applies to all timestamp occurrences on that row. It does not require an exact timestamp-cell selection. Playback current lyric and editor selection remain independent; playback must never move the DataGrid selection.
+
+Negative shifts retain the existing atomic safety rule. Ordinary timestamp occurrences are not silently clamped to zero. Exact-zero blank/whitespace or explicit semantic-break anchors may remain protected under the narrow established rule; another invalid negative occurrence still rejects the operation.
+
+The live playback line uses the fixed editor track and the editor's current in-memory lyric text. Committed unsaved text edits are reflected immediately. When playback identity does not match the editor track, the UI must not display a misleading editor lyric as though it were current.
+
+The editor has no runtime timing offset or Reset workflow. Timing corrections here are ordinary editor-buffer changes; no migration/compatibility machinery for superseded pre-release timing state should be added unless explicitly requested.
 
 ## Manual timestamp input
 
@@ -179,7 +207,7 @@ InsertRowAboveCommand
 InsertRowBelowCommand
 AppendRowCommand
 DeleteRowCommand
-SetCurrentPlaybackTimeCommand
+SetTimeCommand
 UndoCommand
 RedoCommand
 SaveCommand
@@ -190,7 +218,7 @@ Commands expose appropriate `CanExecute` state. For example, row-relative comman
 A row context menu should expose the same operations as other bindings, for example:
 
 ```text
-Set Current Playback Time
+Set Time
 --------------------
 Insert Row Above
 Insert Row Below
@@ -304,7 +332,7 @@ untimed local LRC
 → open Built-in Editor
 → select row
 → play song to desired moment
-→ Set Current Playback Time
+→ Set Time
 → Enter to next row
 → repeat
 → Save
@@ -335,16 +363,19 @@ The editor must not create a second metadata authority by silently writing these
 
 ## Timing-adjustment UI ownership
 
-The M8 timing engine remains independent of editor presentation, but the agreed target desktop UI places all user-facing timing authoring inside the Built-in Lyrics Editor rather than the ordinary Main Lyrics Window or Desktop Lyrics Overlay. This includes:
+Full-document timing authoring belongs to the Built-in Lyrics Editor. The ordinary Main Lyrics Window and Desktop Lyrics Overlay also provide shared Current Line and All Lyrics timing quick adjustments in their context menus. Those actions persist changes directly to the active authoritative local LRC and are not Editor-document authoring controls.
+
+The current editor model is:
 
 ```text
-GlobalOffsetMs -0.5 / -0.1 / Reset / +0.1 / +0.5
-Bake into LRC
-Current-line / exact-occurrence timing adjustment
-playback-assisted timestamp assignment
+Shift All Timestamps
+Selected Line
+Set Time
 ```
 
-The existing M8/M9 MainWindow and overlay quick-action controls are legacy surfaces until this relocation is implemented; moving the UI must reuse the existing safe timing coordinator/storage semantics rather than inventing a second timing model. Playback current line remains distinct from editor selection, so any current-playback timing action must make its target identity explicit and must not silently retarget the editor selection.
+Whole-document and selected-row shifts directly edit the editor buffer and participate in dirty/Undo/Redo/Save/Discard. `Set Time` reads playback position only when playback identity matches the fixed editor track and appends into the first free T1–T5 slot. Playback current lyric remains distinct from editor selection.
+
+There is no runtime offset or Reset workflow. Shared context-menu quick adjustments and Editor-document authoring reuse the same timestamp mutation rules but have separate orchestration: quick actions save the active LRC immediately, while Editor actions remain in-memory and participate in Editor undo history until Save/Discard.
 
 ## Modal lifecycle
 
@@ -355,7 +386,7 @@ While open:
 - playback and `PlaybackClock` continue
 - NativeHost/browser communication continues
 - the desktop overlay continues updating normally
-- the current MainWindow/future Main Lyrics Window cannot open another editor instance
+- the Main Lyrics Window cannot open another editor instance
 - the editor remains pinned to its own track even if playback changes
 - the editor dialog must remain visually above the normally Topmost Desktop Lyrics Overlay
 
@@ -379,7 +410,7 @@ Required foundation:
 - zero/multiple-timestamp-capable model
 - insert above / insert below / append / delete
 - no synthetic timestamps for new rows
-- Set Current Playback Time with track-identity safety
+- Set Time with track-identity safety
 - spreadsheet-style navigation
 - command-driven buttons/context menu/keyboard bindings
 - undo/redo

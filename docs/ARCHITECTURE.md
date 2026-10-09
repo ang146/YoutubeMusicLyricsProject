@@ -62,6 +62,7 @@ LyricsDisplayer/
 │  ├─ install-native-host.ps1
 │  └─ uninstall-native-host.ps1
 │
+├─ AGENTS.md
 ├─ README.md
 └─ .gitignore
 ```
@@ -176,17 +177,17 @@ Long-term responsibilities include:
 * Querying remote lyrics providers.
 * Performing automatic and manual lyrics searches.
 * Saving imported lyrics locally.
-* Applying timing offsets.
+* Authoring and applying lyric timing corrections.
 * Rendering desktop lyrics.
 * Providing lyrics editing functionality.
 * Managing application preferences.
 * Maintaining application logging.
 
-Through Milestone 11, the application still retains its legacy diagnostic/control-panel MainWindow but now owns the complete local-first authoring path: local persistence and SQLite indexing, timeline/overlay presentation, timing adjustment and safe bake, overlay interaction, external LRC reload, and an accepted built-in editor with structured LRC round-tripping, metadata overrides, multi-timestamp authoring, advisory validation, undo/redo, flexible timestamp input, and command-based cell/row editing. Storage, indexing, timeline selection, editor state, overlay presentation mapping, interaction state, settings parsing, geometry validation, and file-change coordination live outside WPF visual code. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md), and [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). Deferred cross-cutting features and the revised post-M11 roadmap are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
+The M12 integration gives the application a complete local-first authoring path and presents a full-document Main Lyrics Window alongside the Desktop Lyrics Overlay, plus a dedicated Settings shell with a live Debug diagnostics page. The shared lyrics presentation state feeds both lyrics surfaces, while timeline selection, editor state, overlay interaction, settings navigation, geometry validation, file-change coordination, and diagnostics remain outside WPF visual code. The Main Lyrics Window follows the semantic current line, supports temporary manual-scroll override, hides scrollbar chrome while retaining scrolling, and shows effective title/artist metadata. Its `MainWindow` shell composes separate header, lyrics, and status views that inherit the same ViewModel. Settings and Main/Overlay context menus likewise keep surface-specific views/actions over shared services. `ILyricsTimingAdjustmentService` owns reusable immutable document mutation rules; the Editor uses it for undoable in-memory edits, while `ICurrentLyricsTimingService` persists quick Current Line and All Lyrics corrections to the active authoritative local LRC and reloads presentation. The Built-in Lyrics Editor retains full-document authoring and dirty/undo/redo/save/discard semantics. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md), and [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). Deferred cross-cutting features and the revised roadmap are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
 
 ### User-Facing Window Roles
 
-The target desktop UI separates ordinary lyrics reading, desktop-overlay presentation, media transport, editing, and settings/debugging into distinct surfaces. The existing `MainWindow`/Control Panel is the implementation predecessor of the future Main Lyrics Window; it should evolve toward that role rather than becoming a permanent diagnostics dashboard.
+The desktop UI separates ordinary lyrics reading, desktop-overlay presentation, media transport, editing, and settings/debugging into distinct surfaces. The existing `MainWindow` is the Main Lyrics Window: a normal, non-Topmost full-document reading surface rather than a diagnostics dashboard.
 
 Conceptually:
 
@@ -215,10 +216,11 @@ LyricsDisplayer.App
 │  ├─ modal single-track editing workspace
 │  └─ owner of lyrics timing-adjustment UI
 │
-├─ Settings Window (future restructuring)
+├─ Settings Window
 │  ├─ left-side section navigation
-│  ├─ one independent page at a time on the right
-│  └─ Debug page for transport/library/raw-data diagnostics and log access
+│  ├─ one independent page view at a time on the right
+│  ├─ General / Lyrics Overlay / Lyrics Window / Media Controller / Editor / Debug
+│  └─ live Debug diagnostics for track/storage/transport/playback/lyrics/log/raw JSON state
 │
 └─ System Tray
    ├─ open the Main Lyrics Window
@@ -228,13 +230,15 @@ LyricsDisplayer.App
 
 The Main Lyrics Window is intentionally different from the overlay's existing `AllLyrics` mode. The Main Lyrics Window is the complete lyrics-reading surface and should expose the full lyrics document without a content-mode selector. The overlay's `AllLyrics` mode remains a bounded contextual viewport around the current timeline occurrence.
 
-The Main Lyrics Window should remain a normal non-Topmost window. Users who want lyrics permanently above other applications use the Desktop Lyrics Overlay; users who prefer an ordinary window can leave the overlay hidden and use the Main Lyrics Window instead.
+The Main Lyrics Window remains a normal non-Topmost window. Users who want lyrics permanently above other applications use the Desktop Lyrics Overlay; users who prefer an ordinary window can leave the overlay hidden and use the Main Lyrics Window instead.
 
-Settings are not intended to be one long anchor-scrolled page. Selecting a section in the left navigation replaces the right-hand page. Planned sections include General, Lyrics Overlay, Lyrics Window, Media Controller, Editor, and Debug. Developer-oriented data such as `LocalTrackId`, library/index paths, raw playback/lyrics JSON, provider/source diagnostics, and log/crash-report access belongs under Debug rather than the Main Lyrics Window.
+For timed lyrics, the Main Lyrics Window follows semantic current-line changes rather than every playback tick. The current line is centered where document bounds permit. Explicit user scrolling temporarily suspends auto-follow; after roughly five seconds without further manual scrolling the then-current lyric is centered again. Scrollbar chrome is hidden but scrolling remains enabled. Future Lyrics Window preferences may allow true edge-centering with viewport whitespace and alternative long-title overflow behaviour such as ellipsis, slow pan, or continuous marquee.
 
-Track title/artist, playback position/state, and transport controls belong to the future Media Controller rather than the Main Lyrics Window. Existing timing-adjustment controls are also planned to move out of the Main Window/overlay quick-action UI and into the Built-in Lyrics Editor; the underlying M8 timing semantics remain unchanged.
+The Settings shell is implemented as a fixed left navigation area with one independent page view on the right. Sections are General, Lyrics Overlay, Lyrics Window, Media Controller, Editor, and Debug. Each section owns its own view under `Views/Settings/`; `SettingsWindow` is only the shell/host. Developer-oriented data such as `LocalTrackId`, library/index paths, transport/playback/lyrics-provider state, prettified raw playback/lyrics JSON, and log/crash-report access lives under Debug rather than the Main Lyrics Window.
 
-The current close-to-tray implementation may continue to refer to the Control Panel/MainWindow until the UI restructuring is implemented. Its target semantics are simply to hide the Main Lyrics Window while background services, overlay, tray, and hotkeys remain active; Tray Exit remains the explicit application shutdown path.
+The Main Lyrics Window may show compact effective title/artist metadata in its header, but richer playback position/state and transport controls belong to the future Media Controller. Timing authoring is now owned by the Built-in Lyrics Editor. Whole-document and selected-row shifts edit `EditorDocument` timestamps directly; `Set Time` appends the current playback time into the first free timestamp lane when playback matches the fixed editor track. Playback current line remains independent from editor selection.
+
+The close-to-tray preference hides the Main Lyrics Window while background services, overlay, tray, and hotkeys remain active; Tray Exit remains the explicit application shutdown path.
 
 ### Shared application commands and entry points
 
@@ -248,9 +252,23 @@ OpenBuiltInEditorCommand
 Built-in Editor Dialog
 ```
 
-The current MainWindow/Control Panel and Desktop Lyrics Overlay context menu may both expose this command, and the future Main Lyrics Window and Media Controller should reuse the same command. Opening the editor is therefore not tied to any one surface. The same principle applies to editor row actions: toolbar/buttons, context menus, and keyboard bindings should route to the same editor commands.
+The Main Lyrics Window and Desktop Lyrics Overlay context menu both expose this command; a future Media Controller should reuse the same command. Opening the editor is therefore not tied to any one surface. The same principle applies to editor row actions: toolbar/buttons, context menus, and keyboard bindings should route to the same editor commands.
 
-Command identity and command execution are separate from input bindings. This separation allows future user-configurable hotkeys without rewriting feature logic. Global/application/editor shortcut scopes may be introduced later; Milestone 11 only needs the editor command/binding architecture described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+Command identity and command execution are separate from input bindings. The shared App command infrastructure owns a feature-independent `CommandScope` (`Global`, `Application`, or `Editor`); Core does not own WPF/application command scope concepts. This separation allows future user-configurable hotkeys without rewriting feature logic. See the editor command/binding architecture described in [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md).
+
+### Application composition, ViewModels, and commands
+
+`App.xaml` does not use `StartupUri`. `App.xaml.cs` creates one `ApplicationCompositionRoot`, initializes it, and asks it for the root `MainWindow`. The root owns a Unity container, registrations, lifetimes, and root resolution. The application does not use the Generic Host. Ordinary windows, ViewModels, and services receive dependencies through constructors; Unity `Resolve<T>()` stays inside the composition root and focused factories.
+
+The long-lived registrations include the existing `SessionFileLogger` backend and its shared Microsoft logging provider, an open-generic Unity registration for `ILogger<T>`, application lifetime state, settings store, lyrics library, playback coordinator, Named Pipe server, overlay controller, command factory/exception handler, and the Settings service. App and NativeHost use the same logging abstraction/provider while retaining separate App, NativeHost, and Firefox Extension log directories. Crash reports remain a separate fatal-reporting destination. The Settings ViewModel and its Debug page ViewModel are shared for the lifetime of the Settings service so diagnostics and selected-section state survive closing and reopening the one managed Settings window. The overlay controller creates and retains its WPF view lazily. WPF windows are not registered as application-wide singletons.
+
+Each application-level ViewModel exposes a meaningful consumer contract (`IMainLyricsViewModel`, `ISettingsViewModel`, `IDebugSettingsPageViewModel`, or `IBuiltInLyricsEditorViewModel`). Parent Views and consumers use those contracts rather than concrete ViewModel implementations. `ViewModelBase` has only a logger-requiring constructor and exposes it as protected `Logger`; concrete ViewModels receive `ILogger<ConcreteViewModel>` and pass that instance to the base, preserving its concrete logging category. Lightweight observable item/row projections derive from `ObservableObjectBase`, which provides notifications without a logger. `EditableViewModelBase` also requires and forwards the concrete ViewModel logger.
+
+Runtime factories are used where construction needs session-specific values or must preserve managed UI lifecycles: the editor factory accepts the fixed `LocalTrackRecord` and builds a modal editor session; the Settings factory recreates a closed window while the Settings service preserves its one-window behavior; the overlay view factory supports the controller's lazy view lifetime; and hotkey, tray, and active-LRC watcher factories accept HWNDs, callbacks, paths, and fingerprints that are only known at runtime. The Main Lyrics ViewModel factory creates its application-scoped commands using callbacks owned by the resolved Main Window. Simple records and document row projections remain local constructions instead of receiving factories without a lifecycle need.
+
+Application commands are created through `ICommandFactory`. `RelayCommand` and `AsyncRelayCommand` expose stable command identity and explicit `RaiseCanExecuteChanged()` invalidation; they do not depend on global `CommandManager` requery. The async implementation is non-reentrant, exposes `IsExecuting`, and disables itself until completion. Command failures are logged and passed to `IExceptionHandler`: recoverable failures are presented without closing the application, while explicitly fatal failures are rethrown to the existing WPF/AppDomain fatal boundary. Fatal crash reports remain separate from ordinary command error presentation and continue using the existing crash-report service.
+
+ViewModel unit tests instantiate the concrete type with substitutes or `NullLogger<T>` when logging is not under test. Tests of consumers substitute the relevant `IXxxViewModel` contract without starting Unity. A focused composition smoke test resolves the production nonvisual service/ViewModel graph and verifies arbitrary `ILogger<T>` resolution/category using the same registrations as startup. App tests are grouped broadly by production ownership.
 
 ### Desktop overlay window-state invariant
 
@@ -264,7 +282,7 @@ The renderer keeps these concerns separate:
 Lyrics state → Content mode → Layout style → Appearance → Optional karaoke animation → WPF visuals
 ```
 
-Milestone 9 overlay content modes describe quantity: `OneLine`, `TwoLines`, and `AllLyrics`. These modes belong to the Desktop Lyrics Overlay. The future Main Lyrics Window does not expose this selector and instead remains a full-document All Lyrics reading surface. Overlay `Left`, `Top`, `Width`, and `Height` are persistent window geometry independent of content mode; switching modes never resizes the window. `AllLyrics` is a contextual multi-line viewport around the exact current timeline occurrence, not a rendering of the whole lyrics document. Its nearby past/upcoming lines fit the available geometry; it does not use a scrollbar. The current layout is `CenterStacked`. A future `KaraokeAlternating` layout may use the same `TwoLines` content mode with different positioning; karaoke is not a line-count mode.
+Milestone 9 overlay content modes describe quantity: `OneLine`, `TwoLines`, and `AllLyrics`. These modes belong to the Desktop Lyrics Overlay. The Main Lyrics Window does not expose this selector and instead presents the full document as a reading surface. Overlay `Left`, `Top`, `Width`, and `Height` are persistent window geometry independent of content mode; switching modes never resizes the window. `AllLyrics` is a contextual multi-line viewport around the exact current timeline occurrence, not a rendering of the whole lyrics document. Its nearby past/upcoming lines fit the available geometry; it does not use a scrollbar. The current layout is `CenterStacked`. A future `KaraokeAlternating` layout may use the same `TwoLines` content mode with different positioning; karaoke is not a line-count mode.
 
 Presentation lines carry semantic roles such as Past, Current, Upcoming, and Status. In All Lyrics, viewport selection is separate from timeline semantics and follows the strict sequence `Current, Upcoming +1, Previous -1, Upcoming +2, Previous -2, ...`. Current is mandatory when one exists. Fitting may select only a prefix of this sequence; measurement decides visible count, while semantic priority decides line identity. If a candidate does not fit, selection stops rather than scanning for a shorter lower-priority replacement. Selected rows are sorted into normal document order only after fitting. Out-of-range neighbours are omitted from the sequence, so at the start available Upcoming rows fill the viewport and near the end available Past rows can. Resizing immediately rebuilds this bounded contextual subset. No scrollbar, persistent scroll position, or full-document visual tree is used.
 
@@ -274,7 +292,7 @@ The overlay remains a presentation surface over application state rather than ac
 
 ### Future Media Controller and playback controls
 
-The future Media Controller is an independent application surface rather than content owned by the overlay. It may be shown/hidden independently and optionally dock beside the Desktop Lyrics Overlay on the left or right while remaining a separate window/lifecycle. Potential controls include current track title and artist, elapsed time, duration, Previous, Play/Pause, Next, a seekable progress bar when the matched source supports seeking, and explicit application actions such as **Open Built-in Editor**. Editor opening must invoke the same shared application command used by the Main Lyrics Window/current MainWindow and overlay context menu; the Media Controller must not own a separate editor path. Previous and Next refer only to transport buttons; do not show previous-track or next-track metadata. This controller and its transport commands are not implemented.
+The future Media Controller is an independent application surface rather than content owned by the overlay. It may be shown/hidden independently and optionally dock beside the Desktop Lyrics Overlay on the left or right while remaining a separate window/lifecycle. Potential controls include current track title and artist, elapsed time, duration, Previous, Play/Pause, Next, a seekable progress bar when the matched source supports seeking, and explicit application actions such as **Open Built-in Editor**. Editor opening must invoke the same shared application command used by the Main Lyrics Window and overlay context menu; the Media Controller must not own a separate editor path. Previous and Next refer only to transport buttons; do not show previous-track or next-track metadata. This controller and its transport commands are not implemented.
 
 Display state should primarily reuse Lyrics Displayer's existing playback model (title, artist, duration, playback position, and playing/paused state). Commands belong to a future provider-independent `MediaControlService`. Do not assume Windows `GetCurrentSession()` identifies the YouTube Music session Lyrics Displayer is tracking. The future implementation should enumerate `GlobalSystemMediaTransportControlsSessionManager.GetSessions()` and attempt to match the tracked playback source using multiple signals such as source-application identity, media title, artist, duration, playback position, and playback state. No single weak signal is authoritative.
 
@@ -287,6 +305,8 @@ Seek is a desired future command: a drag requests playback-position change throu
 ## 3.4 LyricsDisplayer.Core
 
 Core contains application-domain types and logic that are not tied to WPF, Firefox or a particular transport.
+
+Core also contains the rotating `SessionFileLogger` backend and generic Microsoft logging provider as shared non-WPF infrastructure. App and NativeHost services use typed loggers rather than writing directly to the backend.
 
 Examples of future domain types include:
 
@@ -689,7 +709,6 @@ Potential portable metadata includes:
 * source information
 * source track metadata
 * user-defined title/artist overrides
-* global timing offset
 * user-modified state
 * source version or hash information
 
@@ -811,31 +830,40 @@ Milestone 5 introduces the first concrete SQLite schema and library rebuild/sync
 
 # 13. Lyrics Timing Adjustment
 
-Milestone 8 supports per-local-track operations:
+Lyrics timing corrections are persisted directly as LRC timestamp edits. The Built-in Lyrics Editor remains the full-document authoring surface; lyrics-surface quick actions persist the exact current occurrence or every timestamp immediately.
 
-* -0.5 seconds
-* -0.1 seconds
-* +0.1 seconds
-* +0.5 seconds
-* reset
-
-Timing adjustment is non-destructive by default. `GlobalOffsetMs` is stored in the portable sidecar and is loaded as zero when the optional field is absent. Positive values make lyrics happen later and negative values make them happen earlier.
-
-Example:
+Current timing authoring is document-based:
 
 ```text
-GlobalOffsetMs = -500
+Shift All Timestamps
+[-0.5s] [-0.1s] [+0.1s] [+0.5s]
+
+Selected Line
+[-0.5s] [-0.1s] [+0.1s] [+0.5s]
+
+Set Time
 ```
 
-The original LRC timestamps remain unchanged while the existing timeline evaluates `PlaybackPositionMs - GlobalOffsetMs`. `PlaybackClock` itself remains the unadjusted media clock.
+**Shift All Timestamps** directly adjusts applicable timestamp occurrences in the current `EditorDocument`. One button press is one Undo/Redo unit, marks the document dirty, updates live preview/runtime state through the existing editor/reload path, and is persisted only by the normal Save operation. **Selected Line** uses the manually selected editor row, not the playback-current lyric; selecting anywhere on the row is sufficient and the shift applies to all timestamp occurrences on that row. Playback must never move editor selection.
 
-An explicit, confirmed Bake operation can apply the offset to every valid raw LRC timestamp token and then reset the sidecar value to zero. The rewriter preserves unrelated physical LRC content and rejects negative or overflowing results before committing either file. The LRC and sidecar are prepared through same-directory temporary files; failure after the first replacement triggers a best-effort restoration of the original LRC.
+Negative whole-document/row shifts retain the established atomic safety rule: the operation must not silently clamp ordinary timestamps. Exact `00:00.000` occurrences on intrinsic blank/whitespace lines or configured/default semantic break markers may remain anchored at zero when the existing semantic rule permits it; any other invalid negative result rejects the operation as a whole.
 
-Silent destructive rewriting is not acceptable.
+**Set Time** is playback-assisted authoring. It is enabled only when playback identity matches the fixed editor track and appends the current playback position to the first free timestamp lane:
 
-A persistent correction requires an authoritative local timed lyrics document. Controls remain disabled for pending, untimed, unavailable, or runtime-only results. SQLite does not store the offset. See [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md) for the implemented contract and safety details.
+```text
+0 timestamps -> T1
+1 timestamp  -> T2
+2 timestamps -> T3
+3 timestamps -> T4
+4 timestamps -> T5
+5 timestamps -> disabled
+```
 
-The Milestone 8 Current Line follow-up is deliberately different: its explicit ±0.1/±0.5-second buttons directly edit only the current local LRC timestamp occurrence. Local parsing retains exact source locations and a loaded-content hash for safe targeting and stale-file rejection. Negative timestamps and crossings of adjacent starts are rejected; equal starts remain deterministic. The sidecar/global offset is unchanged, no per-line offsets are stored, and a successful save rebuilds the current timeline immediately. This is not a full editor; the active-file watcher is added separately in Milestone 10.
+It never overwrites an existing occurrence. The editor also shows a compact live playback line such as `00:27.137 | lyric text`; the displayed lyric reflects the current in-memory editor text, including committed unsaved edits, while remaining independent from DataGrid selection.
+
+There is no runtime timing-offset or Reset model. Surface quick corrections are immediate writes to the authoritative LRC; Editor-document changes remain reviewable, undoable, discardable, and saved through the normal Editor workflow. This project is still pre-release; do not add migration/compatibility machinery for superseded development-state timing data unless explicitly required.
+
+See [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md) for the focused contract.
 
 ## 13.1 Explicit Break Markers and Future Karaoke Presentation
 
@@ -849,7 +877,7 @@ The preferred portable representation is a normal timed LRC line using the defau
 [00:13.000]♪
 ```
 
-Blank/whitespace lyric text is intrinsically semantic-empty. `♪` is the current default explicit marker. A later preference may let the user define additional trim-and-exact-match marker strings; those preferences classify existing lyric text at runtime and do not rewrite the authoritative LRC. Shared classification should be reused by Bake safety, break-aware rendering, and preparation-cue logic instead of giving each feature its own hard-coded marker list.
+Blank/whitespace lyric text is intrinsically semantic-empty. `♪` is the current default explicit marker. A later preference may let the user define additional trim-and-exact-match marker strings; those preferences classify existing lyric text at runtime and do not rewrite the authoritative LRC. Shared classification should be reused by negative timestamp-shift safety, break-aware rendering, and preparation-cue logic instead of giving each feature its own hard-coded marker list.
 
 This line semantically means:
 
@@ -1018,7 +1046,7 @@ Playback may provide current time to an explicit editor command.
 Playback must not move selection, switch the editor document, or mutate the editor buffer.
 ```
 
-The editor is pinned to the `LocalTrackId` it was opened for. Playback may switch to other tracks while the modal dialog remains open; this never closes, switches, saves, discards, or prompts the editor. **Set Current Playback Time** is enabled only while the current playback track matches the fixed editor track. The command is row-oriented: it appends the current playback position into the first free timestamp slot, up to five UI-managed occurrences; with five existing timestamps its `CanExecute` is false. Existing source data with more occurrences must still round-trip losslessly.
+The editor is pinned to the `LocalTrackId` it was opened for. Playback may switch to other tracks while the modal dialog remains open; this never closes, switches, saves, discards, or prompts the editor. **Set Time** is enabled only while the current playback track matches the fixed editor track. The command is row-oriented: it appends the current playback position into the first free timestamp slot, up to five UI-managed occurrences; with five existing timestamps its `CanExecute` is false. Existing source data with more occurrences must still round-trip losslessly.
 
 The editor uses a structured `EditorDocument`, not a simple list of timestamp/text pairs. It preserves ordered physical LRC structure, existing multi-timestamp lines, stable editor-row identity, validation diagnostics, dirty state, and undo/redo history. Recognized metadata may be hidden from the lyric grid but remains preserved; every other physical line, including blank, unknown, and malformed content, maps to one editor row. A lyric row supports zero or more timestamps from the beginning. Document order remains user-controlled and is never silently resorted by timestamp.
 
@@ -1029,7 +1057,7 @@ Insert Row Above
 Insert Row Below
 Append Row
 Delete Row
-Set Current Playback Time
+Set Time
 Undo
 Redo
 Save
@@ -1209,6 +1237,8 @@ The expected retry frequency is approximately once every 5 seconds, so this logg
 
 NativeHost stdout must never contain normal log text.
 
+NativeHost and Firefox Extension diagnostics use Microsoft logging abstractions backed by the shared non-WPF `SessionFileLoggerProvider`. They keep separate sinks under `Logs/NativeHost/` and `Logs/FirefoxExtension/`; sharing the abstraction does not merge their destinations.
+
 ## 15.7 Windows App Logging
 
 Application logs belong under:
@@ -1228,6 +1258,10 @@ Useful entries include:
 * application shutdown
 
 Avoid repeatedly writing full lyrics payloads to logs during normal operation.
+
+App and NativeHost use standard Microsoft logging abstractions adapted by the shared non-WPF provider to the existing rotating `SessionFileLogger`; they do not create a second storage system. Typed loggers resolve through Unity's open-generic `ILogger<T>` registration. ViewModels and important services receive category-specific `ILogger<T>` through constructor injection. `SessionFileLogger` is only the backend/provider sink; ordinary App/NativeHost services do not write through it directly. Meaningful lifecycle, command, operation, and state-transition events are logged; high-frequency playback ticks, every `PropertyChanged`, and every renderer refresh are not.
+
+Commands are created through the shared command factory and route execution failures through recoverable application exception handling. The global fatal reporter remains the last-resort boundary rather than the normal error path for recoverable command/service failures.
 
 ## 15.8 Application Fatal Exception Reporting
 
@@ -1451,31 +1485,22 @@ The overlay should never leave stale lyrics visible when the current track has n
 Preferred user-facing status text:
 
 ```text
-Confirmed no lyrics:
-暫無可用歌詞
+Confirmed no lyrics use `Strings.LyricsUnavailable` (`No lyrics available` in the neutral resources).
 
-Lyrics exist but are untimed:
-此歌曲暫無同步歌詞
+Available but untimed lyrics use `Strings.LyricsUntimed` (`Synced lyrics are not available for this song` in the neutral resources).
 ```
 
 These messages are presentation state only. They must not change the underlying lyrics availability/timed classification.
 
 The implemented overlay is a view over the already resolved Milestone 6 timeline. It does not own a playback clock or duplicate lyric selection. See [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md).
 
-Long-term, the Desktop Lyrics Overlay remains the permanently-on-top ambient lyrics surface, while the existing MainWindow evolves into an ordinary Main Lyrics Window that always presents the full lyrics document. Preferences/diagnostics move to a separate Settings surface. Advanced overlay customisation, explicit break rendering, karaoke preparation cues and long-line horizontal panning remain later work.
+The Desktop Lyrics Overlay remains the permanently-on-top ambient lyrics surface, while the existing `MainWindow` now serves as an ordinary Main Lyrics Window that always presents the full lyrics document. Preferences/diagnostics now live in a separate Settings surface. Advanced overlay customisation, explicit break rendering, karaoke preparation cues and long-line horizontal panning remain later work.
 
 ---
 
 ## Milestone 8 — Timing Adjustment
 
-Implemented:
-
-* ±0.1 second
-* ±0.5 second
-* persistent global offset
-* explicit bake-to-file operation
-
-The offset is global only within one local lyrics document, not across the application. Runtime adjustment is sidecar-only; Bake is confirmed, structure-preserving, validated, and resets the offset after coordinated file replacement.
+The Built-in Lyrics Editor provides direct whole-document and selected-row timestamp shifts plus `Set Time`, with normal dirty/Undo/Redo/Save/Discard semantics. Shared Current Line and All Lyrics context-menu actions persist timestamp changes directly to the authoritative current LRC. There is no runtime timing-offset or Reset model.
 
 ---
 
@@ -1492,13 +1517,13 @@ Implemented:
 * application-managed lyric dragging that bypasses the native caption move/Snap workflow, with minimized/maximized states blocked and normalized before show/recovery
 * `OneLine`, `TwoLines`, and `AllLyrics` content modes
 * bounded Past/Current/Upcoming context for All Lyrics, selected by exact timeline occurrence and fitted as a prefix of `Current, Upcoming +1, Previous -1, Upcoming +2, Previous -2, ...` without scrolling
-* direct, clearly scoped Current Line and Global timing quick actions in the overlay context menu, routed to existing M8 operations
+* shared Current Line and All Lyrics quick actions that persist edits to the authoritative LRC; the Built-in Lyrics Editor remains the full-document authoring surface
 * system tray lifecycle/recovery with optional close-to-tray behavior
 * explicit tray exit that unregisters hotkeys and shuts down the App
 
-The overlay remains the always-on-top ambient lyrics surface. The current MainWindow is still the legacy Control Panel during this milestone, but the target architecture evolves it into the ordinary full-document Main Lyrics Window; the tray remains available when that window is hidden.
+The overlay remains the always-on-top ambient lyrics surface. The MainWindow now serves as the ordinary full-document Main Lyrics Window; the tray remains available when that window is hidden.
 
-The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. A focused `WM_NCHITTEST` hook selects interactive lyric/grip regions; it does not apply whole-window `WS_EX_TRANSPARENT`. Two fixed `RegisterHotKey` shortcuts remain available while the current MainWindow is hidden. The implemented M9 timing quick actions still route to the existing playback/timing coordinator, but the target desktop-surface redesign moves all timing-adjustment UI into the Built-in Lyrics Editor and removes timing controls from the overlay/Main Lyrics Window. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
+The interaction state is owned by the overlay controller and persisted in the existing machine-local settings file. A focused `WM_NCHITTEST` hook selects interactive lyric/grip regions; it does not apply whole-window `WS_EX_TRANSPARENT`. Two fixed `RegisterHotKey` shortcuts remain available while the Main Lyrics Window is hidden. Main Lyrics Window and Overlay menus use separate views but share application commands, including Open LRC, Open Built-in Editor, Current Line, and All Lyrics adjustments. Overlay mode/lock/click-through/hide remain overlay-owned, while Settings remains Main Lyrics Window-owned. Quick adjustments persist directly to the authoritative LRC; Editor-document authoring remains a separate workflow. See [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md).
 
 ---
 
@@ -1506,14 +1531,14 @@ The interaction state is owned by the overlay controller and persisted in the ex
 
 Implemented:
 
-* open the usable active local LRC with the Windows default associated application from the Control Panel or overlay context menu
+* open the usable active local LRC with the Windows default associated application from Main Lyrics Window/shared lyrics actions or the overlay context menu
 * watch only the active LRC's containing directory (and its track-directory parent for recreation), debounce events for 300 ms, and accept content only after two matching SHA-256 reads within six bounded attempts
 * handle Changed/Created/Deleted/Renamed events and atomic replacement saves, with bounded retry and watcher recovery; activation and overlay-show fingerprint checks provide a low-frequency fallback for SMB/NAS watcher gaps
-* validate/reload changed local lyrics read-only, reject fatal timestamp-syntax diagnostics as a whole (never partially accepting a malformed document), preserve `GlobalOffsetMs` and `PlaybackClock`, rebuild timeline/source occurrences and overlay immediately, and retain last-known-good runtime lyrics for invalid edits without changing user files; valid untimed content remains distinct from malformed syntax
+* validate/reload changed local lyrics read-only, reject fatal timestamp-syntax diagnostics as a whole (never partially accepting a malformed document), preserve `PlaybackClock`, rebuild timeline/source occurrences and lyrics presentation immediately, and retain last-known-good runtime lyrics for invalid edits without changing user files; valid untimed content remains distinct from malformed syntax
 * allow a usable untimed local LRC to be opened externally and watched by the same active-file watcher; clean text edits remain untimed, while adding valid timestamps transitions the same local record to timed playback immediately without synthesising timestamps
 * mark persistently missing local LRC unavailable without creating it or falling back to provider lyrics; continue watching for automatic recovery
 * bind asynchronous observations to the active local track/path generation; keep watching while UI surfaces are hidden and dispose watchers at application shutdown
-* deduplicate identical content, including app-owned Current Line/Bake writes, without broad time-based suppression
+* deduplicate identical content, including app-owned editor/timing saves, without broad time-based suppression
 
 See [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md) for behavior, limitations, and SMB/UNC considerations. This milestone does not add a built-in editor or library-wide watcher.
 
@@ -1527,17 +1552,17 @@ The accepted foundation includes:
 
 * modal, single-track editor dialog pinned to one `LocalTrackId`
 * modal editor above the normally-Topmost Desktop Lyrics Overlay through temporary overlay suppression
-* one shared `OpenBuiltInEditorCommand` used by MainWindow and overlay entry points
+* one shared `OpenBuiltInEditorCommand` used by Main Lyrics Window and overlay entry points
 * structured round-trippable `EditorDocument` preserving recognized metadata, unknown content, blank physical rows, and existing multi-timestamp lines
 * stable row identity and explicit row/cell/timestamp selection independent of playback current line
 * lyric-text and timestamp editing, Insert Above / Insert Below / Append / Delete Row, and command-based Delete-cell clearing with Undo/Redo
-* Set Current Playback Time appending into the first free timestamp occurrence up to five UI-managed occurrences
+* `Set Time` appending the current playback position into the first free timestamp occurrence up to five UI-managed occurrences
 * commit-time flexible timestamp input (`0`, `0:1`, `1:2`, `1:12.3`, etc.) with canonical `mm:ss.fff` normalization; unsupported plain integers and malformed input remain advisory-invalid rather than guessed
 * spreadsheet-style Enter/Shift+Enter and Tab/Shift+Tab navigation, including dynamic timestamp columns
 * independent per-occurrence timestamp-lane validation plus within-row timestamp ordering, with cell-specific diagnostics and visible row-number gutter
 * safe save, dirty-state tracking, external-file conflict handling, and editor/application `Save / Discard / Cancel` close guards
 * portable `UserTitle` / `UserArtist` override editing
-* negative Bake protection for exact-zero intro/break anchors: `00:00.000` on blank/whitespace lyric text or the current default explicit break marker remains zero, while ordinary negative results still reject the whole bake
+* exact-zero negative-shift protection for intro/break anchors: `00:00.000` on blank/whitespace lyric text or the current default explicit break marker may remain zero, while ordinary invalid negative results reject the whole operation
 
 The milestone was exercised with real authoring of multiple songs, including converting untimed lyrics into timed/multi-timestamp local LRC content and round-tripping through the existing M10 reload path into synchronized overlay playback. No blocking M11 issue is currently known. Advanced editor productivity commands remain additive later milestones rather than reasons to keep M11 open.
 
@@ -1545,21 +1570,22 @@ The milestone was exercised with real authoring of multiple songs, including con
 
 ## Milestone 12 — Application UI Foundation and Desktop Surface Restructure
 
-This is the next milestone. It turns the current developer-oriented MainWindow into the intended product surface before more feature-heavy windows are added.
+Implementation is integrated; final developer acceptance remains pending. The M12 scope includes:
 
-Primary work:
+* shared `ViewModelBase` / `EditableViewModelBase` foundation with explicit dependent notifications and selective command invalidation
+* shared surface-neutral lyrics presentation used by both Desktop Lyrics Overlay and Main Lyrics Window
+* normal non-Topmost **Main Lyrics Window** with complete-document rendering, semantic current-line follow, five-second manual-scroll override, hidden scrollbar chrome, effective title/artist header, and safe long-metadata trimming
+* a lightweight Main Window shell composed from header, lyrics, and status views, all sharing the existing Main Lyrics ViewModel
+* dedicated **Settings** shell with fixed left navigation and separate page views, plus a live **Settings > Debug** page for track/storage/transport/playback/lyrics-provider diagnostics, log/crash-folder actions, and prettified raw playback/lyrics snapshots
+* Built-in Editor timing-authoring consolidation: live playback/current-lyric display, direct whole-document timestamp shifts, selected-row timestamp shifts, and compact **Set Time** playback authoring
+* Unity composition and constructor injection, ViewModel contracts, justified runtime factories, shared relay-command infrastructure, typed logging on the existing backend, layered recoverable/fatal exception handling, NSubstitute-based isolated tests, and a production-registration smoke test
+* separate Main/Overlay context-menu views and action ViewModels over shared timing/file/editor services, plus centralized UI strings and stable command identifiers
 
-* introduce a small reusable ViewModel foundation (`INotifyPropertyChanged`, `SetProperty`, dependent-property notification, selective command invalidation) and migrate incrementally rather than creating a god ViewModel or rewriting the entire app at once
-* evolve the current MainWindow/Control Panel into the normal non-Topmost **Main Lyrics Window**
-* make the Main Lyrics Window a full-document lyrics-reading surface rather than a diagnostics dashboard; it has no One/Two/All selector
-* introduce the dedicated **Settings** window with left-side section navigation and one independent page at a time
-* move developer/transport/library/raw-data/log/crash-report information into **Settings > Debug**
-* keep the Desktop Lyrics Overlay as the permanently-Topmost ambient surface with its existing OneLine/TwoLines/contextual-AllLyrics modes
-* move remaining timing-authoring controls out of MainWindow/overlay presentation and into the Built-in Lyrics Editor while preserving M8 semantics
-* consolidate shared application commands/context-menu actions across lyrics surfaces
-* establish placeholders/settings boundaries for later Media Controller, renderer appearance, semantic break markers, and provider configuration without implementing those later features prematurely
+Repository-level `AGENTS.md` records the mandatory coding-agent conventions. The closeout review does not declare M12 fully accepted; the developer's final manual acceptance remains outstanding. M13 remains planned work and has not started.
 
-M12 is primarily an application-structure and user-surface milestone. It should reduce accumulated MainWindow coupling before Lyrics Search, Media Controller, and richer renderer work add more state.
+The App-side ViewModel foundation uses ordinary typed backing fields. Generic `SetProperty` raises only the changed property's notification; dependent-property notifications stay explicit, and command invalidation remains an explicit operation rather than a global requery. Domain logic remains in Core and application services.
+
+M12 is primarily an application-structure and user-surface milestone. It reduces accumulated construction/MainWindow coupling before Lyrics Search, Media Controller, and richer renderer work add more state.
 
 ---
 
@@ -1594,7 +1620,7 @@ An immutable original-import snapshot is a desirable safety feature for this pro
 Build higher-level authoring tools on the accepted M11 command/document foundation. Likely work includes:
 
 * configurable semantic break/blank markers: blank/whitespace remains intrinsic; the default explicit marker is `♪`; users may add/remove exact trim-matched marker strings without modifying the LRC
-* one shared runtime break classifier used by negative-Bake zero-anchor protection, renderer break semantics, and future preparation cues
+* one shared runtime break classifier used by negative timestamp-shift zero-anchor protection, renderer break semantics, and future preparation cues
 * **Fill Timestamp Pattern Down** / timing-lane propagation for repeated choruses: given a populated target anchor and a reference timestamp lane, fill selected blank target cells with `targetAnchor + (referenceRow - referenceAnchor)`
 * Fill Timestamp Pattern affects only the user-selected contiguous range, skips rows lacking a reference timestamp, preserves existing populated target cells by default, keeps millisecond precision, and is one Undo/Redo unit
 * richer add/remove/reorder management for timestamp occurrences

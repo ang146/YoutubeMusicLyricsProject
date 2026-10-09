@@ -331,20 +331,20 @@ public sealed class EditorDocumentTests
     }
 
     [Test]
-    public void SetCurrentTimeAppendsWithoutOverwritingAndUsesGlobalOffset()
+    public void SetCurrentTimeAppendsWithoutOverwritingUsingPlaybackPosition()
     {
         var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("[00:10.000][00:30.000]A\nUntimed B\n"),
             UserTrackMetadata.Normalise(null, null));
         var timedRow = buffer.Document.Rows[0];
         var untimedRow = buffer.Document.Rows[1];
 
-        Assert.That(buffer.SetTimestampFromPlayback(new(timedRow.Id, EditorColumn.Timestamp, 0), true, 40_000, 500), Is.True,
+        Assert.That(buffer.SetTimestampFromPlayback(new(timedRow.Id, EditorColumn.Timestamp, 0), true, 39_500), Is.True,
             "Playback time appends even when an existing timestamp cell is selected.");
-        Assert.That(buffer.SetTimestampFromPlayback(new(untimedRow.Id, EditorColumn.Lyrics), true, 12_345, 500), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(new(untimedRow.Id, EditorColumn.Lyrics), true, 12_345), Is.True);
 
         Assert.That(EditorDocumentCodec.Serialize(buffer.Document),
-            Is.EqualTo("[00:10.000][00:30.000][00:39.500]A\n[00:11.845]Untimed B\n"));
-        Assert.That(buffer.SetTimestampFromPlayback(new(untimedRow.Id, EditorColumn.Timestamp, 0), false, 20_000, 0), Is.False);
+            Is.EqualTo("[00:10.000][00:30.000][00:39.500]A\n[00:12.345]Untimed B\n"));
+        Assert.That(buffer.SetTimestampFromPlayback(new(untimedRow.Id, EditorColumn.Timestamp, 0), false, 20_000), Is.False);
     }
 
     [Test]
@@ -355,22 +355,136 @@ public sealed class EditorDocumentTests
             UserTrackMetadata.Normalise(null, null));
         var row = buffer.Document.Rows.Single();
 
-        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 50_000, 0), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 50_000), Is.True);
         Assert.That(buffer.Document.Rows.Single().Timestamps.Select(item => item.Value),
             Is.EqualTo(new[] { "00:10.000", "00:20.000", "00:30.000", "00:40.000", "00:50.000" }));
         Assert.That(buffer.Document.Validate().Any(item => item.Severity == EditorValidationSeverity.Warning), Is.False);
 
         var fiveTimestampContent = EditorDocumentCodec.Serialize(buffer.Document);
-        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 55_000, 0), Is.False);
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 55_000), Is.False);
         Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(fiveTimestampContent));
 
         var legacySixTimestamp = "[00:10.000][00:20.000][00:30.000][00:40.000][00:50.000][01:00.000]Legacy\n";
         var legacy = new EditorDocumentBuffer(EditorDocumentCodec.Load(legacySixTimestamp),
             UserTrackMetadata.Normalise(null, null));
         var legacyRow = legacy.Document.Rows.Single();
-        Assert.That(legacy.SetTimestampFromPlayback(new(legacyRow.Id, EditorColumn.Lyrics), true, 65_000, 0), Is.False);
+        Assert.That(legacy.SetTimestampFromPlayback(new(legacyRow.Id, EditorColumn.Lyrics), true, 65_000), Is.False);
         Assert.That(EditorDocumentCodec.Serialize(legacy.Document), Is.EqualTo(legacySixTimestamp),
             "Existing source data beyond the UI command limit remains lossless.");
+    }
+
+    [Test]
+    public void ShiftAllTimestampsUsesOneUndoUnitAndKeepsProtectedZeroAnchorsAtZero()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(
+            "[00:00.000]\n[00:01.000]Line\n[00:02.000]More\n"),
+            UserTrackMetadata.Normalise(null, null));
+
+        var service = new LyricsTimingAdjustmentService();
+        var adjusted = service.ShiftAll(buffer.Document, -500);
+        Assert.That(adjusted.Succeeded, Is.True, adjusted.Error);
+        Assert.That(buffer.ApplyTimingAdjustment(adjusted.Document!), Is.True);
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:00.000]\n[00:00.500]Line\n[00:01.500]More\n"));
+        Assert.That(buffer.CanUndo, Is.True);
+
+        buffer.Undo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:00.000]\n[00:01.000]Line\n[00:02.000]More\n"));
+        Assert.That(buffer.CanUndo, Is.False, "A whole-document shift creates exactly one undo unit.");
+        buffer.Redo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
+            "[00:00.000]\n[00:00.500]Line\n[00:01.500]More\n"));
+    }
+
+    [Test]
+    public void ShiftAllTimestampsAppliesPositiveDeltaToEveryOccurrence()
+    {
+        const string original = "[00:10.000][00:11.000]A\n[00:20.000]B\n";
+        var document = EditorDocumentCodec.Load(original);
+
+        var adjusted = new LyricsTimingAdjustmentService().ShiftAll(document, 500);
+
+        Assert.That(adjusted.Succeeded, Is.True, adjusted.Error);
+        Assert.That(EditorDocumentCodec.Serialize(adjusted.Document!), Is.EqualTo(
+            "[00:10.500][00:11.500]A\n[00:20.500]B\n"));
+    }
+
+    [Test]
+    public void ShiftAllTimestampsRejectsAnyNegativeOrdinaryTimestampAtomically()
+    {
+        const string original = "[00:01.000]Earlier lyric\n[00:00.300]Ordinary lyric\n[00:02.000]Later\n";
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(original),
+            UserTrackMetadata.Normalise(null, null));
+
+        var adjusted = new LyricsTimingAdjustmentService().ShiftAll(buffer.Document, -500);
+        var error = adjusted.Error;
+        Assert.That(adjusted.Succeeded, Is.False);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.EqualTo(LrcTimestampRewriter.NegativeTimestampError));
+            Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(original),
+                "No earlier timestamps may be partially shifted when a later timestamp is unsafe.");
+            Assert.That(buffer.CanUndo, Is.False);
+            Assert.That(buffer.IsDirty, Is.False);
+        });
+    }
+
+    [Test]
+    public void ShiftSelectedRowChangesAllOccurrencesAndCreatesOneUndoUnit()
+    {
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load("[00:10.000][00:20.000]Line\n"),
+            UserTrackMetadata.Normalise(null, null));
+        var row = buffer.Document.Rows.Single();
+
+        var adjusted = new LyricsTimingAdjustmentService().ShiftLine(buffer.Document, row.Id, -100);
+        Assert.That(adjusted.Succeeded, Is.True, adjusted.Error);
+        Assert.That(buffer.ApplyTimingAdjustment(adjusted.Document!), Is.True);
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:09.900][00:19.900]Line\n"));
+        Assert.That(buffer.CanUndo, Is.True);
+        buffer.Undo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:10.000][00:20.000]Line\n"));
+        Assert.That(buffer.CanUndo, Is.False);
+        buffer.Redo();
+        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo("[00:09.900][00:19.900]Line\n"));
+    }
+
+    [Test]
+    public void ShiftSelectedStableRowChangesOnlyThatRowsTimestamps()
+    {
+        var document = EditorDocumentCodec.Load(
+            "[00:10.000]First\n[00:20.000][00:21.000]Selected\n[00:30.000]Last\n");
+        var selected = document.Rows[1];
+
+        var adjusted = new LyricsTimingAdjustmentService().ShiftLine(document, selected.Id, 100);
+
+        Assert.That(adjusted.Succeeded, Is.True, adjusted.Error);
+        Assert.That(adjusted.Document!.Rows.Select(row => row.Id),
+            Is.EqualTo(document.Rows.Select(row => row.Id)), "Row identity must remain stable across a shift.");
+        Assert.That(EditorDocumentCodec.Serialize(adjusted.Document), Is.EqualTo(
+            "[00:10.000]First\n[00:20.100][00:21.100]Selected\n[00:30.000]Last\n"));
+    }
+
+    [Test]
+    public void ShiftSelectedRowRejectsAnyNegativeOrdinaryTimestampAtomically()
+    {
+        const string original = "[00:01.000][00:00.300]Line\n[00:02.000]Other\n";
+        var buffer = new EditorDocumentBuffer(EditorDocumentCodec.Load(original),
+            UserTrackMetadata.Normalise(null, null));
+        var row = buffer.Document.Rows[0];
+
+        var adjusted = new LyricsTimingAdjustmentService().ShiftLine(buffer.Document, row.Id, -500);
+        var error = adjusted.Error;
+        Assert.That(adjusted.Succeeded, Is.False);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.EqualTo(LrcTimestampRewriter.NegativeTimestampError));
+            Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(original));
+            Assert.That(buffer.CanUndo, Is.False);
+            Assert.That(buffer.IsDirty, Is.False);
+        });
     }
 
     [Test]
@@ -381,9 +495,9 @@ public sealed class EditorDocumentTests
         var row = buffer.Document.Rows.Single();
         var selection = new EditorSelection(row.Id, EditorColumn.Lyrics);
 
-        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 10_000, 0), Is.True);
-        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 22_500, 0), Is.True);
-        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 31_900, 0), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 10_000), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 22_500), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(selection, true, 31_900), Is.True);
         Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(
             "[00:10.000][00:22.500][00:31.900]Line\n"));
 
@@ -415,7 +529,7 @@ public sealed class EditorDocumentTests
         var buffer = new EditorDocumentBuffer(document, UserTrackMetadata.Normalise(null, null));
 
         Assert.That(buffer.SetTimestampFromPlayback(
-            new(row.Id, EditorColumn.Lyrics), true, 20_000, 0, nextAvailableIndex: 1), Is.True);
+            new(row.Id, EditorColumn.Lyrics), true, 20_000, nextAvailableIndex: 1), Is.True);
         var updated = buffer.Document.Rows.Single();
         Assert.That(updated.Timestamps.Select(item => item.Value),
             Is.EqualTo(new[] { "00:10.000", "00:20.000", "00:30.000" }));
@@ -432,16 +546,14 @@ public sealed class EditorDocumentTests
             UserTrackMetadata.Normalise(null, null));
         var row = buffer.Document.Rows.Single();
 
-        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 20_000, 0), Is.True);
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 20_000), Is.True);
         Assert.That(buffer.Document.Validate().Any(item => item.Severity == EditorValidationSeverity.Warning), Is.True);
-        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 20_000, 0), Is.True,
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 20_000), Is.True,
             "Equal timestamps are valid command input.");
         Assert.That(buffer.Document.Rows.Single().Timestamps.Select(item => item.Value),
             Is.EqualTo(new[] { "00:30.000", "00:20.000", "00:20.000" }));
 
-        var beforeNegative = EditorDocumentCodec.Serialize(buffer.Document);
-        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 1_000, 2_000), Is.False);
-        Assert.That(EditorDocumentCodec.Serialize(buffer.Document), Is.EqualTo(beforeNegative));
+        Assert.That(buffer.SetTimestampFromPlayback(new(row.Id, EditorColumn.Lyrics), true, 1_000), Is.True);
     }
 
     [Test]

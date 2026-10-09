@@ -1,28 +1,11 @@
 using System.Threading.Channels;
-using LyricsDisplayer.Core.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LyricsDisplayer.NativeHost.Tests;
 
 [TestFixture]
 public sealed class ReconnectingMessageForwarderTests
 {
-    private string _directory = null!;
-    private SessionFileLogger _logger = null!;
-
-    [SetUp]
-    public void SetUp()
-    {
-        _directory = Path.Combine(Path.GetTempPath(), "LyricsDisplayerTests", Guid.NewGuid().ToString("N"));
-        _logger = new SessionFileLogger(_directory);
-    }
-
-    [TearDown]
-    public void TearDown()
-    {
-        _logger.Dispose();
-        Directory.Delete(_directory, true);
-    }
-
     [Test]
     public async Task FailuresRetryUntilAConnectionSucceedsWithoutRealDelay()
     {
@@ -30,7 +13,8 @@ public sealed class ReconnectingMessageForwarderTests
         var delay = new ImmediateDelay();
         var channel = Channel.CreateUnbounded<string>();
         channel.Writer.TryComplete();
-        var forwarder = new ReconnectingMessageForwarder(factory, delay, TimeSpan.FromSeconds(5), _logger);
+        var forwarder = new ReconnectingMessageForwarder(factory, delay, TimeSpan.FromSeconds(5),
+            NullLogger<ReconnectingMessageForwarder>.Instance);
 
         await forwarder.RunAsync(channel.Reader, CancellationToken.None);
 
@@ -48,7 +32,8 @@ public sealed class ReconnectingMessageForwarderTests
         var factory = new CountingFactory(int.MaxValue);
         var delay = new CancelOnlyDelay();
         var channel = Channel.CreateUnbounded<string>();
-        var forwarder = new ReconnectingMessageForwarder(factory, delay, TimeSpan.FromSeconds(5), _logger);
+        var forwarder = new ReconnectingMessageForwarder(factory, delay, TimeSpan.FromSeconds(5),
+            NullLogger<ReconnectingMessageForwarder>.Instance);
         using var cancellation = new CancellationTokenSource();
 
         var run = forwarder.RunAsync(channel.Reader, cancellation.Token);
@@ -64,7 +49,8 @@ public sealed class ReconnectingMessageForwarderTests
     {
         var factory = new PendingFactory();
         var channel = Channel.CreateUnbounded<string>();
-        var forwarder = new ReconnectingMessageForwarder(factory, new ImmediateDelay(), TimeSpan.FromSeconds(5), _logger);
+        var forwarder = new ReconnectingMessageForwarder(factory, new ImmediateDelay(), TimeSpan.FromSeconds(5),
+            NullLogger<ReconnectingMessageForwarder>.Instance);
         using var cancellation = new CancellationTokenSource();
 
         var run = forwarder.RunAsync(channel.Reader, cancellation.Token);
@@ -82,7 +68,8 @@ public sealed class ReconnectingMessageForwarderTests
         var channel = Channel.CreateUnbounded<string>();
         await channel.Writer.WriteAsync("first");
         channel.Writer.TryComplete();
-        var forwarder = new ReconnectingMessageForwarder(factory, new ImmediateDelay(), TimeSpan.FromSeconds(5), _logger);
+        var forwarder = new ReconnectingMessageForwarder(factory, new ImmediateDelay(), TimeSpan.FromSeconds(5),
+            NullLogger<ReconnectingMessageForwarder>.Instance);
 
         await forwarder.RunAsync(channel.Reader, CancellationToken.None);
 

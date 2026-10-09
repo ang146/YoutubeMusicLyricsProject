@@ -1,0 +1,83 @@
+<UserControl x:Class="LyricsDisplayer.Views.Main.MainLyricsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:LyricsDisplayer"
+             xmlns:controls="clr-namespace:LyricsDisplayer.Controls">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </UserControl.Resources>
+    <Grid Background="#FFFAFAFB">
+        <Grid.ContextMenu>
+            <controls:MainLyricsContextMenu />
+        </Grid.ContextMenu>
+        <ListBox x:Name="LyricsListBox" ItemsSource="{Binding Lines}"
+                 Background="Transparent" BorderThickness="0"
+                 PreviewMouseWheel="OnLyricsPreviewMouseWheel"
+                 PreviewKeyDown="OnLyricsPreviewKeyDown"
+                 ScrollViewer.VerticalScrollBarVisibility="Hidden"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.CanContentScroll="True"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.ScrollUnit="Pixel"
+                 VirtualizingPanel.VirtualizationMode="Recycling">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="0" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <ContentPresenter />
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="{x:Type local:MainLyricsLineViewModel}">
+                    <Border Padding="12,7" Margin="8,2" CornerRadius="4">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Current}">
+                                        <Setter Property="Background" Value="#FFEAF1F7" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding Text}" MinHeight="22"
+                                   TextAlignment="Center" TextWrapping="Wrap"
+                                   HorizontalAlignment="Stretch">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="FontSize" Value="22" />
+                                    <Setter Property="Foreground" Value="#FF30343B" />
+                                    <Setter Property="FontWeight" Value="Normal" />
+                                    <Setter Property="Opacity" Value="1" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Past}">
+                                            <Setter Property="Foreground" Value="#FF777D86" />
+                                            <Setter Property="Opacity" Value="0.82" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Role}" Value="{x:Static local:LyricLineRole.Current}">
+                                            <Setter Property="FontSize" Value="25" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+        <TextBlock Text="{Binding EmptyStateMessage}"
+                   Visibility="{Binding HasNoLines, Converter={StaticResource BooleanToVisibilityConverter}}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="20" Foreground="#FF6B7280" TextAlignment="Center"
+                   TextWrapping="Wrap" Margin="40" />
+    </Grid>
+</UserControl>

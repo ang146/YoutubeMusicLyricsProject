@@ -1,6 +1,6 @@
 # Overlay Interaction and Basic Preferences
 
-Milestone 9 makes the Desktop Lyrics Overlay practical as the always-on-top ambient lyrics surface. The overlay presents state from the playback/timeline services and does not own lyrics lookup, the playback clock, timeline selection, LRC parsing, SQLite, or timing-edit safety. The current MainWindow/Control Panel still hosts several legacy controls, but the target desktop architecture moves ordinary full-document lyrics into the Main Lyrics Window, settings/diagnostics into a separate Settings surface, playback metadata/transport into the Media Controller, and timing-adjustment UI into the Built-in Lyrics Editor.
+Milestone 9 makes the Desktop Lyrics Overlay practical as the always-on-top ambient lyrics surface. The overlay presents state from the playback/timeline services and does not own lyrics lookup, the playback clock, timeline selection, LRC parsing, SQLite, or timing-edit safety. M12 now separates the ordinary full-document Main Lyrics Window, the Settings/Debug surface, the Built-in Lyrics Editor, and the future Media Controller so the overlay does not accumulate unrelated application controls.
 
 ## Renderer model
 
@@ -16,7 +16,7 @@ Lyrics state → Content mode → Layout style → Appearance → Optional anima
 - `TwoLines`: current lyric as primary, next lyric as secondary. Before the first lyric the primary is blank and the first upcoming line is secondary.
 - `AllLyrics`: a contextual multi-line viewport around the exact M6 timeline current occurrence. Current is mandatory when the timeline has a current line. The strict semantic priority is `Current, Upcoming +1, Previous -1, Upcoming +2, Previous -2, ...`. Measurement decides only how many entries fit: the viewport may select only a prefix of that priority sequence, and a lower-priority line must never replace a higher-priority line merely because it is shorter. If the first context candidate does not fit, selection stops there; it does not scan ahead. Selected occurrences are sorted into normal document order only after fitting. Thus two rows prefer Current + Next, while three rows normally show Previous + Current + Next. If there is no current line, available upcoming rows fill the viewport without fabricated past rows. At the song end, nonexistent upcoming occurrences are omitted from the sequence so available past rows can fill capacity. The whole document is never placed in the visual tree and there is no scrollbar or scroll-position state.
 
-Confirmed no-lyrics and untimed statuses remain `暫無可用歌詞` and `此歌曲暫無同步歌詞` in every content mode. All Lyrics shows these statuses in its normal text presentation rather than an empty scrolling list. Seek and line transitions use the already-evaluated `LyricsTimelinePosition`; All Lyrics does not evaluate timing independently.
+Confirmed no-lyrics and untimed statuses use `Strings.LyricsUnavailable` and `Strings.LyricsUntimed` in every content mode. In the neutral resources these read `No lyrics available` and `Synced lyrics are not available for this song`. All Lyrics shows these statuses in its normal text presentation rather than an empty scrolling list. Seek and line transitions use the already-evaluated `LyricsTimelinePosition`; All Lyrics does not evaluate timing independently.
 
 The current layout is `CenterStacked`. All Lyrics places the current row near the center and combines semantic role (`Past`, `Current`, `Upcoming`) with distance from Current. Current is strongest and modestly larger than the contextual base size; Upcoming remains readable and has greater emphasis than Past at equal distance. Past remains legible but is visually lighter. Both contextual roles decrease in size and opacity with distance, with lower bounds to preserve readability. These are presentation defaults and future user appearance preferences may override their visual values. The current occurrence comes from the same timeline index used by the rest of the application; stable timestamp ordering preserves identity when text or timestamps are duplicated. Before the first lyric, the viewport contains upcoming lines only; near the end, it shows available past lines without blank placeholders. Height or width/wrapping changes and seeks immediately rebuild the complete subset; shrinking removes entries from the low-priority end, and growing appends candidates in priority order. A future `KaraokeAlternating` layout may combine with `TwoLines` to place current and upcoming slots on alternating sides. Karaoke is a layout/rendering concern, not a content mode, and is not implemented.
 
@@ -46,40 +46,42 @@ Click-through is selected per screen point through a focused `WM_NCHITTEST` hook
 
 The overlay does not set whole-window `WS_EX_TRANSPARENT`. Click-through off keeps the semi-transparent interaction backing visible and enables invisible edge/corner resizing. With click-through on, the backing becomes fully transparent and resizing is disabled; layered-window alpha hit testing and `WM_NCHITTEST` pass empty pixels through across application threads while visible lyric text remains interactive. Lock and click-through remain independent: click-through never changes the saved lock setting, and lock disables dragging over lyrics while leaving right-click available. Lock does not disable resizing when click-through is off.
 
-The current MainWindow and the global shortcut remain independent recovery paths for click-through; after the planned UI restructuring the Main Lyrics Window/Settings entry points provide the equivalent recovery path. The shortcut is **Ctrl+Alt+Shift+T**. Click-through data that is missing or malformed defaults off. Mouse activation is suppressed so normal overlay interaction does not take keyboard focus.
+The Main Lyrics Window and the global shortcut remain independent recovery paths for click-through; Settings provides the dedicated configuration/diagnostic surface. The shortcut is **Ctrl+Alt+Shift+T**. Click-through data that is missing or malformed defaults off. Mouse activation is suppressed so normal overlay interaction does not take keyboard focus.
 
 ## Overlay context menu
 
-The currently implemented M9 context menu still exposes direct timing quick actions, but those actions are legacy UI under the new desktop-surface direction. The target interaction model moves all timing adjustment—including Current Line adjustment, Global Offset controls, Reset, and Bake—into the Built-in Lyrics Editor. The overlay context menu should therefore converge on shared lyrics/window commands rather than authoring controls.
+The overlay and Main Lyrics Window build separate WPF context menus from `LyricsContextMenuBase`. They bind to separate concrete surface-action ViewModels that share their common implementation and application services. Shared actions are **Open LRC Externally**, **Open Built-in Editor**, four **Current Line** adjustments (`-0.5s`, `-0.1s`, `+0.1s`, `+0.5s`), and four **All Lyrics** adjustments with the same deltas. Current Line edits the exact current occurrence; All Lyrics edits every timestamp in the active authoritative LRC. Both persist immediately. There is no Reset or runtime offset action.
 
 The target shared/menu direction is:
 
 ```text
-Open Main Window / Lyrics Window
+Open Lyrics Window (Overlay only)
 Open LRC Externally
 Open Built-in Editor
-Lyrics Display > One Line / Two Lines / All Lyrics
-Overlay > Lock Position / Click Through
-Settings                 // after Settings-window restructuring
-Show / Hide Media Controller   // when implemented
-Hide Desktop Lyrics
+Current Line > -0.5s / -0.1s / +0.1s / +0.5s
+All Lyrics > -0.5s / -0.1s / +0.1s / +0.5s
+Settings (Main Lyrics Window only)
+
+Lyrics Display > One Line / Two Lines / All Lyrics (Overlay only)
+Overlay > Lock Position / Click Through (Overlay only)
+Hide Desktop Lyrics (Overlay only)
 ```
 
-There is no **Always on Top** menu item: Topmost is an invariant of a visible Desktop Lyrics Overlay. Until the later desktop-surface implementation removes the existing M9 timing quick actions, they continue to route to the same M8 coordinator and storage paths; no new timing semantics are introduced here.
+The menu instances remain surface-specific: **Open Lyrics Window**, display mode, lock, click-through, and Hide Desktop Lyrics belong only to the overlay; **Settings** belongs to the Main Lyrics Window. There is no **Always on Top** menu item: Topmost is an invariant of a visible Desktop Lyrics Overlay.
 
-**Open LRC Externally** is enabled for any safely resolved, usable authoritative local LRC, whether timed or untimed, and routes to the same shared app command as other surfaces. Active-file watching and reload behavior are documented in [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
+**Open LRC Externally** is enabled for any safely resolved, usable authoritative local LRC, whether timed or untimed. The shared action model owns this command's availability and status; Main Lyrics Window and overlay menus bind to that same command. Active-file watching and reload behavior are documented in [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md).
 
-Milestone 11 adds **Open Built-in Editor** as another shared application command entry point. The overlay context menu does not own editor logic; it invokes the same `OpenBuiltInEditorCommand` as the current MainWindow and future Main Lyrics Window. A future Media Controller may expose the same command.
+Milestone 11 adds **Open Built-in Editor** as another shared application command entry point. Its existing editor-opening eligibility remains authoritative in one command, and both lyrics surfaces bind to that command. The overlay menu does not own editor logic or editor-session state. A future Media Controller may expose the same action.
 
-The menu is available when click-through is on only if the pointer is over lyric text. The explicit command that opens the current MainWindow/future Main Lyrics Window may activate that ordinary window; automatic lyric updates remain non-activating.
+The timing actions use `ICurrentLyricsTimingService`, which captures current playback identity/occurrence, applies the shared timestamp safety rules, conditionally writes through `LyricsLibrary.SaveEditorAssets`, and reloads current lyrics presentation. Command availability follows the timing, current-file, and editor services through focused change events; it does not depend on MainWindow copying boolean state into the action ViewModels. These are not Editor row-selection commands and do not change playback-driven editor selection.
+
+The menu is available when click-through is on only if the pointer is over lyric text. The explicit command that opens the Main Lyrics Window may activate that ordinary window; automatic lyric updates remain non-activating.
 
 ## Topmost and hotkeys
 
 A visible Desktop Lyrics Overlay is permanently Topmost during normal operation. This is a window-role invariant, not a user preference, and there is no Z-order polling loop. Legacy persisted `overlay.topmost` values are ignored and may be removed on a later settings save.
 
 When the modal Built-in Lyrics Editor is open, the editor must remain visually above the Desktop Lyrics Overlay. Opening the editor therefore activates an explicit modal suppression state that temporarily lowers the overlay out of the Topmost band without making the editor permanently Topmost. Suppression remains active through cancelled close attempts and ends only after the editor actually closes. Fatal or accepted application shutdown does not perform a late Topmost restoration that could interfere with shutdown UI.
-
-When the modal Built-in Lyrics Editor is open, the editor must remain visually above the Desktop Lyrics Overlay. If the overlay is configured Always on Top, temporarily suppress only the overlay's effective topmost state while the editor is open; do not change the saved preference. Closing the editor restores the overlay's effective topmost state from that preference. The editor itself should not become a permanently Topmost window merely to outrank the overlay.
 
 The fixed global shortcuts are:
 
@@ -88,7 +90,7 @@ The fixed global shortcuts are:
 | `Ctrl+Alt+Shift+L` | Toggle overlay visibility |
 | `Ctrl+Alt+Shift+T` | Toggle click-through |
 
-`GlobalHotkeyService` is created for the application lifetime. It uses Win32 `RegisterHotKey` and `WM_HOTKEY`, not a keyboard hook. Hiding the current MainWindow/future Main Lyrics Window does not unregister shortcuts. Successful registrations are removed during explicit exit. Registration conflicts are logged and should surface through normal diagnostics/Settings Debug UI without stopping the app; the service does not busy-retry. Hotkey actions do not activate the ordinary Main Lyrics Window.
+`GlobalHotkeyService` is created for the application lifetime. It uses Win32 `RegisterHotKey` and `WM_HOTKEY`, not a keyboard hook. Hiding the Main Lyrics Window does not unregister shortcuts. Successful registrations are removed during explicit exit. Registration conflicts are logged and should surface through normal diagnostics/Settings Debug UI without stopping the app; the service does not busy-retry. Hotkey actions do not activate the ordinary Main Lyrics Window.
 
 These two M9 shortcuts are currently fixed. A later custom-hotkey feature should map stable command IDs to user-selected bindings and keep Global/Application/Editor scopes separate; it must not duplicate action logic inside key handlers.
 
@@ -100,7 +102,7 @@ The single system tray icon offers:
 - Show / Hide Desktop Lyrics
 - Exit Lyrics Displayer
 
-The current MainWindow preference **Close Control Panel to system tray instead of exiting** defaults false for compatibility. During the planned window-role refactor this becomes Main Lyrics Window close-to-tray behaviour. When enabled, the close button hides that ordinary window while the WPF application, Named Pipe server, playback tracking, overlay, and global shortcuts continue running. Tray Open restores/activates the ordinary main window. Tray Exit takes an explicit shutdown path that bypasses close-to-tray interception, closes the overlay, unregisters hotkeys, disposes the tray icon, and exits the application. The tray icon is disposed only on real shutdown.
+The close-to-tray preference controls Main Lyrics Window close behaviour. The persisted development-era key may still use the older Control Panel name, but the user-facing role is Main Lyrics Window. When enabled, the close button hides that ordinary window while the WPF application, Named Pipe server, playback tracking, overlay, and global shortcuts continue running. Tray Open restores/activates the ordinary main window. Tray Exit takes an explicit shutdown path that bypasses close-to-tray interception, closes the overlay, unregisters hotkeys, disposes the tray icon, and exits the application. The tray icon is disposed only on real shutdown.
 
 ## Persistence and compatibility
 
@@ -129,7 +131,7 @@ Missing values default to unlocked, click-through off, two lines, 900 × 220 geo
 
 ## Future Media Controller
 
-The future Media Controller is an independent window/surface that may be shown or hidden separately from the Desktop Lyrics Overlay and optionally dock beside it on the left or right. Potential contents are current title/artist, elapsed time, duration, Previous/Play-Pause/Next transport buttons, a seekable progress bar when supported, and explicit application actions such as **Open Built-in Editor**. Previous and Next mean transport buttons only, not previous/next track metadata. Opening the editor must invoke the same shared `OpenBuiltInEditorCommand` used by the current MainWindow/future Main Lyrics Window and overlay context menu; the Media Controller does not own editor state. None of the media-control functionality is implemented now.
+The future Media Controller is an independent window/surface that may be shown or hidden separately from the Desktop Lyrics Overlay and optionally dock beside it on the left or right. Potential contents are current title/artist, elapsed time, duration, Previous/Play-Pause/Next transport buttons, a seekable progress bar when supported, and explicit application actions such as **Open Built-in Editor**. Previous and Next mean transport buttons only, not previous/next track metadata. Opening the editor must invoke the same shared `OpenBuiltInEditorCommand` used by the Main Lyrics Window and overlay context menu; the Media Controller does not own editor state. None of the media-control functionality is implemented now.
 
 Display state should reuse the existing playback model (title, artist, duration, playback position, playing/paused). Commands belong to a future provider-independent `MediaControlService`. Do not equate Windows `GetCurrentSession()` with the YouTube Music source Lyrics Displayer tracks. Future matching should enumerate `GlobalSystemMediaTransportControlsSessionManager.GetSessions()` and use multiple signals (source application identity, title, artist, duration, position, and playback state); no single weak signal is authoritative. Enable controls only for exactly one sufficiently strong match. Disable them for no strong match or multiple ambiguous matches.
 
@@ -141,6 +143,6 @@ All Lyrics is a contextual viewport estimated using wrapped text dimensions; WPF
 
 ## Target desktop-surface relationship
 
-The planned UI restructuring gives the ordinary Main Lyrics Window and the Desktop Lyrics Overlay different jobs. The Main Lyrics Window is a normal focusable window that always presents the full lyrics document and does not expose a One/Two/All selector. The overlay remains the compact ambient surface with `OneLine`, `TwoLines`, and contextual `AllLyrics` modes and is permanently Topmost whenever visible outside editor suppression.
+The M12 UI restructuring gives the ordinary Main Lyrics Window and the Desktop Lyrics Overlay different jobs. The Main Lyrics Window is a normal focusable window that always presents the full lyrics document and does not expose a One/Two/All selector. The overlay remains the compact ambient surface with `OneLine`, `TwoLines`, and contextual `AllLyrics` modes and is permanently Topmost whenever visible outside editor suppression.
 
-Both lyrics surfaces should converge on the same application-command-backed right-click menu for shared actions. Surface-specific items such as overlay content mode, click-through, and lock remain overlay-only. Settings/diagnostics move to a dedicated Settings window with independent pages, while track/playback metadata moves to the future Media Controller and timing authoring moves to the Built-in Lyrics Editor.
+Both lyrics surfaces should converge on the same application-command-backed right-click menu for shared actions. Surface-specific items such as overlay content mode, click-through, and lock remain overlay-only. Settings/diagnostics now live in a dedicated Settings window with independent pages. Rich playback transport remains future Media Controller work, while timing authoring now lives in the Built-in Lyrics Editor.

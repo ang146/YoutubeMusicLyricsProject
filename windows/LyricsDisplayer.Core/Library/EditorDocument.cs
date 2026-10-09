@@ -16,13 +16,6 @@ public enum EditorColumn
     Lyrics
 }
 
-public enum EditorHotkeyScope
-{
-    Global,
-    Application,
-    Editor
-}
-
 public sealed record EditorSelection(Guid? SelectedRowId, EditorColumn SelectedColumn, int? SelectedTimestampIndex = null);
 
 public sealed record EditorTimestamp(Guid Id, string Value)
@@ -377,6 +370,16 @@ public sealed class EditorDocumentBuffer
         return true;
     }
 
+    public bool ApplyTimingAdjustment(EditorDocument adjustedDocument)
+    {
+        ArgumentNullException.ThrowIfNull(adjustedDocument);
+        if (string.Equals(EditorDocumentCodec.Serialize(Document),
+                EditorDocumentCodec.Serialize(adjustedDocument), StringComparison.Ordinal))
+            return true;
+        Change(_ => adjustedDocument);
+        return true;
+    }
+
     public void SetTitleOverride(string? title) => SetMetadata(UserTrackMetadata.Normalise(title, Metadata.Artist));
     public void SetArtistOverride(string? artist) => SetMetadata(UserTrackMetadata.Normalise(Metadata.Title, artist));
     public void ClearTitleOverride() => SetTitleOverride(null);
@@ -414,7 +417,7 @@ public sealed class EditorDocumentBuffer
     }
 
     public bool SetTimestampFromPlayback(EditorSelection selection, bool trackMatches, long playbackPositionMs,
-        long globalOffsetMs, int? nextAvailableIndex = null)
+        int? nextAvailableIndex = null)
     {
         if (!trackMatches || selection.SelectedRowId is not { } rowId || playbackPositionMs < 0) return false;
         var row = FindRow(Document, rowId);
@@ -432,11 +435,7 @@ public sealed class EditorDocumentBuffer
                     requestedIndex > row.Timestamps.Count) return false;
                 if (requestedIndex < row.Timestamps.Count)
                 {
-                    long insertionTime;
-                    try { insertionTime = checked(playbackPositionMs - globalOffsetMs); }
-                    catch (OverflowException) { return false; }
-                    if (insertionTime < 0) return false;
-                    var insertionValue = EditorDocumentCodec.FormatTimestamp(insertionTime);
+                    var insertionValue = EditorDocumentCodec.FormatTimestamp(playbackPositionMs);
                     Change(document => UpdateRow(document, rowId, existing =>
                     {
                         var timestamps = existing.Timestamps.ToList();
@@ -451,13 +450,9 @@ public sealed class EditorDocumentBuffer
                 return false;
             }
         }
-        long rawTime;
-        try { rawTime = checked(playbackPositionMs - globalOffsetMs); }
-        catch (OverflowException) { return false; }
-        if (rawTime < 0) return false;
         var targetIndex = emptyIndex >= 0 ? emptyIndex : row.Timestamps.Count;
         if (targetIndex >= MaximumPlaybackTimestampOccurrences) return false;
-        return SetTimestamp(rowId, targetIndex, EditorDocumentCodec.FormatTimestamp(rawTime));
+        return SetTimestamp(rowId, targetIndex, EditorDocumentCodec.FormatTimestamp(playbackPositionMs));
     }
 
     public void Undo()

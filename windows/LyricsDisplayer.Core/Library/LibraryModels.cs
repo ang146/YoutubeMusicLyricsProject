@@ -41,21 +41,12 @@ public sealed record LyricsAsset(
     [property: JsonPropertyName("attribution")] string? Attribution,
     [property: JsonPropertyName("importedAtUtc")] DateTimeOffset ImportedAtUtc);
 
-public sealed record LyricsTiming(
-    [property: JsonPropertyName("globalOffsetMs")] long GlobalOffsetMs);
-
 public sealed record LyricsSidecar(
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
     [property: JsonPropertyName("localTrackId")] string LocalTrackId,
     [property: JsonPropertyName("sourceAssociations")] IReadOnlyList<SourceTrackAssociation> SourceAssociations,
     [property: JsonPropertyName("userMetadata")] UserTrackMetadata UserMetadata,
-    [property: JsonPropertyName("lyrics")] LyricsAsset Lyrics,
-    [property: JsonPropertyName("timing"),
-     JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] LyricsTiming? Timing = null)
-{
-    [JsonIgnore]
-    public long GlobalOffsetMs => Timing?.GlobalOffsetMs ?? 0;
-}
+    [property: JsonPropertyName("lyrics")] LyricsAsset Lyrics);
 
 public sealed record LocalTrackRecord(
     string LocalTrackId,
@@ -72,7 +63,6 @@ public sealed record LocalLyricsDocument(
     IReadOnlyList<LyricsLine> Lines,
     EffectiveTrackMetadata EffectiveMetadata)
 {
-    public long GlobalOffsetMs => Sidecar.GlobalOffsetMs;
     public bool IsTimed => Lines.Count > 0;
     public IReadOnlyList<string> UntimedLines { get; init; } = [];
     public string? LrcContentHash { get; init; }
@@ -85,15 +75,12 @@ public enum TimingAdjustmentStatus
     Succeeded,
     NoLocalLyrics,
     TrackChanged,
-    OffsetOverflow,
-    NothingToBake,
     NegativeTimestamp,
     TimestampOverflow,
+    TimestampOrderViolation,
     StorageFailure,
     NoCurrentLine,
-    FileChanged,
-    PreviousLineBoundary,
-    NextLineBoundary
+    FileChanged
 }
 
 public sealed record TimingAdjustmentResult(
@@ -103,8 +90,6 @@ public sealed record TimingAdjustmentResult(
 {
     public bool Succeeded => Status == TimingAdjustmentStatus.Succeeded;
 }
-
-public sealed record TimingAdjustmentTarget(string LocalTrackId, long GlobalOffsetMs);
 
 public sealed record CurrentLineTimingTarget(LocalLyricsDocument Document, int LineIndex);
 

@@ -183,7 +183,7 @@ Long-term responsibilities include:
 * Managing application preferences.
 * Maintaining application logging.
 
-Through M12 Task 7, the application owns the complete local-first authoring path and presents a full-document Main Lyrics Window alongside the Desktop Lyrics Overlay, plus a dedicated Settings shell with a live Debug diagnostics page. The shared lyrics presentation state feeds both lyrics surfaces, while timeline selection, editor state, overlay interaction, settings navigation, geometry validation, file-change coordination, and diagnostics remain outside WPF visual code. The Main Lyrics Window follows the semantic current line, supports temporary manual-scroll override, hides scrollbar chrome while retaining scrolling, and shows effective title/artist metadata. Main and Overlay have separate context-menu views and concrete surface-action ViewModels over shared services. `ILyricsTimingAdjustmentService` owns reusable immutable document mutation rules; the Editor uses it for undoable in-memory edits, while `ICurrentLyricsTimingService` persists quick Current Line and All Lyrics corrections to the active authoritative local LRC and reloads presentation. The Built-in Lyrics Editor retains full-document authoring and dirty/undo/redo/save/discard semantics. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md), and [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). Deferred cross-cutting features and the revised roadmap are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
+The M12 integration gives the application a complete local-first authoring path and presents a full-document Main Lyrics Window alongside the Desktop Lyrics Overlay, plus a dedicated Settings shell with a live Debug diagnostics page. The shared lyrics presentation state feeds both lyrics surfaces, while timeline selection, editor state, overlay interaction, settings navigation, geometry validation, file-change coordination, and diagnostics remain outside WPF visual code. The Main Lyrics Window follows the semantic current line, supports temporary manual-scroll override, hides scrollbar chrome while retaining scrolling, and shows effective title/artist metadata. Its `MainWindow` shell composes separate header, lyrics, and status views that inherit the same ViewModel. Settings and Main/Overlay context menus likewise keep surface-specific views/actions over shared services. `ILyricsTimingAdjustmentService` owns reusable immutable document mutation rules; the Editor uses it for undoable in-memory edits, while `ICurrentLyricsTimingService` persists quick Current Line and All Lyrics corrections to the active authoritative local LRC and reloads presentation. The Built-in Lyrics Editor retains full-document authoring and dirty/undo/redo/save/discard semantics. The implemented formats and rules are documented in [LOCAL_LYRICS_LIBRARY.md](LOCAL_LYRICS_LIBRARY.md), [LYRICS_TIMELINE.md](LYRICS_TIMELINE.md), [DESKTOP_LYRICS_OVERLAY.md](DESKTOP_LYRICS_OVERLAY.md), [LYRICS_TIMING_ADJUSTMENT.md](LYRICS_TIMING_ADJUSTMENT.md), [OVERLAY_INTERACTION.md](OVERLAY_INTERACTION.md), [EXTERNAL_EDITING.md](EXTERNAL_EDITING.md), and [BUILT_IN_EDITOR.md](BUILT_IN_EDITOR.md). Deferred cross-cutting features and the revised roadmap are collected in [FUTURE_FEATURES.md](FUTURE_FEATURES.md).
 
 ### User-Facing Window Roles
 
@@ -1485,11 +1485,9 @@ The overlay should never leave stale lyrics visible when the current track has n
 Preferred user-facing status text:
 
 ```text
-Confirmed no lyrics:
-暫無可用歌詞
+Confirmed no lyrics use `Strings.LyricsUnavailable` (`No lyrics available` in the neutral resources).
 
-Lyrics exist but are untimed:
-此歌曲暫無同步歌詞
+Available but untimed lyrics use `Strings.LyricsUntimed` (`Synced lyrics are not available for this song` in the neutral resources).
 ```
 
 These messages are presentation state only. They must not change the underlying lyrics availability/timed classification.
@@ -1572,16 +1570,18 @@ The milestone was exercised with real authoring of multiple songs, including con
 
 ## Milestone 12 — Application UI Foundation and Desktop Surface Restructure
 
-In progress. Tasks 1–6 are implemented and manually accepted:
+Implementation is integrated; final developer acceptance remains pending. The M12 scope includes:
 
 * shared `ViewModelBase` / `EditableViewModelBase` foundation with explicit dependent notifications and selective command invalidation
 * shared surface-neutral lyrics presentation used by both Desktop Lyrics Overlay and Main Lyrics Window
 * normal non-Topmost **Main Lyrics Window** with complete-document rendering, semantic current-line follow, five-second manual-scroll override, hidden scrollbar chrome, effective title/artist header, and safe long-metadata trimming
-* dedicated **Settings** shell with fixed left navigation and separate page views
-* live **Settings > Debug** page for track/storage/transport/playback/lyrics-provider diagnostics, log/crash-folder actions, and prettified raw playback/lyrics snapshots
+* a lightweight Main Window shell composed from header, lyrics, and status views, all sharing the existing Main Lyrics ViewModel
+* dedicated **Settings** shell with fixed left navigation and separate page views, plus a live **Settings > Debug** page for track/storage/transport/playback/lyrics-provider diagnostics, log/crash-folder actions, and prettified raw playback/lyrics snapshots
 * Built-in Editor timing-authoring consolidation: live playback/current-lyric display, direct whole-document timestamp shifts, selected-row timestamp shifts, and compact **Set Time** playback authoring
+* Unity composition and constructor injection, ViewModel contracts, justified runtime factories, shared relay-command infrastructure, typed logging on the existing backend, layered recoverable/fatal exception handling, NSubstitute-based isolated tests, and a production-registration smoke test
+* separate Main/Overlay context-menu views and action ViewModels over shared timing/file/editor services, plus centralized UI strings and stable command identifiers
 
-Repository-level `AGENTS.md` records the mandatory coding-agent conventions. The application-infrastructure refactor is implemented: Unity composition and constructor injection, ViewModel contracts, justified runtime factories, shared relay-command infrastructure, typed logging on the existing backend, layered recoverable/fatal exception handling, NSubstitute-based isolated tests, and a production-registration smoke test are in place. Remaining M12 work is limited to final acceptance and any concrete cross-surface integration polish found during review.
+Repository-level `AGENTS.md` records the mandatory coding-agent conventions. The closeout review does not declare M12 fully accepted; the developer's final manual acceptance remains outstanding. M13 remains planned work and has not started.
 
 The App-side ViewModel foundation uses ordinary typed backing fields. Generic `SetProperty` raises only the changed property's notification; dependent-property notifications stay explicit, and command invalidation remains an explicit operation rather than a global requery. Domain logic remains in Core and application services.
 
